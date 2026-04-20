@@ -52,8 +52,8 @@ public class AuthController {
                     content = @Content(
                             examples = @ExampleObject(value = """
                         {
-                            "email": "john.doe@hcl.com",
-                            "password": "securePassword123"
+                            "email": "admin@hcl.com",
+                            "password": "password123"
                         }
                     """)
                     )
