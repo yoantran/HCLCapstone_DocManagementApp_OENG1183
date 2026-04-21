@@ -41,51 +41,60 @@ public class AdminService {
             throw new AppException("Email already in use", HttpStatus.CONFLICT);
         }
 
-        // Department is optional on creation
         Department dept = null;
-        if (!req.getDepartmentId().isEmpty()) {
+        if (req.getDepartmentId() != null && !req.getDepartmentId().isBlank()) {
             dept = departmentRepository.findById(req.getDepartmentId())
                     .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
         }
 
         User user = userMapper.toEntity(req);
-        user.setDepartment(dept);                                    // can be null
+        user.setDepartment(dept);
         user.setPassword(passwordEncoder.encode(req.getPassword()));
         user.setCreatedAtDateTime(LocalDateTime.now());
 
         return userMapper.toResponse(userRepository.save(user));
     }
-
     @Transactional
     public UserResponse assignDepartmentToUser(String userId, AssignDepartmentRequest req) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
-        if (req.getDepartmentId() != null ) {
+        if (user.getRoleEnum() == RoleEnum.BOSS) {
+            throw new AppException(
+                    "Cannot assign department to a BOSS here. Use Update Department API to assign a boss to a department.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (req.getDepartmentId() != null && !req.getDepartmentId().isBlank()) {
             Department newDept = departmentRepository.findById(req.getDepartmentId())
                     .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
             user.setDepartment(newDept);
+        } else {
+            // empty string or null → remove from department
+            user.setDepartment(null);
         }
 
         return userMapper.toResponse(userRepository.save(user));
     }
-
     @Transactional
     public void deleteUser(String userId) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
-        // If this user is a boss, block deletion until new boss is assigned
-        if (user.getRoleEnum() == RoleEnum.BOSS) {
+        // If user is a BOSS → auto clear department's boss
+        if (user.getRoleEnum() == RoleEnum.BOSS && user.getDepartment() != null) {
             Department dept = user.getDepartment();
-            if (dept != null && dept.getBoss().getId().equals(userId)) {
-                throw new AppException(
-                        "Assign a new boss to department '" + dept.getName() + "' before deleting this boss.",
-                        HttpStatus.BAD_REQUEST
-                );
+            if (dept.getBoss() != null && dept.getBoss().getId().equals(userId)) {
+                dept.setBoss(null);
+                departmentRepository.save(dept);
             }
         }
 
+        // Clear user's department
+        user.setDepartment(null);
+
+        // Soft delete
         user.setDeleted(true);
         user.setDeletedAt(LocalDateTime.now());
         userRepository.save(user);
@@ -215,14 +224,16 @@ public class AdminService {
         Department dept = departmentRepository.findById(deptId)
                 .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
 
-        // Soft delete all users in this department
+        // Step 1: Set all users in this department → department = null
         List<User> users = userRepository.findByDepartmentIdAndIsDeletedFalse(deptId);
-        users.forEach(u -> {
-            u.setDeleted(true);
-            u.setDeletedAt(LocalDateTime.now());
-        });
+        users.forEach(u -> u.setDepartment(null));
         userRepository.saveAll(users);
 
+        // Step 2: Remove boss from department (avoids FK constraint on delete)
+        dept.setBoss(null);
+        departmentRepository.save(dept);
+
+        // Step 3: Delete the department
         departmentRepository.delete(dept);
     }
 

@@ -32,15 +32,16 @@ public class AdminController {
 
     private final AdminService adminService;
 
-    // ─── USERS ────────────────────────────────────────────
-
     @Operation(
-            summary = "Create a new user (and might assign department right away)",
-            description = "Creates a new user (STAFF or BOSS). Only ADMIN can perform this action." +
-                    "When user is created ⇒ department can be empty string (not yet assigned) or assigned right now " +
-                    "1 User only belong to 1 Department" +
-                    "1 Department might have many Staffs but only 0 or 1 boss "
+            summary = "Create a new user",
+            description = """
+        Creates a new user (STAFF or BOSS). ADMIN only.
 
+        **Rules:**
+        - `departmentId` is optional — leave it out or send `""` to create without a department
+        - 1 user can only belong to 1 department
+        - 1 department can have many STAFFs but only 0 or 1 BOSS
+        """
     )
     @ApiResponses({
             @ApiResponse(
@@ -49,34 +50,56 @@ public class AdminController {
                     content = @Content(
                             mediaType = "application/json",
                             schema = @Schema(implementation = UserResponse.class),
-                            examples = @ExampleObject(value = """
-                    {
-                        "id": "550e8400-e29b-41d4-a716-446655440000",
-                        "email": "john.doe@hcl.com",
-                        "name": "John Doe",
-                        "avatarImageUrl": null,
-                        "phoneNumber": "0901234567",
-                        "departmentId": "dept-uuid-123",
-                        "departmentName": "Engineering",
-                        "roleEnum": "STAFF",
-                        "createdAtDateTime": "2026-04-20T10:00:00"
-                    }
-                """)
+                            examples = {
+                                    @ExampleObject(
+                                            name = "Created with department",
+                                            value = """
+                        {
+                            "id": "550e8400-e29b-41d4-a716-446655440000",
+                            "email": "john.doe@hcl.com",
+                            "name": "John Doe",
+                            "avatarImageUrl": null,
+                            "phoneNumber": "0901234567",
+                            "departmentId": "dept-uuid-123",
+                            "roleEnum": "STAFF",
+                            "createdAtDateTime": "2026-04-20T10:00:00"
+                        }
+                    """
+                                    ),
+                                    @ExampleObject(
+                                            name = "Created without department",
+                                            value = """
+                        {
+                            "id": "550e8400-e29b-41d4-a716-446655440000",
+                            "email": "jane.doe@hcl.com",
+                            "name": "Jane Doe",
+                            "avatarImageUrl": null,
+                            "phoneNumber": "0901234567",
+                            "departmentId": null,
+                            "roleEnum": "BOSS",
+                            "createdAtDateTime": "2026-04-20T10:00:00"
+                        }
+                    """
+                                    )
+                            }
                     )
             ),
             @ApiResponse(responseCode = "400", description = "Invalid request body or missing required fields"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or invalid"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — Only ADMIN can access this endpoint"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
             @ApiResponse(responseCode = "404", description = "Department not found"),
             @ApiResponse(responseCode = "409", description = "Email already in use")
     })
     @PostMapping("/users")
     public ResponseEntity<UserResponse> createUser(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "User creation payload",
+                    description = "User creation payload. `departmentId` is optional.",
                     required = true,
                     content = @Content(
-                            examples = @ExampleObject(value = """
+                            examples = {
+                                    @ExampleObject(
+                                            name = "Create and assign department",
+                                            value = """
                         {
                             "email": "john.doe@hcl.com",
                             "password": "securePassword123",
@@ -85,7 +108,21 @@ public class AdminController {
                             "roleEnum": "STAFF",
                             "departmentId": "dept-uuid-123"
                         }
-                    """)
+                    """
+                                    ),
+                                    @ExampleObject(
+                                            name = "Create without department",
+                                            value = """
+                        {
+                            "email": "jane.doe@hcl.com",
+                            "password": "securePassword123",
+                            "name": "Jane Doe",
+                            "phoneNumber": "0901234567",
+                            "roleEnum": "BOSS"
+                        }
+                    """
+                                    )
+                            }
                     )
             )
             @Valid @RequestBody CreateUserRequest req) {
@@ -93,37 +130,100 @@ public class AdminController {
     }
 
     @Operation(
-            summary = "Assign or reassign user to a department",
-            description = "Admin only — assigns or reassigns a user to a department."
+            summary = "Assign or reassign a STAFF to a department",
+            description = """
+        ADMIN only — assigns or reassigns a STAFF user to a department.
+
+        **Rules:**
+        - Only works for STAFF users — use **Update Department API** to assign a BOSS
+        - Send `departmentId` with a valid UUID to assign or reassign
+        - Send `departmentId` as `""` or `null` to remove from department
+
+        **To assign a BOSS to a department:** use `PUT /admin/departments/{id}`
+        """
     )
-    @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            content = @Content(
-                    examples = @ExampleObject(value = """
-            {
-                "departmentId": "dept-uuid-123"
-            }
-        """)
-            )
-    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Department assigned successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = {
+                                    @ExampleObject(
+                                            name = "Assigned to department",
+                                            value = """
+                        {
+                            "id": "user-uuid-123",
+                            "email": "john.doe@hcl.com",
+                            "name": "John Doe",
+                            "avatarImageUrl": null,
+                            "phoneNumber": "0901234567",
+                            "departmentId": "dept-uuid-123",
+                            "departmentName": "Engineering",
+                            "roleEnum": "STAFF",
+                            "createdAtDateTime": "2026-04-20T10:00:00"
+                        }
+                    """
+                                    ),
+                                    @ExampleObject(
+                                            name = "Removed from department",
+                                            value = """
+                        {
+                            "id": "user-uuid-123",
+                            "email": "john.doe@hcl.com",
+                            "name": "John Doe",
+                            "avatarImageUrl": null,
+                            "phoneNumber": "0901234567",
+                            "departmentId": null,
+                            "departmentName": null,
+                            "roleEnum": "STAFF",
+                            "createdAtDateTime": "2026-04-20T10:00:00"
+                        }
+                    """
+                                    )
+                            }
+                    )
+            ),
+            @ApiResponse(responseCode = "400", description = "User is a BOSS — use Update Department API instead"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
+            @ApiResponse(responseCode = "404", description = "User or department not found")
+    })
     @PatchMapping("/users/{id}")
-    public ResponseEntity<UserResponse> updateUser(
-            @Parameter(description = "UUID of the user", example = "user-uuid-123")
+    public ResponseEntity<UserResponse> reassignStaff(
+            @Parameter(description = "UUID of the STAFF user to assign", example = "user-uuid-123")
             @PathVariable String id,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "Send `departmentId` to assign. Send empty string or omit to remove from department.",
+                    content = @Content(
+                            examples = {
+                                    @ExampleObject(
+                                            name = "Assign to department",
+                                            value = "{ \"departmentId\": \"dept-uuid-123\" }"
+                                    ),
+                                    @ExampleObject(
+                                            name = "Remove from department",
+                                            value = "{ \"departmentId\": \"\" }"
+                                    )
+                            }
+                    )
+            )
             @RequestBody AssignDepartmentRequest req) {
         return ResponseEntity.ok(adminService.assignDepartmentToUser(id, req));
     }
-
     @Operation(
             summary = "Soft delete a user",
             description = """
-            Soft deletes a user by setting isDeleted=true. The user record is NOT permanently removed.
-            ⚠️ If the user is a BOSS, you must reassign a new boss to their department first,
-            otherwise this will return 400.
-            """
+        Soft deletes a user by setting isDeleted=true. The user record is NOT permanently removed.
+
+        **If the deleted user is a BOSS:**
+        - Their department's boss is automatically set to null
+        - The user's department assignment is cleared
+        - No manual reassignment needed before deletion
+        """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "User deleted successfully"),
-            @ApiResponse(responseCode = "400", description = "Cannot delete a BOSS without reassigning department boss first"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
             @ApiResponse(responseCode = "404", description = "User not found")
@@ -135,48 +235,6 @@ public class AdminController {
         adminService.deleteUser(id);
         return ResponseEntity.noContent().build();
     }
-
-    @Operation(
-            summary = "Get all users",
-            description = "Returns a list of all non-deleted users in the system."
-    )
-    @ApiResponses({
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "List of users returned successfully",
-                    content = @Content(
-                            mediaType = "application/json",
-                            examples = @ExampleObject(value = """
-                    [
-                        {
-                            "id": "550e8400-e29b-41d4-a716-446655440000",
-                            "email": "john.doe@hcl.com",
-                            "name": "John Doe",
-                            "avatarImageUrl": null,
-                            "phoneNumber": "0901234567",
-                            "departmentId": "dept-uuid-123",
-                            "departmentName": "Engineering",
-                            "roleEnum": "STAFF",
-                            "createdAtDateTime": "2026-04-20T10:00:00"
-                        },
-                        {
-                            "id": "660e9500-f30c-52e5-b827-557766551111",
-                            "email": "jane.smith@hcl.com",
-                            "name": "Jane Smith",
-                            "avatarImageUrl": "avatars/jane.png",
-                            "phoneNumber": "0907654321",
-                            "departmentId": "dept-uuid-123",
-                            "departmentName": "Engineering",
-                            "roleEnum": "BOSS",
-                            "createdAtDateTime": "2026-04-19T09:00:00"
-                        }
-                    ]
-                """)
-                    )
-            ),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only")
-    })
     @GetMapping("/users")
     public ResponseEntity<List<UserResponse>> getAllUsers() {
         return ResponseEntity.ok(adminService.getAllUsers());
@@ -219,10 +277,19 @@ public class AdminController {
     }
 
     // ─── DEPARTMENTS ──────────────────────────────────────
-
     @Operation(
             summary = "Create a new department",
-            description = "Creates a new department. Department can has null boss (not yet assigned). 1 Department has 1 Boss, 1 User can only be the boss of 1 Department "
+            description = """
+        Creates a new department. ADMIN only.
+
+        **Rules:**
+        - `bossId` is optional — leave it out to create without a boss
+        - 1 department can only have 0 or 1 boss
+        - 1 user can only be the boss of 1 department
+        - Assigned User must have BOSS role
+        - Assigned Boss must NOT in any departments. If you want to assign this boss to the newly created department, 
+        you must Update affected department => remove boss first. 
+        """
     )
     @ApiResponses({
             @ApiResponse(
@@ -230,40 +297,70 @@ public class AdminController {
                     description = "Department created successfully",
                     content = @Content(
                             mediaType = "application/json",
-                            examples = @ExampleObject(value = """
-                    {
-                        "id": "dept-uuid-123",
-                        "name": "Engineering",
-                        "bossId": "660e9500-f30c-52e5-b827-557766551111",
-                        "bossName": "Jane Smith",
-                        "createdAtDateTime": "2026-04-20T09:00:00"
-                    }
-                """)
+                            examples = {
+                                    @ExampleObject(
+                                            name = "Created with boss",
+                                            value = """
+                        {
+                            "id": "dept-uuid-123",
+                            "name": "Engineering",
+                            "bossId": "660e9500-f30c-52e5-b827-557766551111",
+                            "bossName": "Jane Smith",
+                            "createdAtDateTime": "2026-04-20T09:00:00"
+                        }
+                    """
+                                    ),
+                                    @ExampleObject(
+                                            name = "Created without boss",
+                                            value = """
+                        {
+                            "id": "dept-uuid-456",
+                            "name": "Finance",
+                            "bossId": null,
+                            "bossName": null,
+                            "createdAtDateTime": "2026-04-20T09:00:00"
+                        }
+                    """
+                                    )
+                            }
                     )
             ),
             @ApiResponse(responseCode = "400", description = "Assigned user is not a BOSS role"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
-            @ApiResponse(responseCode = "404", description = "Boss user not found")
+            @ApiResponse(responseCode = "404", description = "Boss user not found"),
+            @ApiResponse(responseCode = "409", description = "User is already boss of another department")
     })
     @PostMapping("/departments")
     public ResponseEntity<DepartmentResponse> createDepartment(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Department creation payload. bossId must be an existing user with BOSS role.",
+                    description = "Department creation payload. `bossId` is optional.",
                     required = true,
                     content = @Content(
-                            examples = @ExampleObject(value = """
+                            examples = {
+                                    @ExampleObject(
+                                            name = "Create with boss",
+                                            value = """
                         {
                             "name": "Engineering",
                             "bossId": "660e9500-f30c-52e5-b827-557766551111"
                         }
-                    """)
+                    """
+                                    ),
+                                    @ExampleObject(
+                                            name = "Create without boss",
+                                            value = """
+                        {
+                            "name": "Finance"
+                        }
+                    """
+                                    )
+                            }
                     )
             )
             @Valid @RequestBody CreateDepartmentRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createDepartment(req));
     }
-
     @Operation(
             summary = "Update a department",
             description = """
@@ -344,7 +441,11 @@ public class AdminController {
 
     @Operation(
             summary = "Delete a department",
-            description = "Deletes a department and soft deletes all users belonging to it."
+            description = """
+        Deletes a department permanently.
+        All users (boss and staff) that belonged to this department will have their
+        department set to null — they are NOT deleted.
+        """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Department deleted successfully"),
