@@ -8,6 +8,6 @@ import lombok.Data;
 public class CreateDepartmentRequest {
     @NotBlank
     private String name;
-    @NotBlank
+
     private String bossId;   // Must assign a boss when creating
 }

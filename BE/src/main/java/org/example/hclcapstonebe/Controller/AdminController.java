@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.example.hclcapstonebe.DTO.Request.AssignDepartmentRequest;
 import org.example.hclcapstonebe.DTO.Request.CreateDepartmentRequest;
 import org.example.hclcapstonebe.DTO.Request.CreateUserRequest;
 import org.example.hclcapstonebe.DTO.Request.UpdateDepartmentRequest;
@@ -34,8 +35,12 @@ public class AdminController {
     // ─── USERS ────────────────────────────────────────────
 
     @Operation(
-            summary = "Create a new user",
-            description = "Creates a new user (STAFF or BOSS) and assigns them to a department. Only ADMIN can perform this action."
+            summary = "Create a new user (and might assign department right away)",
+            description = "Creates a new user (STAFF or BOSS). Only ADMIN can perform this action." +
+                    "When user is created ⇒ department can be empty string (not yet assigned) or assigned right now " +
+                    "1 User only belong to 1 Department" +
+                    "1 Department might have many Staffs but only 0 or 1 boss "
+
     )
     @ApiResponses({
             @ApiResponse(
@@ -85,6 +90,27 @@ public class AdminController {
             )
             @Valid @RequestBody CreateUserRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createUser(req));
+    }
+
+    @Operation(
+            summary = "Assign or reassign user to a department",
+            description = "Admin only — assigns or reassigns a user to a department."
+    )
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            content = @Content(
+                    examples = @ExampleObject(value = """
+            {
+                "departmentId": "dept-uuid-123"
+            }
+        """)
+            )
+    )
+    @PatchMapping("/users/{id}")
+    public ResponseEntity<UserResponse> updateUser(
+            @Parameter(description = "UUID of the user", example = "user-uuid-123")
+            @PathVariable String id,
+            @RequestBody AssignDepartmentRequest req) {
+        return ResponseEntity.ok(adminService.assignDepartmentToUser(id, req));
     }
 
     @Operation(
@@ -196,7 +222,7 @@ public class AdminController {
 
     @Operation(
             summary = "Create a new department",
-            description = "Creates a new department. A BOSS user must be assigned at creation time — departments cannot exist without a boss."
+            description = "Creates a new department. Department can has null boss (not yet assigned). 1 Department has 1 Boss, 1 User can only be the boss of 1 Department "
     )
     @ApiResponses({
             @ApiResponse(
@@ -241,10 +267,26 @@ public class AdminController {
     @Operation(
             summary = "Update a department",
             description = """
-            Updates a department's name and/or reassigns its boss.
-            ⚠️ When reassigning boss: the new boss must already belong to this department.
-            All fields are optional — only send what you want to change.
-            """
+        Updates a department. All fields are optional — only send what you want to change.
+        Unset fields keep their current value.
+
+        **Update name only:**
+        Send `name` field, omit `bossId`.
+
+        **Replace boss:**
+        Send `bossId` with a valid BOSS user UUID.
+        → Old boss's department is set to null automatically.
+        → New boss is assigned to this department.
+        → New boss must not already be boss of another department.
+
+        **Remove boss (no boss assigned):**
+        Send `bossId` as empty string `""` OR send `removeBoss: true`.
+        → Current boss's department is set to null.
+        → Department's boss is set to null.
+
+        **Add boss to a department that has no boss:**
+        Send `bossId` with a valid BOSS user UUID — same as replacing boss.
+        """
     )
     @ApiResponses({
             @ApiResponse(
@@ -253,34 +295,47 @@ public class AdminController {
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(value = """
-                    {
-                        "id": "dept-uuid-123",
-                        "name": "Engineering Updated",
-                        "bossId": "770f0600-g41d-63f6-c938-668877662222",
-                        "bossName": "Bob Johnson",
-                        "createdAtDateTime": "2026-04-20T09:00:00"
-                    }
-                """)
+                {
+                    "id": "dept-uuid-123",
+                    "name": "Engineering Updated",
+                    "bossId": "770f0600-g41d-63f6-c938-668877662222",
+                    "bossName": "Bob Johnson",
+                    "createdAtDateTime": "2026-04-20T09:00:00"
+                }
+            """)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "New boss does not belong to this department or is not BOSS role"),
+            @ApiResponse(responseCode = "400", description = "Assigned user is not a BOSS role"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
-            @ApiResponse(responseCode = "404", description = "Department or new boss not found")
+            @ApiResponse(responseCode = "404", description = "Department or boss user not found"),
+            @ApiResponse(responseCode = "409", description = "User is already boss of another department")
     })
     @PutMapping("/departments/{id}")
     public ResponseEntity<DepartmentResponse> updateDepartment(
             @Parameter(description = "UUID of the department to update", example = "dept-uuid-123")
             @PathVariable String id,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Fields to update. Both are optional.",
+                    description = "All fields optional. Only sent fields are updated.",
                     content = @Content(
-                            examples = @ExampleObject(value = """
-                        {
-                            "name": "Engineering Updated",
-                            "bossId": "770f0600-g41d-63f6-c938-668877662222"
-                        }
-                    """)
+                            examples = {
+                                    @ExampleObject(name = "Update name only",
+                                            value = """
+            { "name": "Engineering Updated" }
+            """),
+                                    @ExampleObject(name = "Replace boss",
+                                            value = """
+            { "bossId": "770f0600-g41d-63f6-c938-668877662222" }
+            """),
+                                    @ExampleObject(name = "Remove boss",
+                                            value = """
+            { "bossId": "" }
+            """),
+                                    @ExampleObject(name = "Update name and replace boss",
+                                            value = """
+            { "name": "Engineering Updated", "bossId": "770f0600-g41d-63f6-c938-668877662222" }
+            """)
+                            }
                     )
             )
             @RequestBody UpdateDepartmentRequest req) {

@@ -1,4 +1,5 @@
 package org.example.hclcapstonebe.Service;
+import org.example.hclcapstonebe.DTO.Request.AssignDepartmentRequest;
 import org.example.hclcapstonebe.DTO.Request.CreateDepartmentRequest;
 import org.example.hclcapstonebe.DTO.Request.CreateUserRequest;
 import org.example.hclcapstonebe.DTO.Request.UpdateDepartmentRequest;
@@ -34,19 +35,39 @@ public class AdminService {
 
     // ─── USER ─────────────────────────────────────────────
 
+    // ─── CREATE USER ──────────────────────────────────────
     public UserResponse createUser(CreateUserRequest req) {
         if (userRepository.existsByEmail(req.getEmail())) {
             throw new AppException("Email already in use", HttpStatus.CONFLICT);
         }
 
-        Department dept = departmentRepository.findById(req.getDepartmentId())
-                .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
+        // Department is optional on creation
+        Department dept = null;
+        if (!req.getDepartmentId().isEmpty()) {
+            dept = departmentRepository.findById(req.getDepartmentId())
+                    .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
+        }
 
-        User user = userMapper.toEntity(req);               // MapStruct
-        user.setDepartment(dept);                           // set manually (needs DB lookup)
-        user.setPassword(passwordEncoder.encode(req.getPassword())); // encode manually
+        User user = userMapper.toEntity(req);
+        user.setDepartment(dept);                                    // can be null
+        user.setPassword(passwordEncoder.encode(req.getPassword()));
+        user.setCreatedAtDateTime(LocalDateTime.now());
 
-        return userMapper.toResponse(userRepository.save(user)); // MapStruct
+        return userMapper.toResponse(userRepository.save(user));
+    }
+
+    @Transactional
+    public UserResponse assignDepartmentToUser(String userId, AssignDepartmentRequest req) {
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
+
+        if (req.getDepartmentId() != null ) {
+            Department newDept = departmentRepository.findById(req.getDepartmentId())
+                    .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
+            user.setDepartment(newDept);
+        }
+
+        return userMapper.toResponse(userRepository.save(user));
     }
 
     @Transactional
@@ -85,32 +106,70 @@ public class AdminService {
 
     // ─── DEPARTMENT ───────────────────────────────────────
 
+    // ─── CREATE DEPARTMENT ────────────────────────────────
     @Transactional
     public DepartmentResponse createDepartment(CreateDepartmentRequest req) {
-        User boss = userRepository.findByIdAndIsDeletedFalse(req.getBossId())
-                .orElseThrow(() -> new AppException("Boss user not found", HttpStatus.NOT_FOUND));
+        // Boss is optional on creation
+        User boss = null;
+        if (req.getBossId() != null) {
+            boss = userRepository.findByIdAndIsDeletedFalse(req.getBossId())
+                    .orElseThrow(() -> new AppException("Boss user not found", HttpStatus.NOT_FOUND));
 
-        if (boss.getRoleEnum() != RoleEnum.BOSS) {
-            throw new AppException("Assigned user is not a BOSS", HttpStatus.BAD_REQUEST);
+            if (boss.getRoleEnum() != RoleEnum.BOSS) {
+                throw new AppException("Assigned user is not a BOSS", HttpStatus.BAD_REQUEST);
+            }
+
+            // 1 user can only be boss of 1 department
+            if (boss.getDepartment() != null) {
+                throw new AppException(
+                        "User is already boss of department: " + boss.getDepartment().getName(),
+                        HttpStatus.CONFLICT
+                );
+            }
         }
 
-        Department dept = departmentMapper.toEntity(req);   // MapStruct
-        dept.setBoss(boss);                                 // set manually (needs DB lookup)
+        Department dept = departmentMapper.toEntity(req);
+        dept.setBoss(boss);                                          // can be null
+        dept.setCreatedAtDateTime(LocalDateTime.now());
+        Department saved = departmentRepository.save(dept);
 
-        return departmentMapper.toResponse(departmentRepository.save(dept)); // MapStruct
+        // Assign department back to boss user
+        if (boss != null) {
+            boss.setDepartment(saved);
+            userRepository.save(boss);
+        }
+
+        return departmentMapper.toResponse(saved);
     }
+
 
     @Transactional
     public DepartmentResponse updateDepartment(String deptId, UpdateDepartmentRequest req) {
         Department dept = departmentRepository.findById(deptId)
                 .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
 
+        // ── Update name ────────────────────────────────────
         if (req.getName() != null) {
             dept.setName(req.getName());
         }
 
-        // Reassign boss if requested
-        if (req.getBossId() != null) {
+        // ── Remove boss (bossId sent as "" or removeBoss=true) ──
+        boolean isRemoveBoss = req.isRemoveBoss()
+                || (req.getBossId() != null && req.getBossId().isBlank());
+
+        if (isRemoveBoss) {
+            User oldBoss = dept.getBoss();
+            if (oldBoss != null) {
+                // Old boss's department → null
+                oldBoss.setDepartment(null);
+                userRepository.save(oldBoss);
+            }
+            // Department's boss → null
+            dept.setBoss(null);
+            departmentRepository.save(dept);
+
+            // ── Assign or replace boss ─────────────────────────
+        } else if (req.getBossId() != null && !req.getBossId().isBlank()) {
             User newBoss = userRepository.findByIdAndIsDeletedFalse(req.getBossId())
                     .orElseThrow(() -> new AppException("New boss not found", HttpStatus.NOT_FOUND));
 
@@ -118,16 +177,37 @@ public class AdminService {
                 throw new AppException("Assigned user is not a BOSS", HttpStatus.BAD_REQUEST);
             }
 
-            if (newBoss.getDepartment() == null ||
-                    !newBoss.getDepartment().getId().equals(deptId)) {
+            // 1 user can only be boss of 1 department
+            if (newBoss.getDepartment() != null
+                    && !newBoss.getDepartment().getId().equals(deptId)) {
                 throw new AppException(
-                        "New boss must belong to this department", HttpStatus.BAD_REQUEST);
+                        "This user is already boss of: " + newBoss.getDepartment().getName(),
+                        HttpStatus.CONFLICT
+                );
             }
 
-            dept.setBoss(newBoss);
-        }
+            // Step 1: Old boss's department → null
+            User oldBoss = dept.getBoss();
+            if (oldBoss != null && !oldBoss.getId().equals(newBoss.getId())) {
+                oldBoss.setDepartment(null);
+                userRepository.save(oldBoss);
+            }
 
-        return departmentMapper.toResponse(departmentRepository.save(dept)); // MapStruct
+            // Step 2: Clear dept boss temporarily (handles circular FK)
+            dept.setBoss(null);
+            departmentRepository.save(dept);
+
+            // Step 3: Assign new boss to department
+            dept.setBoss(newBoss);
+            departmentRepository.save(dept);
+
+            // Step 4: Assign department to new boss
+            newBoss.setDepartment(dept);
+            userRepository.save(newBoss);
+        }
+        // else: bossId is null → not sent → keep boss unchanged
+
+        return departmentMapper.toResponse(departmentRepository.save(dept));
     }
 
     @Transactional

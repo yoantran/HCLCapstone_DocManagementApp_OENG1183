@@ -7,4 +7,5 @@ import lombok.Data;
 public class UpdateDepartmentRequest {
     private String name;
     private String bossId;   // Optional: reassign boss
+    private boolean removeBoss;   // true = explicitly remove boss
 }
