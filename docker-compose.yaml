@@ -1,0 +1,25 @@
+name: capstone-tco
+services:
+  web-fe:
+    image: nhan2102/tco-dms-fe
+    container_name: TCO-DMS-FE
+    ports:
+      - 5173:80
+
+  server-be:
+    image: nhan2102/tco-dms-be
+    container_name: TCO-DMS-BE
+    ports:
+      - 8080:8080
+
+  clamav:
+    image: clamav/clamav:stable_base
+    container_name: TCO-DMS-Clamav
+    ports:
+      - 3310:3310
+    volumes:
+      - clamav:/var/lib/clamav
+    platform: linux/amd64
+
+volumes:
+  clamav:
