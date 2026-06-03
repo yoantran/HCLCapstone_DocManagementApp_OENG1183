@@ -11,9 +11,16 @@
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /*
+  Core Font Family Definitions from Figma:
+  - IBM Plex Sans: UI elements, e.g. buttons, navigation panels, etc.
+  - Inter: Data-heavy table, document previews, sidebars, etc.
+  - Source Serif 4: headings
+  */
+
+  --sans: 'IBM Plex Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  --heading: 'Source Serif 4', Georgia, serif;
+  --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
 
   font: 18px/145% var(--sans);
   letter-spacing: 0.18px;
@@ -68,7 +75,7 @@ body {
 
 h1,
 h2 {
-  font-family: var(--heading);
+  font-family: var(--heading), serif;
   font-weight: 500;
   color: var(--text-h);
 }
@@ -97,7 +104,7 @@ p {
 
 code,
 .counter {
-  font-family: var(--mono);
+  font-family: var(--mono), serif;
   display: inline-flex;
   border-radius: 4px;
   color: var(--text-h);
