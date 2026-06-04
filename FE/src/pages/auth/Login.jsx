@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { postRequest } from '../../api/apiHelpers';
 
-import { Button, Checkbox, Label, TextInput } from "flowbite-react";
+import {Checkbox, FloatingLabel, Label, TextInput} from 'flowbite-react';
+import { CustomButton} from '../../components/button';
+import {CustomLabel} from "../../components/label/index.jsx";
+import {CustomTextInput} from "../../components/textInput/index.jsx";
 
 function Login() {
     const [email, setEmail] = useState('');
@@ -43,7 +46,7 @@ function Login() {
                     <div className="mb-2 block">
                         <Label htmlFor="email1">Your email</Label>
                     </div>
-                    <TextInput
+                    <CustomTextInput
                         id="email1"
                         type="email"
                         placeholder="name@flowbite.com"
@@ -56,7 +59,7 @@ function Login() {
                     <div className="mb-2 block">
                         <Label htmlFor="password1">Your password</Label>
                     </div>
-                    <TextInput
+                    <CustomTextInput
                         id="password1"
                         type="password"
                         value={password}
@@ -68,9 +71,9 @@ function Login() {
                     <Checkbox id="remember" />
                     <Label htmlFor="remember">Remember me</Label>
                 </div>
-                <Button type="submit" disabled={loading}>
+                <CustomButton outline color={"red"} type="submit" disabled={loading}>
                     {loading ? 'Signing in...' : 'Submit'}
-                </Button>
+                </CustomButton>
             </form>
 
             {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}

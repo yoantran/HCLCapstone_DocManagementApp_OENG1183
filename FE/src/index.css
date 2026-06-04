@@ -2,6 +2,19 @@
 @import "flowbite-react/plugin/tailwindcss";
 @source "../.flowbite-react/class-list.json";
 
+@theme {
+  --color-primary-50: #D9E3EF;
+  --color-primary-100: #B2C7DF;
+  --color-primary-200: #8CAACF;
+  --color-primary-300: #658EBF;
+  --color-primary-400: #3F72AF;
+  --color-primary-500: #3F72AF;
+  --color-primary-600: #3F72AF;
+  --color-primary-700: #264469;
+  --color-primary-800: #192E46;
+  --color-primary-900: #0D1723;
+}
+
 /* TEXT XS: 12px / 150% Line-height (Timestamps, Tooltips, Badges) */
 @utility text-xs-custom {
   font-size: 0.75rem;       /* 12px */
@@ -46,10 +59,13 @@
   --ch-dark-blue:    #112D4E;
 
   /* Color Custom Shades*/
+  --dark-blue-300:  #415771;
   --dark-blue-700:   #0A1B2F; /* Dark Blue 700 shade */
   --dark-blue-800:   #07121F; /* Dark Blue 800 shade */
   --lighter-blue-800: #192E46; /* Lighter Blue 800 shade */
+  --lighter-blue-700: #264469; /* Lighter Blue 700 shade */
   --lighter-blue-600: #3F72AF; /* Lighter Blue 600 shade */
+  --lighter-blue-100: #B2C7DF; /* Lighter Blue 100 shade*/
 
 
   --text: var(--ch-light-canvas);
@@ -59,7 +75,7 @@
   --code-bg: var(--lighter-blue-800);
   --accent: var(--lighter-blue-600);
   --accent-bg: var(--dark-blue-800);
-  --accent-border: var(--ch-lighter-blue);
+  --accent-border: var(--lighter-blue-100);
   --social-bg: var(--lighter-blue-600);
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
@@ -98,7 +114,7 @@
     --code-bg: var(--lighter-blue-800);
     --accent: var(--lighter-blue-600);
     --accent-bg: var(--dark-blue-800);
-    --accent-border: var(--ch-lighter-blue);
+    --accent-border: var(--lighter-blue-100);
     --social-bg: var(--lighter-blue-600);
     --shadow: rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
   }
