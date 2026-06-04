@@ -32,10 +32,14 @@ api.interceptors.response.use(
     },
     (error) => {
         if (error?.response?.status === 403) {
-            // Handle forbidden error
+            // Role insufficient — let the router's ProtectedRoute handle UI,
+            // but you can dispatch a global toast here later
+            console.warn('403 Forbidden');
         }
         if (error?.response?.status === 401) {
-            // Handle unauthorized error (e.g., log out the user)
+            // Token expired — clear storage and hard-redirect
+            localStorage.removeItem('token');
+            window.location.href = '/login';
         }
         throw error;
     }
