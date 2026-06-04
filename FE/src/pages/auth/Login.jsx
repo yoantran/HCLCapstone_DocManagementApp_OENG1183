@@ -28,8 +28,12 @@ function Login() {
             });
 
             if (response?.token) {
-                login(response.user, response.token); // adjust if BE returns differently
-                navigate('/');
+                const role = response.role
+                login(
+                    { email: response.email, name: response.name, role },
+                    response.token
+                );
+                navigate(role === 'ADMIN' ? '/admin' : '/');
             } else {
                 setError(response?.message || 'Login failed');
             }
