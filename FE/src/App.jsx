@@ -32,6 +32,15 @@ function App() {
 
   return (
     <>
+      <ToastContainer
+          autoClose={3000}
+          hideProgressBar
+          closeButton={false}
+          position={"bottom-left"}
+          newestOnTop
+          pauseOnFocusLoss={false}
+          style={{ fontFamily: "inherit" }}
+      />
       <div style={{ maxWidth: '360px', margin: '24px auto 0', padding: '24px' }}>
 
         <CustomButton onClick={handleTestFetch} disabled={testLoading}>
@@ -55,7 +64,6 @@ function App() {
         ) : null}
       </div>
       <Login />
-      <ToastContainer />
     </>
   )
 }
