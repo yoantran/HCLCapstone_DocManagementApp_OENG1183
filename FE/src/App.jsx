@@ -1,12 +1,11 @@
 import './App.css'
 
 import { useState } from 'react'
-
 import { getRequest } from './api/apiHelpers'
 import Login from './pages/auth/Login'
-
-import { Button } from "flowbite-react";
 import {ToastContainer} from "react-toastify";
+import {CustomButton} from "./components/button/index.jsx";
+
 
 function App() {
   const [testLoading, setTestLoading] = useState(false)
@@ -35,9 +34,9 @@ function App() {
     <>
       <div style={{ maxWidth: '360px', margin: '24px auto 0', padding: '24px' }}>
 
-        <Button onClick={handleTestFetch} disabled={testLoading}>
+        <CustomButton onClick={handleTestFetch} disabled={testLoading}>
           {testLoading ? 'Fetching test data...' : 'Test GET /users/me'}
-        </Button>
+        </CustomButton>
 
         {testError ? <p style={{ color: 'crimson', marginTop: '12px' }}>{testError}</p> : null}
         {testResult ? (
