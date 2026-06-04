@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { postRequest } from '../../api/apiHelpers';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 import { Button, Checkbox, Label, TextInput } from "flowbite-react";
 
@@ -9,6 +11,9 @@ function Login() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+
+    const navigate = useNavigate();
+    const { login } = useAuth();
 
     const handleSubmit = async (event) => {
         event.preventDefault();
@@ -23,8 +28,12 @@ function Login() {
             });
 
             if (response?.token) {
-                localStorage.setItem('token', response.token);
-                setSuccess('Login successful');
+                const role = response.role
+                login(
+                    { email: response.email, name: response.name, role },
+                    response.token
+                );
+                navigate(role === 'ADMIN' ? '/admin' : '/');
             } else {
                 setError(response?.message || 'Login failed');
             }
