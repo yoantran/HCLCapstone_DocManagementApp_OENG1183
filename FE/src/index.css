@@ -19,36 +19,43 @@
 @utility text-xs-custom {
   font-size: 0.75rem;       /* 12px */
   line-height: 150%;        /* 18px */
+  font-family: var(--sans), sans-serif;
 }
 
 /* TEXT SM: 14px / 143% Line-height (Table rows, Form input descriptions) */
 @utility text-sm-custom {
   font-size: 0.875rem;      /* 14px */
   line-height: 143%;        /* 20px */
+  font-family: var(--sans), sans-serif;
 }
 
 /* TEXT BASE: 16px / 150% Line-height (Body text) */
 @utility text-base-custom {
   font-size: 1.0rem;        /* 16px */
   line-height: 150%;        /* 24px */
+  font-family: var(--sans), sans-serif;
 }
 
 /* TEXT XL: 20px / 150% Line-height (Subheadings, Field Titles) */
 @utility text-xl-custom {
   font-size: 1.25rem;       /* 20px */
   line-height: 150%;        /* 30px */
+  font-family: var(--heading), serif;
 }
 
 /* TEXT 3XL: 30px / 150% Line-height (Section Titles) */
 @utility text-3xl-custom {
   font-size: 1.875rem;      /* 30px */
   line-height: 150%;        /* 45px */
+  font-family: var(--heading), serif;
+
 }
 
 /* TEXT 5XL: 48px / 130% Line-height (Header) */
 @utility text-5xl-custom {
   font-size: 3.0rem;        /* 48px */
   line-height: 130%;        /* 62.4px */
+  font-family: var(--heading), serif;
 }
 
 :root {

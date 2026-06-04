@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { postRequest } from '../../api/apiHelpers';
 
-import {Checkbox, FloatingLabel, Label, TextInput} from 'flowbite-react';
+import {Checkbox, Label} from 'flowbite-react';
 import { CustomButton} from '../../components/button';
-import {CustomLabel} from "../../components/label/index.jsx";
 import {CustomTextInput} from "../../components/textInput/index.jsx";
+import {PopUpModal} from "../../components/popUpModal/index.jsx";
+import {pushSuccess} from "../../components/toast/index.jsx";
 
 function Login() {
     const [email, setEmail] = useState('');
@@ -38,6 +39,15 @@ function Login() {
             setLoading(false);
         }
     };
+
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+    const handleExecuteAction = () => {
+        console.log("Action confirmed and executed successfully!");
+        pushSuccess("Successfully submitted!");
+        setShowConfirmModal(false); // Close modal when finished
+    };
+
 
     return (
         <div>
@@ -76,6 +86,21 @@ function Login() {
                 </CustomButton>
             </form>
 
+            <div>
+                <CustomButton color="primary" onClick={() => setShowConfirmModal(true)}>
+                    Complete Action
+                </CustomButton>
+
+                <PopUpModal
+                    isOpen={showConfirmModal}
+                    onClose={() => setShowConfirmModal(false)}
+                    onConfirm={handleExecuteAction}
+                    title="Are you sure you want to complete this action?"
+                    description="This cannot be undone."
+                    confirmText="Yes"
+                    cancelText="No"
+                />
+            </div>
             {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}
             {success ? <p style={{ color: 'green', marginTop: '12px' }}>{success}</p> : null}
         </div>

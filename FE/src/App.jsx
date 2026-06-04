@@ -6,6 +6,7 @@ import { getRequest } from './api/apiHelpers'
 import Login from './pages/auth/Login'
 
 import { Button } from "flowbite-react";
+import {ToastContainer} from "react-toastify";
 
 function App() {
   const [testLoading, setTestLoading] = useState(false)
@@ -55,6 +56,7 @@ function App() {
         ) : null}
       </div>
       <Login />
+      <ToastContainer />
     </>
   )
 }
