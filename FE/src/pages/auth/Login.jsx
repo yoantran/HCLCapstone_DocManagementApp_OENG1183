@@ -8,7 +8,7 @@ import { CustomButton} from '../../components/button';
 import {CustomTextInput} from "../../components/textInput/index.jsx";
 import {PopUpModal} from "../../components/popUpModal/index.jsx";
 import {pushSuccess} from "../../components/toast/index.jsx";
-
+// TODO: WIP Login
 function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -59,7 +59,7 @@ function Login() {
 
 
     return (
-        <div>
+        <div className="min-h-screen w-full">
             <form className="flex max-w-md flex-col gap-4" onSubmit={handleSubmit}>
                 <div>
                     <div className="mb-2 block">
