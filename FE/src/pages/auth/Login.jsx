@@ -3,7 +3,11 @@ import { postRequest } from '../../api/apiHelpers';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
-import { Button, Checkbox, Label, TextInput } from "flowbite-react";
+import {Checkbox, Label} from 'flowbite-react';
+import { CustomButton} from '../../components/button';
+import {CustomTextInput} from "../../components/textInput/index.jsx";
+import {PopUpModal} from "../../components/popUpModal/index.jsx";
+import {pushSuccess} from "../../components/toast/index.jsx";
 
 function Login() {
     const [email, setEmail] = useState('');
@@ -45,6 +49,15 @@ function Login() {
         }
     };
 
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+    const handleExecuteAction = () => {
+        console.log("Action confirmed and executed successfully!");
+        pushSuccess("Successfully submitted!");
+        setShowConfirmModal(false); // Close modal when finished
+    };
+
+
     return (
         <div>
             <form className="flex max-w-md flex-col gap-4" onSubmit={handleSubmit}>
@@ -52,7 +65,7 @@ function Login() {
                     <div className="mb-2 block">
                         <Label htmlFor="email1">Your email</Label>
                     </div>
-                    <TextInput
+                    <CustomTextInput
                         id="email1"
                         type="email"
                         placeholder="name@flowbite.com"
@@ -65,7 +78,7 @@ function Login() {
                     <div className="mb-2 block">
                         <Label htmlFor="password1">Your password</Label>
                     </div>
-                    <TextInput
+                    <CustomTextInput
                         id="password1"
                         type="password"
                         value={password}
@@ -77,11 +90,26 @@ function Login() {
                     <Checkbox id="remember" />
                     <Label htmlFor="remember">Remember me</Label>
                 </div>
-                <Button type="submit" disabled={loading}>
+                <CustomButton outline color={"red"} type="submit" disabled={loading}>
                     {loading ? 'Signing in...' : 'Submit'}
-                </Button>
+                </CustomButton>
             </form>
 
+            <div>
+                <CustomButton color="primary" onClick={() => setShowConfirmModal(true)}>
+                    Complete Action
+                </CustomButton>
+
+                <PopUpModal
+                    isOpen={showConfirmModal}
+                    onClose={() => setShowConfirmModal(false)}
+                    onConfirm={handleExecuteAction}
+                    title="Are you sure you want to complete this action?"
+                    description="This cannot be undone."
+                    confirmText="Yes"
+                    cancelText="No"
+                />
+            </div>
             {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}
             {success ? <p style={{ color: 'green', marginTop: '12px' }}>{success}</p> : null}
         </div>
