@@ -14,11 +14,11 @@ import {
     NavbarLink, NavbarToggle
 } from "flowbite-react";
 import {customNavbarTheme} from "../components/navbar/index.jsx";
+import UserDropdown from "../components/userDropdown/index.jsx";
 
 export default function MainLayout() {
     const { user, logout } = useAuth();
-    const navigate = useNavigate();
-
+    useNavigate();
     if (!user) return null;
 
     const currentRole = user.role?.toUpperCase();
@@ -103,36 +103,13 @@ export default function MainLayout() {
                             />
                         </div>
                     )}
-
-                    {/* Profile */}
-                    <Dropdown
-                        arrowIcon={false}
-                        inline
-                        label={
-                            <Avatar
-                                alt="User Menu Options"
-                                img={avatar}
-                                rounded
-                                className="w-8 h-8 object-contain cursor-pointer"
-                            />
-                        }
-                    >
-                        <DropdownHeader className="bg-(--dark-blue-700) text-white border-b border-slate-700">
-                            <span className="block text-sm font-semibold">{user.name || 'User Profile'}</span>
-                            <span className="block truncate text-xs text-slate-400 mt-0.5">Role: {currentRole}</span>
-
-                        </DropdownHeader>
-
-                        <DropdownItem as={Link} to={`/${userId}/profile`}>
-                            View My Profile
-                        </DropdownItem>
-
-                        <DropdownDivider className="border-slate-700" />
-
-                        <DropdownItem onClick={logout} className="text-red-400 hover:bg-red-500/10">
-                            Sign out
-                        </DropdownItem>
-                    </Dropdown>
+                    <UserDropdown
+                        user={user}
+                        userId={userId}
+                        currentRole={currentRole}
+                        logout={logout}
+                        avatarAsset={avatar}
+                    />
 
                     {/* Core toggle trigger for small responsive screen handling collapse */}
                     <NavbarToggle className="text-slate-400 hover:bg-slate-800" />
