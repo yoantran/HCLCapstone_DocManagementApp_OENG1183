@@ -13,6 +13,27 @@
   --color-primary-700: #264469;
   --color-primary-800: #192E46;
   --color-primary-900: #0D1723;
+
+  /* Color Hunt:*/
+  --ch-light-canvas: #F9F7F7;
+  --ch-cool-gray:    #DBE2EF;
+  --ch-lighter-blue:   #3F72AF;
+  --ch-dark-blue:    #112D4E;
+
+  /* Color Custom Shades*/
+  --cool-gray-200:  #E5E7EB;
+  --cool-gray-500:  #6B7280;
+  --dark-blue-300:  #415771;
+  --dark-blue-700:   #0A1B2F; /* Dark Blue 700 shade */
+  --dark-blue-800:   #07121F; /* Dark Blue 800 shade */
+  --lighter-blue-800: #192E46; /* Lighter Blue 800 shade */
+  --lighter-blue-700: #264469; /* Lighter Blue 700 shade */
+  --lighter-blue-600: #3F72AF; /* Lighter Blue 600 shade */
+  --lighter-blue-100: #B2C7DF; /* Lighter Blue 100 shade*/
+
+  --sans: 'IBM Plex Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  --heading: 'Source Serif 4', Georgia, serif;
+  --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 /* TEXT XS: 12px / 150% Line-height (Timestamps, Tooltips, Badges) */
@@ -59,21 +80,22 @@
 }
 
 :root {
-  /* Color Hunt:*/
-  --ch-light-canvas: #F9F7F7;
-  --ch-cool-gray:    #DBE2EF;
-  --ch-lighter-blue:   #3F72AF;
-  --ch-dark-blue:    #112D4E;
+  /*!* Color Hunt:*!*/
+  /*--ch-light-canvas: #F9F7F7;*/
+  /*--ch-cool-gray:    #DBE2EF;*/
+  /*--ch-lighter-blue:   #3F72AF;*/
+  /*--ch-dark-blue:    #112D4E;*/
 
-  /* Color Custom Shades*/
-  --cool-gray-200:  #E5E7EB;
-  --dark-blue-300:  #415771;
-  --dark-blue-700:   #0A1B2F; /* Dark Blue 700 shade */
-  --dark-blue-800:   #07121F; /* Dark Blue 800 shade */
-  --lighter-blue-800: #192E46; /* Lighter Blue 800 shade */
-  --lighter-blue-700: #264469; /* Lighter Blue 700 shade */
-  --lighter-blue-600: #3F72AF; /* Lighter Blue 600 shade */
-  --lighter-blue-100: #B2C7DF; /* Lighter Blue 100 shade*/
+  /*!* Color Custom Shades*!*/
+  /*--cool-gray-200:  #E5E7EB;*/
+  /*--cool-gray-500:  #6B7280;*/
+  /*--dark-blue-300:  #415771;*/
+  /*--dark-blue-700:   #0A1B2F; !* Dark Blue 700 shade *!*/
+  /*--dark-blue-800:   #07121F; !* Dark Blue 800 shade *!*/
+  /*--lighter-blue-800: #192E46; !* Lighter Blue 800 shade *!*/
+  /*--lighter-blue-700: #264469; !* Lighter Blue 700 shade *!*/
+  /*--lighter-blue-600: #3F72AF; !* Lighter Blue 600 shade *!*/
+  /*--lighter-blue-100: #B2C7DF; !* Lighter Blue 100 shade*!*/
 
 
   --text: var(--ch-light-canvas);
@@ -94,9 +116,6 @@
   - Inter: Data-heavy table, document previews, sidebars, etc.
   - Source Serif 4: headings
   */
-  --sans: 'IBM Plex Sans', 'Inter', system-ui, -apple-system, sans-serif;
-  --heading: 'Source Serif 4', Georgia, serif;
-  --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
 
   font: 400 1.0rem/150% var(--sans);
   letter-spacing: 0.01rem;

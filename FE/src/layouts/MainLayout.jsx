@@ -3,6 +3,17 @@ import {useAuth} from "../context/AuthContext.jsx";
 import dmsLogo from '../assets/DMSLogo.svg';
 import avatar from '../assets/avatar.svg';
 import bellOff from '../assets/bell-off.svg';
+import {
+    Avatar,
+    Dropdown,
+    DropdownDivider,
+    DropdownHeader,
+    DropdownItem,
+    Navbar,
+    NavbarBrand, NavbarCollapse,
+    NavbarLink, NavbarToggle
+} from "flowbite-react";
+import {customNavbarTheme} from "../components/navbar/index.jsx";
 
 export default function MainLayout() {
     const { user, logout } = useAuth();
@@ -20,43 +31,71 @@ export default function MainLayout() {
 
     // TODO: WIP NavBar
     return (
-        <div className="flex flex-col min-h-screen bg-(--dark-blue-700) text-(--ch-cool-gray)">
-            {/* Global Navbar */}
-            <nav className={"flex justify-between items-center h-16.25 bg-[#0b151e] border-b-2 border-(--cool-gray-200)"}>
+        <div
+            className="border-r border-(--cool-gray-200)"
+            // className="flex flex-col min-h-screen bg-(--dark-blue-700) text-(--ch-cool-gray)"
+        >
+            {/* Global Navbar*/}
+            <Navbar
+                fluid
+                theme={customNavbarTheme}
+            >
                 <div className="flex items-center gap-10">
-                    <div className="flex items-center">
-                        <Link to="/">
-                            <img
-                                src={dmsLogo}
-                                alt="DMS Icon"
-                                className="h-8"
-                            />
-                        </Link>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-6">
-                    {/* All Can see */}
+                {/* Left Side: Brand Logo */}
+                <NavbarBrand as={Link} to={`/${userId}/dashboard`}>
+                    <img
+                        src={dmsLogo}
+                        alt="DMS Icon"
+                        className="h-11.25 w-11.25 object-contain"
+                    />
+                </NavbarBrand>
+                {/* Middle Navigation Link Grid Blocks */}
+                <NavbarCollapse>
+                    {/*  Staff & Manager */}
                     {isStaffFeatureAllowed && (
                         <>
-                            <Link to={`/${userId}/submit-request`}>Submit New Request</Link>
-                            <Link to={`/${userId}/documents`}>Documents</Link>
+                            <NavbarLink
+                                as={Link}
+                                to={`/${userId}/submit-request`}
+                            >
+                                Submit New Request
+                            </NavbarLink>
+
+                            <NavbarLink
+                                as={Link}
+                                to={`/${userId}/documents`}
+                            >
+                                Documents
+                            </NavbarLink>
                         </>
                     )}
-
-                    {/* Only Admin */}
+                    {/* 2. Admin */}
                     {isAdminOnly && (
                         <>
-                            <Link to={`/${userId}/admin/departments`}>Departments</Link>
-                            <Link to={`/${userId}/admin/users`}>Users</Link>
+                            <NavbarLink
+                                as={Link}
+                                to={`/${userId}/admin/departments`}
+                            >
+                                Departments
+                            </NavbarLink>
+
+                            <NavbarLink
+                                as={Link}
+                                to={`/${userId}/admin/users`}
+                            >
+                                Users
+                            </NavbarLink>
                         </>
                     )}
+                </NavbarCollapse>
                 </div>
 
-                <div className="flex items-center gap-5">
-                    {/* ONLY the Manager */}
+                {/* Right Side Actions: Notification Bell + Dropdown Avatar Profile Wrapper */}
+                <div className="flex items-center gap-4 md:order-2">
+
+                    {/* notification */}
                     {isManagerOnly && (
-                        <div className="cursor-pointer text-[#8a99a8] text-eed flex items-center hover:text-white transition-colors">
+                        <div className="cursor-pointer transition-opacity hover:opacity-80">
                             <img
                                 src={bellOff}
                                 alt="bellOff"
@@ -64,18 +103,45 @@ export default function MainLayout() {
                             />
                         </div>
                     )}
-                    <Link to={`/${userId}/profile`} className="flex items-center no-underline">
-                        <img
-                            src={avatar}
-                            alt="Avatar"
-                            className="h-8 w-8"
-                        />
-                    </Link>
+
+                    {/* Profile */}
+                    <Dropdown
+                        arrowIcon={false}
+                        inline
+                        label={
+                            <Avatar
+                                alt="User Menu Options"
+                                img={avatar}
+                                rounded
+                                className="w-8 h-8 object-contain cursor-pointer"
+                            />
+                        }
+                    >
+                        <DropdownHeader className="bg-(--dark-blue-700) text-white border-b border-slate-700">
+                            <span className="block text-sm font-semibold">{user.name || 'User Profile'}</span>
+                            <span className="block truncate text-xs text-slate-400 mt-0.5">Role: {currentRole}</span>
+
+                        </DropdownHeader>
+
+                        <DropdownItem as={Link} to={`/${userId}/profile`}>
+                            View My Profile
+                        </DropdownItem>
+
+                        <DropdownDivider className="border-slate-700" />
+
+                        <DropdownItem onClick={logout} className="text-red-400 hover:bg-red-500/10">
+                            Sign out
+                        </DropdownItem>
+                    </Dropdown>
+
+                    {/* Core toggle trigger for small responsive screen handling collapse */}
+                    <NavbarToggle className="text-slate-400 hover:bg-slate-800" />
                 </div>
-            </nav>
+
+            </Navbar>
 
             {/* Page Content Panel */}
-            <main className="content-container" style={{ flex: 1, padding: '2rem' }}>
+            <main className="flex-1 p-8">
                 <Outlet />
             </main>
         </div>
