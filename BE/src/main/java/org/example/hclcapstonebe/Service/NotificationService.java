@@ -13,15 +13,15 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
-
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
-    private final NotificationMapper notificationMapper;    // MapStruct
+    private final NotificationMapper notificationMapper;
 
     public List<NotificationResponse> getMyNotifications(String email) {
         var user = userRepository.findByEmailAndIsDeletedFalse(email)
@@ -30,18 +30,18 @@ public class NotificationService {
         return notificationRepository
                 .findByReceiverIdOrderByCreatedAtDesc(user.getId())
                 .stream()
-                .map(notificationMapper::toResponse)        // MapStruct method reference
+                .map(notificationMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
-    public NotificationResponse markAsRead(String notifId, String email) {
+    public NotificationResponse markAsRead(UUID notifId, String email) {
         var user = userRepository.findByEmailAndIsDeletedFalse(email)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
-        Notification notif = notificationRepository.findById(notifId)
+        Notification notif = notificationRepository.findWithDetailsById(notifId)
                 .orElseThrow(() -> new AppException("Notification not found", HttpStatus.NOT_FOUND));
 
-        // RBAC: only the receiver can mark as read
+        // Separate RBAC check — 403 not 404
         if (!notif.getReceiver().getId().equals(user.getId())) {
             throw new AppException("Access denied", HttpStatus.FORBIDDEN);
         }
@@ -50,6 +50,6 @@ public class NotificationService {
         notif.setIsReadDateTime(LocalDateTime.now());
         notificationRepository.save(notif);
 
-        return notificationMapper.toResponse(notif);        // MapStruct
+        return notificationMapper.toResponse(notif);
     }
 }

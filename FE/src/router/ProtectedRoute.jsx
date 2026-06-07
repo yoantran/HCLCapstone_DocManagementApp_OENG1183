@@ -2,7 +2,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 /**
- * @param {string[]} allowedRoles - e.g. ['staff', 'boss'] or ['admin']
+ * @param {string[]} allowedRoles - e.g. ['staff', 'manager'] or ['admin']
  *                                   omit/empty = any authenticated user
  */
 export default function ProtectedRoute({ allowedRoles = [] }) {

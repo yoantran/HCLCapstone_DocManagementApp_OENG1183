@@ -6,5 +6,5 @@ import lombok.Data;
 public class UpdateProfileRequest {
     private String name;
     private String phoneNumber;
-    // avatarImageUrl handled via multipart file upload separately
+    // avatarImageUrl handled via multipart file upload separately, not in this DTO
 }

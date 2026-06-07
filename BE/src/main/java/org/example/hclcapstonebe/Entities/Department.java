@@ -4,6 +4,7 @@ package org.example.hclcapstonebe.Entities;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "departments")
@@ -12,7 +13,7 @@ public class Department {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    private String id;
+    private UUID id;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAtDateTime = LocalDateTime.now();
@@ -20,8 +21,8 @@ public class Department {
     @Column(nullable = false)
     private String name;
 
-    // Boss is a User — can be null (must assign 1 boss)
+    // manager is a User — can be null (must assign 1 manager)
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "boss_id", nullable = true)
-    private User boss;
+    @JoinColumn(name = "manager_id", nullable = true)
+    private User manager;
 }
