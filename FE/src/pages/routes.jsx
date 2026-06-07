@@ -4,6 +4,7 @@ import AuthLayout from "../layouts/AuthLayout.jsx";
 import Login from "./auth/Login.jsx";
 import ProtectedRoute from "../router/ProtectedRoute.jsx";
 import MainLayout from "../layouts/MainLayout.jsx";
+import Error from './Error';
 
 /**
  * RootRedirect handles users typing the base URL exactly ("/") without a userId.
