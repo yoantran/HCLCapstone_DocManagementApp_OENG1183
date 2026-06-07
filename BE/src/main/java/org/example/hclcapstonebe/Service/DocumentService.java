@@ -41,7 +41,7 @@ public class DocumentService {
     public DocumentResponse uploadOne(MultipartFile file, String type, String currentUserEmail) {
         User uploader = getUserByEmail(currentUserEmail);
         Document doc = buildAndSaveDocument(file, type, uploader);
-        sendNotificationToBoss(doc, uploader);
+        sendNotificationTomanager(doc, uploader);
         return documentMapper.toResponse(doc);              // MapStruct
     }
 
@@ -50,7 +50,7 @@ public class DocumentService {
         User uploader = getUserByEmail(currentUserEmail);
         return files.stream().map(file -> {
             Document doc = buildAndSaveDocument(file, type, uploader);
-            sendNotificationToBoss(doc, uploader);
+            sendNotificationTomanager(doc, uploader);
             return documentMapper.toResponse(doc);          // MapStruct
         }).collect(Collectors.toList());
     }
@@ -77,7 +77,7 @@ public class DocumentService {
         return documentRepository.save(doc);
     }
 
-    // ─── VIEW: STAFF + BOSS (own docs) ────────────────────
+    // ─── VIEW: STAFF + manager (own docs) ────────────────────
 
     public List<DocumentResponse> getMyDocuments(String currentUserEmail) {
         User user = getUserByEmail(currentUserEmail);
@@ -101,23 +101,23 @@ public class DocumentService {
         return documentMapper.toResponse(doc);              // MapStruct
     }
 
-    // ─── VIEW: BOSS ONLY (department docs) ────────────────
+    // ─── VIEW: manager ONLY (department docs) ────────────────
 
     public List<DocumentResponse> getDepartmentDocuments(String currentUserEmail) {
-        User boss = getUserByEmail(currentUserEmail);
+        User manager = getUserByEmail(currentUserEmail);
         return documentRepository
-                .findByDepartmentIdAndIsDeletedFalse(boss.getDepartment().getId())
+                .findByDepartmentIdAndIsDeletedFalse(manager.getDepartment().getId())
                 .stream()
                 .map(documentMapper::toResponse)            // MapStruct method reference
                 .collect(Collectors.toList());
     }
 
     public DocumentResponse getDepartmentDocumentById(String docId, String currentUserEmail) {
-        User boss = getUserByEmail(currentUserEmail);
+        User manager = getUserByEmail(currentUserEmail);
         Document doc = getDocumentOrThrow(docId);
 
         // RBAC: must be same department
-        if (!doc.getDepartment().getId().equals(boss.getDepartment().getId())) {
+        if (!doc.getDepartment().getId().equals(manager.getDepartment().getId())) {
             throw new AppException("Access denied", HttpStatus.FORBIDDEN);
         }
 
@@ -126,14 +126,14 @@ public class DocumentService {
         return documentMapper.toResponse(doc);              // MapStruct
     }
 
-    // ─── DELETE: BOSS ONLY ────────────────────────────────
+    // ─── DELETE: manager ONLY ────────────────────────────────
 
     public void deleteDocument(String docId, String currentUserEmail) {
-        User boss = getUserByEmail(currentUserEmail);
+        User manager = getUserByEmail(currentUserEmail);
         Document doc = getDocumentOrThrow(docId);
 
         // RBAC: must be same department
-        if (!doc.getDepartment().getId().equals(boss.getDepartment().getId())) {
+        if (!doc.getDepartment().getId().equals(manager.getDepartment().getId())) {
             throw new AppException("Access denied", HttpStatus.FORBIDDEN);
         }
 
@@ -144,27 +144,27 @@ public class DocumentService {
 
     // ─── WEBSOCKET NOTIFICATION ───────────────────────────
 
-    private void sendNotificationToBoss(Document doc, User uploader) {
+    private void sendNotificationTomanager(Document doc, User uploader) {
         Department dept = uploader.getDepartment();
-        if (dept == null || dept.getBoss() == null) return;
+        if (dept == null || dept.getManager() == null) return;
 
-        // Don't notify if uploader IS the boss
-        if (dept.getBoss().getId().equals(uploader.getId())) return;
+        // Don't notify if uploader IS the manager
+        if (dept.getManager().getId().equals(uploader.getId())) return;
 
-        User boss = dept.getBoss();
+        User manager = dept.getManager();
         String content = uploader.getName() + " uploaded a new document: " + doc.getName();
 
         Notification notification = Notification.builder()
                 .triggeredDocument(doc)
                 .content(content)
-                .receiver(boss)
+                .receiver(manager)
                 .build();
 
         notificationRepository.save(notification);
 
-        // Push real-time to boss via WebSocket
+        // Push real-time to manager via WebSocket
         messagingTemplate.convertAndSendToUser(
-                boss.getEmail(),
+                manager.getEmail(),
                 "/queue/notifications",
                 Map.of(
                         "id",           notification.getId(),

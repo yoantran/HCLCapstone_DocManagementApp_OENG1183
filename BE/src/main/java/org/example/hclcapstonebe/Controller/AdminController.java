@@ -35,12 +35,12 @@ public class AdminController {
     @Operation(
             summary = "Create a new user",
             description = """
-        Creates a new user (STAFF or BOSS). ADMIN only.
+        Creates a new user (STAFF or manager). ADMIN only.
 
         **Rules:**
         - `departmentId` is optional — leave it out or send `""` to create without a department
         - 1 user can only belong to 1 department
-        - 1 department can have many STAFFs but only 0 or 1 BOSS
+        - 1 department can have many STAFFs but only 0 or 1 manager
         """
     )
     @ApiResponses({
@@ -76,7 +76,7 @@ public class AdminController {
                             "avatarImageUrl": null,
                             "phoneNumber": "0901234567",
                             "departmentId": null,
-                            "roleEnum": "BOSS",
+                            "roleEnum": "manager",
                             "createdAtDateTime": "2026-04-20T10:00:00"
                         }
                     """
@@ -118,7 +118,7 @@ public class AdminController {
                             "password": "securePassword123",
                             "name": "Jane Doe",
                             "phoneNumber": "0901234567",
-                            "roleEnum": "BOSS"
+                            "roleEnum": "manager"
                         }
                     """
                                     )
@@ -135,11 +135,11 @@ public class AdminController {
         ADMIN only — assigns or reassigns a STAFF user to a department.
 
         **Rules:**
-        - Only works for STAFF users — use **Update Department API** to assign a BOSS
+        - Only works for STAFF users — use **Update Department API** to assign a manager
         - Send `departmentId` with a valid UUID to assign or reassign
         - Send `departmentId` as `""` or `null` to remove from department
 
-        **To assign a BOSS to a department:** use `PUT /admin/departments/{id}`
+        **To assign a manager to a department:** use `PUT /admin/departments/{id}`
         """
     )
     @ApiResponses({
@@ -184,7 +184,7 @@ public class AdminController {
                             }
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "User is a BOSS — use Update Department API instead"),
+            @ApiResponse(responseCode = "400", description = "User is a manager — use Update Department API instead"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
             @ApiResponse(responseCode = "404", description = "User or department not found")
@@ -216,8 +216,8 @@ public class AdminController {
             description = """
         Soft deletes a user by setting isDeleted=true. The user record is NOT permanently removed.
 
-        **If the deleted user is a BOSS:**
-        - Their department's boss is automatically set to null
+        **If the deleted user is a manager:**
+        - Their department's manager is automatically set to null
         - The user's department assignment is cleared
         - No manual reassignment needed before deletion
         """
@@ -283,12 +283,12 @@ public class AdminController {
         Creates a new department. ADMIN only.
 
         **Rules:**
-        - `bossId` is optional — leave it out to create without a boss
-        - 1 department can only have 0 or 1 boss
-        - 1 user can only be the boss of 1 department
-        - Assigned User must have BOSS role
-        - Assigned Boss must NOT in any departments. If you want to assign this boss to the newly created department, 
-        you must Update affected department => remove boss first. 
+        - `managerId` is optional — leave it out to create without a manager
+        - 1 department can only have 0 or 1 manager
+        - 1 user can only be the manager of 1 department
+        - Assigned User must have manager role
+        - Assigned manager must NOT in any departments. If you want to assign this manager to the newly created department, 
+        you must Update affected department => remove manager first. 
         """
     )
     @ApiResponses({
@@ -299,25 +299,25 @@ public class AdminController {
                             mediaType = "application/json",
                             examples = {
                                     @ExampleObject(
-                                            name = "Created with boss",
+                                            name = "Created with manager",
                                             value = """
                         {
                             "id": "dept-uuid-123",
                             "name": "Engineering",
-                            "bossId": "660e9500-f30c-52e5-b827-557766551111",
-                            "bossName": "Jane Smith",
+                            "managerId": "660e9500-f30c-52e5-b827-557766551111",
+                            "managerName": "Jane Smith",
                             "createdAtDateTime": "2026-04-20T09:00:00"
                         }
                     """
                                     ),
                                     @ExampleObject(
-                                            name = "Created without boss",
+                                            name = "Created without manager",
                                             value = """
                         {
                             "id": "dept-uuid-456",
                             "name": "Finance",
-                            "bossId": null,
-                            "bossName": null,
+                            "managerId": null,
+                            "managerName": null,
                             "createdAtDateTime": "2026-04-20T09:00:00"
                         }
                     """
@@ -325,30 +325,30 @@ public class AdminController {
                             }
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Assigned user is not a BOSS role"),
+            @ApiResponse(responseCode = "400", description = "Assigned user is not a manager role"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
-            @ApiResponse(responseCode = "404", description = "Boss user not found"),
-            @ApiResponse(responseCode = "409", description = "User is already boss of another department")
+            @ApiResponse(responseCode = "404", description = "manager user not found"),
+            @ApiResponse(responseCode = "409", description = "User is already manager of another department")
     })
     @PostMapping("/departments")
     public ResponseEntity<DepartmentResponse> createDepartment(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Department creation payload. `bossId` is optional.",
+                    description = "Department creation payload. `managerId` is optional.",
                     required = true,
                     content = @Content(
                             examples = {
                                     @ExampleObject(
-                                            name = "Create with boss",
+                                            name = "Create with manager",
                                             value = """
                         {
                             "name": "Engineering",
-                            "bossId": "660e9500-f30c-52e5-b827-557766551111"
+                            "managerId": "660e9500-f30c-52e5-b827-557766551111"
                         }
                     """
                                     ),
                                     @ExampleObject(
-                                            name = "Create without boss",
+                                            name = "Create without manager",
                                             value = """
                         {
                             "name": "Finance"
@@ -368,21 +368,21 @@ public class AdminController {
         Unset fields keep their current value.
 
         **Update name only:**
-        Send `name` field, omit `bossId`.
+        Send `name` field, omit `managerId`.
 
-        **Replace boss:**
-        Send `bossId` with a valid BOSS user UUID.
-        → Old boss's department is set to null automatically.
-        → New boss is assigned to this department.
-        → New boss must not already be boss of another department.
+        **Replace manager:**
+        Send `managerId` with a valid manager user UUID.
+        → Old manager's department is set to null automatically.
+        → New manager is assigned to this department.
+        → New manager must not already be manager of another department.
 
-        **Remove boss (no boss assigned):**
-        Send `bossId` as empty string `""` OR send `removeBoss: true`.
-        → Current boss's department is set to null.
-        → Department's boss is set to null.
+        **Remove manager (no manager assigned):**
+        Send `managerId` as empty string `""` OR send `removemanager: true`.
+        → Current manager's department is set to null.
+        → Department's manager is set to null.
 
-        **Add boss to a department that has no boss:**
-        Send `bossId` with a valid BOSS user UUID — same as replacing boss.
+        **Add manager to a department that has no manager:**
+        Send `managerId` with a valid manager user UUID — same as replacing manager.
         """
     )
     @ApiResponses({
@@ -395,18 +395,18 @@ public class AdminController {
                 {
                     "id": "dept-uuid-123",
                     "name": "Engineering Updated",
-                    "bossId": "770f0600-g41d-63f6-c938-668877662222",
-                    "bossName": "Bob Johnson",
+                    "managerId": "770f0600-g41d-63f6-c938-668877662222",
+                    "managerName": "Bob Johnson",
                     "createdAtDateTime": "2026-04-20T09:00:00"
                 }
             """)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Assigned user is not a BOSS role"),
+            @ApiResponse(responseCode = "400", description = "Assigned user is not a manager role"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
-            @ApiResponse(responseCode = "404", description = "Department or boss user not found"),
-            @ApiResponse(responseCode = "409", description = "User is already boss of another department")
+            @ApiResponse(responseCode = "404", description = "Department or manager user not found"),
+            @ApiResponse(responseCode = "409", description = "User is already manager of another department")
     })
     @PutMapping("/departments/{id}")
     public ResponseEntity<DepartmentResponse> updateDepartment(
@@ -420,17 +420,17 @@ public class AdminController {
                                             value = """
             { "name": "Engineering Updated" }
             """),
-                                    @ExampleObject(name = "Replace boss",
+                                    @ExampleObject(name = "Replace manager",
                                             value = """
-            { "bossId": "770f0600-g41d-63f6-c938-668877662222" }
+            { "managerId": "770f0600-g41d-63f6-c938-668877662222" }
             """),
-                                    @ExampleObject(name = "Remove boss",
+                                    @ExampleObject(name = "Remove manager",
                                             value = """
-            { "bossId": "" }
+            { "managerId": "" }
             """),
-                                    @ExampleObject(name = "Update name and replace boss",
+                                    @ExampleObject(name = "Update name and replace manager",
                                             value = """
-            { "name": "Engineering Updated", "bossId": "770f0600-g41d-63f6-c938-668877662222" }
+            { "name": "Engineering Updated", "managerId": "770f0600-g41d-63f6-c938-668877662222" }
             """)
                             }
                     )
@@ -443,7 +443,7 @@ public class AdminController {
             summary = "Delete a department",
             description = """
         Deletes a department permanently.
-        All users (boss and staff) that belonged to this department will have their
+        All users (manager and staff) that belonged to this department will have their
         department set to null — they are NOT deleted.
         """
     )
@@ -463,7 +463,7 @@ public class AdminController {
 
     @Operation(
             summary = "Get all departments",
-            description = "Returns a list of all departments with their assigned boss info."
+            description = "Returns a list of all departments with their assigned manager info."
     )
     @ApiResponses({
             @ApiResponse(
@@ -476,15 +476,15 @@ public class AdminController {
                         {
                             "id": "dept-uuid-123",
                             "name": "Engineering",
-                            "bossId": "660e9500-f30c-52e5-b827-557766551111",
-                            "bossName": "Jane Smith",
+                            "managerId": "660e9500-f30c-52e5-b827-557766551111",
+                            "managerName": "Jane Smith",
                             "createdAtDateTime": "2026-04-20T09:00:00"
                         },
                         {
                             "id": "dept-uuid-456",
                             "name": "Finance",
-                            "bossId": "770f0600-g41d-63f6-c938-668877662222",
-                            "bossName": "Bob Johnson",
+                            "managerId": "770f0600-g41d-63f6-c938-668877662222",
+                            "managerName": "Bob Johnson",
                             "createdAtDateTime": "2026-04-19T08:00:00"
                         }
                     ]
@@ -501,7 +501,7 @@ public class AdminController {
 
     @Operation(
             summary = "Get department by ID",
-            description = "Returns a single department by its UUID, including boss details."
+            description = "Returns a single department by its UUID, including manager details."
     )
     @ApiResponses({
             @ApiResponse(
@@ -513,8 +513,8 @@ public class AdminController {
                     {
                         "id": "dept-uuid-123",
                         "name": "Engineering",
-                        "bossId": "660e9500-f30c-52e5-b827-557766551111",
-                        "bossName": "Jane Smith",
+                        "managerId": "660e9500-f30c-52e5-b827-557766551111",
+                        "managerName": "Jane Smith",
                         "createdAtDateTime": "2026-04-20T09:00:00"
                     }
                 """)

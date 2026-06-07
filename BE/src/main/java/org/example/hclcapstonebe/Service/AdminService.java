@@ -59,9 +59,9 @@ public class AdminService {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
-        if (user.getRoleEnum() == RoleEnum.BOSS) {
+        if (user.getRoleEnum() == RoleEnum.manager) {
             throw new AppException(
-                    "Cannot assign department to a BOSS here. Use Update Department API to assign a boss to a department.",
+                    "Cannot assign department to a manager here. Use Update Department API to assign a manager to a department.",
                     HttpStatus.BAD_REQUEST
             );
         }
@@ -82,11 +82,11 @@ public class AdminService {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
-        // If user is a BOSS → auto clear department's boss
-        if (user.getRoleEnum() == RoleEnum.BOSS && user.getDepartment() != null) {
+        // If user is a manager → auto clear department's manager
+        if (user.getRoleEnum() == RoleEnum.manager && user.getDepartment() != null) {
             Department dept = user.getDepartment();
-            if (dept.getBoss() != null && dept.getBoss().getId().equals(userId)) {
-                dept.setBoss(null);
+            if (dept.getManager() != null && dept.getManager().getId().equals(userId)) {
+                dept.setManager(null);
                 departmentRepository.save(dept);
             }
         }
@@ -118,34 +118,34 @@ public class AdminService {
     // ─── CREATE DEPARTMENT ────────────────────────────────
     @Transactional
     public DepartmentResponse createDepartment(CreateDepartmentRequest req) {
-        // Boss is optional on creation
-        User boss = null;
-        if (req.getBossId() != null) {
-            boss = userRepository.findByIdAndIsDeletedFalse(req.getBossId())
-                    .orElseThrow(() -> new AppException("Boss user not found", HttpStatus.NOT_FOUND));
+        // manager is optional on creation
+        User manager = null;
+        if (req.getManagerId() != null) {
+            manager = userRepository.findByIdAndIsDeletedFalse(req.getManagerId())
+                    .orElseThrow(() -> new AppException("manager user not found", HttpStatus.NOT_FOUND));
 
-            if (boss.getRoleEnum() != RoleEnum.BOSS) {
-                throw new AppException("Assigned user is not a BOSS", HttpStatus.BAD_REQUEST);
+            if (manager.getRoleEnum() != RoleEnum.manager) {
+                throw new AppException("Assigned user is not a manager", HttpStatus.BAD_REQUEST);
             }
 
-            // 1 user can only be boss of 1 department
-            if (boss.getDepartment() != null) {
+            // 1 user can only be manager of 1 department
+            if (manager.getDepartment() != null) {
                 throw new AppException(
-                        "User is already boss of department: " + boss.getDepartment().getName(),
+                        "User is already manager of department: " + manager.getDepartment().getName(),
                         HttpStatus.CONFLICT
                 );
             }
         }
 
         Department dept = departmentMapper.toEntity(req);
-        dept.setBoss(boss);                                          // can be null
+        dept.setManager(manager);                                          // can be null
         dept.setCreatedAtDateTime(LocalDateTime.now());
         Department saved = departmentRepository.save(dept);
 
-        // Assign department back to boss user
-        if (boss != null) {
-            boss.setDepartment(saved);
-            userRepository.save(boss);
+        // Assign department back to manager user
+        if (manager != null) {
+            manager.setDepartment(saved);
+            userRepository.save(manager);
         }
 
         return departmentMapper.toResponse(saved);
@@ -162,59 +162,59 @@ public class AdminService {
             dept.setName(req.getName());
         }
 
-        // ── Remove boss (bossId sent as "" or removeBoss=true) ──
-        boolean isRemoveBoss = req.isRemoveBoss()
-                || (req.getBossId() != null && req.getBossId().isBlank());
+        // ── Remove manager (managerId sent as "" or removemanager=true) ──
+        boolean isRemovemanager = req.isRemovemanager()
+                || (req.getManagerId() != null && req.getManagerId().isBlank());
 
-        if (isRemoveBoss) {
-            User oldBoss = dept.getBoss();
-            if (oldBoss != null) {
-                // Old boss's department → null
-                oldBoss.setDepartment(null);
-                userRepository.save(oldBoss);
+        if (isRemovemanager) {
+            User oldmanager = dept.getManager();
+            if (oldmanager != null) {
+                // Old manager's department → null
+                oldmanager.setDepartment(null);
+                userRepository.save(oldmanager);
             }
-            // Department's boss → null
-            dept.setBoss(null);
+            // Department's manager → null
+            dept.setManager(null);
             departmentRepository.save(dept);
 
-            // ── Assign or replace boss ─────────────────────────
-        } else if (req.getBossId() != null && !req.getBossId().isBlank()) {
-            User newBoss = userRepository.findByIdAndIsDeletedFalse(req.getBossId())
-                    .orElseThrow(() -> new AppException("New boss not found", HttpStatus.NOT_FOUND));
+            // ── Assign or replace manager ─────────────────────────
+        } else if (req.getManagerId() != null && !req.getManagerId().isBlank()) {
+            User newmanager = userRepository.findByIdAndIsDeletedFalse(req.getManagerId())
+                    .orElseThrow(() -> new AppException("New manager not found", HttpStatus.NOT_FOUND));
 
-            if (newBoss.getRoleEnum() != RoleEnum.BOSS) {
-                throw new AppException("Assigned user is not a BOSS", HttpStatus.BAD_REQUEST);
+            if (newmanager.getRoleEnum() != RoleEnum.manager) {
+                throw new AppException("Assigned user is not a manager", HttpStatus.BAD_REQUEST);
             }
 
-            // 1 user can only be boss of 1 department
-            if (newBoss.getDepartment() != null
-                    && !newBoss.getDepartment().getId().equals(deptId)) {
+            // 1 user can only be manager of 1 department
+            if (newmanager.getDepartment() != null
+                    && !newmanager.getDepartment().getId().equals(deptId)) {
                 throw new AppException(
-                        "This user is already boss of: " + newBoss.getDepartment().getName(),
+                        "This user is already manager of: " + newmanager.getDepartment().getName(),
                         HttpStatus.CONFLICT
                 );
             }
 
-            // Step 1: Old boss's department → null
-            User oldBoss = dept.getBoss();
-            if (oldBoss != null && !oldBoss.getId().equals(newBoss.getId())) {
-                oldBoss.setDepartment(null);
-                userRepository.save(oldBoss);
+            // Step 1: Old manager's department → null
+            User oldmanager = dept.getManager();
+            if (oldmanager != null && !oldmanager.getId().equals(newmanager.getId())) {
+                oldmanager.setDepartment(null);
+                userRepository.save(oldmanager);
             }
 
-            // Step 2: Clear dept boss temporarily (handles circular FK)
-            dept.setBoss(null);
+            // Step 2: Clear dept manager temporarily (handles circular FK)
+            dept.setManager(null);
             departmentRepository.save(dept);
 
-            // Step 3: Assign new boss to department
-            dept.setBoss(newBoss);
+            // Step 3: Assign new manager to department
+            dept.setManager(newmanager);
             departmentRepository.save(dept);
 
-            // Step 4: Assign department to new boss
-            newBoss.setDepartment(dept);
-            userRepository.save(newBoss);
+            // Step 4: Assign department to new manager
+            newmanager.setDepartment(dept);
+            userRepository.save(newmanager);
         }
-        // else: bossId is null → not sent → keep boss unchanged
+        // else: managerId is null → not sent → keep manager unchanged
 
         return departmentMapper.toResponse(departmentRepository.save(dept));
     }
@@ -229,8 +229,8 @@ public class AdminService {
         users.forEach(u -> u.setDepartment(null));
         userRepository.saveAll(users);
 
-        // Step 2: Remove boss from department (avoids FK constraint on delete)
-        dept.setBoss(null);
+        // Step 2: Remove manager from department (avoids FK constraint on delete)
+        dept.setManager(null);
         departmentRepository.save(dept);
 
         // Step 3: Delete the department

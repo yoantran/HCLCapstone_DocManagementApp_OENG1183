@@ -7,9 +7,9 @@ import java.util.List;
 import java.util.Optional;
 
 public interface DocumentRepository extends JpaRepository<Document, String> {
-    // Staff/Boss: own docs
+    // Staff/manager: own docs
     List<Document> findByUploaderIdAndIsDeletedFalse(String uploaderId);
-    // Boss: all department docs
+    // manager: all department docs
     List<Document> findByDepartmentIdAndIsDeletedFalse(String departmentId);
     Optional<Document> findByIdAndIsDeletedFalse(String id);
 }

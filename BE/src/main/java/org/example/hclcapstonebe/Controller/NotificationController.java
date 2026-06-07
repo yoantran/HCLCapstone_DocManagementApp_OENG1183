@@ -20,7 +20,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/notifications")
 @RequiredArgsConstructor
-@Tag(name = "Notifications", description = "BOSS ONLY — Real-time and historical notifications triggered when staff upload documents.")
+@Tag(name = "Notifications", description = "manager ONLY — Real-time and historical notifications triggered when staff upload documents.")
 @SecurityRequirement(name = "bearerAuth")
 public class NotificationController {
 
@@ -28,7 +28,7 @@ public class NotificationController {
 
     @Operation(
             summary = "Get all my notifications",
-            description = "BOSS ONLY — Returns all notifications received by the current boss, ordered by newest first."
+            description = "manager ONLY — Returns all notifications received by the current manager, ordered by newest first."
     )
     @ApiResponses({
             @ApiResponse(
@@ -61,7 +61,7 @@ public class NotificationController {
                     )
             ),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — BOSS only")
+            @ApiResponse(responseCode = "403", description = "Forbidden — manager only")
     })
     @GetMapping
     public ResponseEntity<List<NotificationResponse>> getMyNotifications(
@@ -71,7 +71,7 @@ public class NotificationController {
 
     @Operation(
             summary = "Mark notification as read",
-            description = "BOSS ONLY — Marks a specific notification as read and records the timestamp."
+            description = "manager ONLY — Marks a specific notification as read and records the timestamp."
     )
     @ApiResponses({
             @ApiResponse(

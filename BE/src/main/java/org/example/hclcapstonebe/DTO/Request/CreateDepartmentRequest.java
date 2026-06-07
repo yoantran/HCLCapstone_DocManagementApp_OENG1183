@@ -9,5 +9,5 @@ public class CreateDepartmentRequest {
     @NotBlank
     private String name;
 
-    private String bossId;   // Must assign a boss when creating
+    private String managerId;   // Must assign a manager when creating
 }

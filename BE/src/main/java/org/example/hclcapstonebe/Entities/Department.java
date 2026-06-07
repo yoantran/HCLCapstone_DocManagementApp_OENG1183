@@ -20,8 +20,8 @@ public class Department {
     @Column(nullable = false)
     private String name;
 
-    // Boss is a User — can be null (must assign 1 boss)
+    // manager is a User — can be null (must assign 1 manager)
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "boss_id", nullable = true)
-    private User boss;
+    @JoinColumn(name = "manager_id", nullable = true)
+    private User manager;
 }

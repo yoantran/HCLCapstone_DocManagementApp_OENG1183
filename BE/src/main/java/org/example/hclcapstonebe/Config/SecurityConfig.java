@@ -48,7 +48,7 @@ public class SecurityConfig {
                                 "/dev/**" // ← add this
                         ).permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/documents/department/**").hasRole("BOSS")
+                        .requestMatchers("/documents/department/**").hasRole("manager")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
@@ -60,7 +60,7 @@ public class SecurityConfig {
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration config)
+    public AuthenticationManager authenticationmanager(AuthenticationConfiguration config)
             throws Exception {
         return config.getAuthenticationManager();
     }

@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 public class DepartmentResponse {
     private String id;
     private String name;
-    private String bossId;
-    private String bossName;
+    private String managerId;
+    private String managerName;
     private LocalDateTime createdAtDateTime;
 }

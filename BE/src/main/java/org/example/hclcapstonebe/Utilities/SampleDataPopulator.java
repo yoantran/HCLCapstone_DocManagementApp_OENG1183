@@ -3,8 +3,6 @@ package org.example.hclcapstonebe.Utilities;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import lombok.extern.slf4j.Slf4j;
-import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
-import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
 import org.example.hclcapstonebe.Enums.RoleEnum;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -33,14 +31,14 @@ public class SampleDataPopulator {
         em.createNativeQuery("DELETE FROM notifications").executeUpdate();
         em.createNativeQuery("DELETE FROM documents").executeUpdate();
 
-        // Delete users first (removes the FK reference from departments.boss_id)
-        // but we need to drop the boss_id FK constraint temporarily
+        // Delete users first (removes the FK reference from departments.manager_id)
+        // but we need to drop the manager_id FK constraint temporarily
         // → Easiest: alter column to allow null, delete, then restore
-        em.createNativeQuery("ALTER TABLE departments ALTER COLUMN boss_id DROP NOT NULL").executeUpdate();
-        em.createNativeQuery("UPDATE departments SET boss_id = NULL").executeUpdate();
+        em.createNativeQuery("ALTER TABLE departments ALTER COLUMN manager_id DROP NOT NULL").executeUpdate();
+        em.createNativeQuery("UPDATE departments SET manager_id = NULL").executeUpdate();
         em.createNativeQuery("DELETE FROM users").executeUpdate();
         em.createNativeQuery("DELETE FROM departments").executeUpdate();
-        em.createNativeQuery("ALTER TABLE departments ALTER COLUMN boss_id SET NOT NULL").executeUpdate();
+        em.createNativeQuery("ALTER TABLE departments ALTER COLUMN manager_id SET NOT NULL").executeUpdate();
 
         log.info("🧹 Done clearing.");
     }
@@ -53,14 +51,14 @@ public class SampleDataPopulator {
         String adminId = uuid();
         insertUser(adminId, "admin@hcl.com", pw, "System Admin", "0900000000", RoleEnum.ADMIN, null, now);
 
-        // ── Bosses ─────────────────────────────────────────
-        String[] bossIds   = {uuid(), uuid(), uuid(), uuid(), uuid()};
-        String[] bossNames = {"Boss1", "Tran Thi Boss", "Le Van Boss", "Pham Thi Boss", "Hoang Van Boss"};
-        String[] bossEmails= {"boss1@hcl.com","boss.finance@hcl.com","boss.hr@hcl.com","boss.marketing@hcl.com","boss.operations@hcl.com"};
-        String[] bossPhones= {"0901111111","0902222222","0903333333","0904444444","0905555555"};
+        // ── manageres ─────────────────────────────────────────
+        String[] managerIds   = {uuid(), uuid(), uuid(), uuid(), uuid()};
+        String[] managerNames = {"manager1", "Tran Thi manager", "Le Van manager", "Pham Thi manager", "Hoang Van manager"};
+        String[] managerEmails= {"manager1@hcl.com","manager.finance@hcl.com","manager.hr@hcl.com","manager.marketing@hcl.com","manager.operations@hcl.com"};
+        String[] managerPhones= {"0901111111","0902222222","0903333333","0904444444","0905555555"};
 
         for (int i = 0; i < 5; i++) {
-            insertUser(bossIds[i], bossEmails[i], pw, bossNames[i], bossPhones[i], RoleEnum.BOSS, null, now);
+            insertUser(managerIds[i], managerEmails[i], pw, managerNames[i], managerPhones[i], RoleEnum.manager, null, now);
         }
 
         // ── Departments ────────────────────────────────────
@@ -68,14 +66,14 @@ public class SampleDataPopulator {
         String[] deptNames = {"Engineering","Finance","Human Resources","Marketing","Operations"};
 
         for (int i = 0; i < 5; i++) {
-            insertDept(deptIds[i], deptNames[i], bossIds[i], now);
+            insertDept(deptIds[i], deptNames[i], managerIds[i], now);
         }
 
-        // ── Assign dept to bosses ──────────────────────────
+        // ── Assign dept to manageres ──────────────────────────
         for (int i = 0; i < 5; i++) {
             em.createNativeQuery("UPDATE users SET department_id = ? WHERE id = ?")
                     .setParameter(1, deptIds[i])
-                    .setParameter(2, bossIds[i])
+                    .setParameter(2, managerIds[i])
                     .executeUpdate();
         }
 
@@ -134,14 +132,14 @@ public class SampleDataPopulator {
                 .executeUpdate();
     }
 
-    private void insertDept(String id, String name, String bossId, LocalDateTime created) {
+    private void insertDept(String id, String name, String managerId, LocalDateTime created) {
         em.createNativeQuery("""
-            INSERT INTO departments (id, name, boss_id, created_at_date_time)
+            INSERT INTO departments (id, name, manager_id, created_at_date_time)
             VALUES (?,?,?,?)
             """)
                 .setParameter(1, id)
                 .setParameter(2, name)
-                .setParameter(3, bossId)
+                .setParameter(3, managerId)
                 .setParameter(4, created)
                 .executeUpdate();
     }

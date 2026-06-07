@@ -20,7 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/users")
 @RequiredArgsConstructor
-@Tag(name = "Users", description = "Profile management for logged-in users. Available to both STAFF and BOSS.")
+@Tag(name = "Users", description = "Profile management for logged-in users. Available to both STAFF and manager.")
 @SecurityRequirement(name = "bearerAuth")
 public class UserController {
 

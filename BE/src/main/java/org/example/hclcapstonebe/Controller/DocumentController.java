@@ -21,7 +21,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/documents")
 @RequiredArgsConstructor
-@Tag(name = "Documents", description = "Document upload and retrieval. STAFF and BOSS can upload/view own docs. BOSS can also view/delete department docs.")
+@Tag(name = "Documents", description = "Document upload and retrieval. STAFF and manager can upload/view own docs. manager can also view/delete department docs.")
 @SecurityRequirement(name = "bearerAuth")
 public class DocumentController {
 
@@ -29,7 +29,7 @@ public class DocumentController {
 
     @Operation(
             summary = "Upload a single document",
-            description = "Uploads one document file. Automatically assigns it to the uploader's department. Triggers a WebSocket notification to the department boss."
+            description = "Uploads one document file. Automatically assigns it to the uploader's department. Triggers a WebSocket notification to the department manager."
     )
     @ApiResponses({
             @ApiResponse(
@@ -72,7 +72,7 @@ public class DocumentController {
 
     @Operation(
             summary = "Upload multiple documents",
-            description = "Uploads multiple document files in one request. Each file is processed individually and triggers a boss notification."
+            description = "Uploads multiple document files in one request. Each file is processed individually and triggers a manager notification."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "All documents uploaded successfully"),
@@ -147,12 +147,12 @@ public class DocumentController {
 
     @Operation(
             summary = "Get all department documents",
-            description = "BOSS ONLY — Returns all non-deleted documents uploaded by any staff in the boss's department."
+            description = "manager ONLY — Returns all non-deleted documents uploaded by any staff in the manager's department."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Department documents retrieved"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — BOSS only")
+            @ApiResponse(responseCode = "403", description = "Forbidden — manager only")
     })
     @GetMapping("/department")
     public ResponseEntity<List<DocumentResponse>> getDepartmentDocuments(
@@ -162,7 +162,7 @@ public class DocumentController {
 
     @Operation(
             summary = "Get department document by ID",
-            description = "BOSS ONLY — Returns a single document from the boss's department. Updates latestViewedDateTime."
+            description = "manager ONLY — Returns a single document from the manager's department. Updates latestViewedDateTime."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Document found"),
@@ -179,11 +179,11 @@ public class DocumentController {
 
     @Operation(
             summary = "Delete a document",
-            description = "BOSS ONLY — Soft deletes a document in the boss's department. Sets isDeleted=true, document is NOT permanently removed."
+            description = "manager ONLY — Soft deletes a document in the manager's department. Sets isDeleted=true, document is NOT permanently removed."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Document deleted successfully"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department or not a BOSS"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department or not a manager"),
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @DeleteMapping("/{id}")
