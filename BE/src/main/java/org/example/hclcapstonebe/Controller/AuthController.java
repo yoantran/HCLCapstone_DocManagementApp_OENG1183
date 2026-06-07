@@ -33,7 +33,7 @@ public class AuthController {
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(value = """
-                    {
+                    {                        "id": "bac1234",
                         "token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqb2huQGhjbC5jb20iLCJpYXQiOjE3MTM1OTAwMDAsImV4cCI6MTcxMzY3NjQwMH0.abc123",
                         "roleEnum": "STAFF",
                         "email": "john.doe@hcl.com",

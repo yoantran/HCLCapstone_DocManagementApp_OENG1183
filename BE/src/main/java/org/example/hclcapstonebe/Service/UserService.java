@@ -1,54 +1,93 @@
 package org.example.hclcapstonebe.Service;
 
-
+import lombok.RequiredArgsConstructor;
 import org.example.hclcapstonebe.DTO.Request.UpdateProfileRequest;
-import org.example.hclcapstonebe.DTO.Response.UserResponse;
+import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Entities.User;
 import org.example.hclcapstonebe.Exception.AppException;
 import org.example.hclcapstonebe.Mapper.UserMapper;
 import org.example.hclcapstonebe.Repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.UUID;
+    @Service
+    @RequiredArgsConstructor
+    public class UserService {
 
-@Service
-@RequiredArgsConstructor
-public class UserService {
+        private final UserRepository userRepository;
+        private final SupabaseStorageService supabaseStorageService;
+        private final UserMapper userMapper;                // ← injected
 
-    private final UserRepository userRepository;
-    private final UserMapper userMapper;                    // MapStruct
+        private static final String IMAGE_BUCKET   = "images";
+        private static final int    SIGNED_URL_TTL = 3600;
 
-    public UserResponse getProfile(String email) {
-        User user = getUserByEmail(email);
-        return userMapper.toResponse(user);                 // MapStruct
-    }
+        public UserProfileResponse getProfile(String email) {
+            User user = getUserByEmail(email);
+            return toResponseWithSignedAvatar(user);
+        }
+        // ─── UPDATE MY PROFILE ────────────────────────────────────────────────────
 
-    public UserResponse updateProfile(String email,
-                                      UpdateProfileRequest req,
-                                      MultipartFile avatar) {
-        User user = getUserByEmail(email);
+        /**
+         * Updates name, phoneNumber, and optionally avatar.
+         * If a new avatar is uploaded:
+         *   1. Old avatar is deleted from Supabase images bucket
+         *   2. New avatar is uploaded to Supabase images bucket
+         *   3. The New storage path is saved to user.avatarImageUrl
+         *
+         * @param email      current logged-in user's email (from JWT)
+         * @param request    name + phoneNumber fields
+         * @param avatarFile optional new avatar image (JPEG or PNG, max 10MB)
+         */
+        public UserProfileResponse updateProfile(String email,
+                                                 UpdateProfileRequest request,
+                                                 MultipartFile avatarFile) {
+            User user = getUserByEmail(email);
 
-        if (req != null) {
-            if (req.getName() != null)        user.setName(req.getName());
-            if (req.getPhoneNumber() != null) user.setPhoneNumber(req.getPhoneNumber());
+            if (request.getName() != null && !request.getName().isBlank()) {
+                user.setName(request.getName());
+            }
+            if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()) {
+                user.setPhoneNumber(request.getPhoneNumber());
+            }
+
+            if (avatarFile != null && !avatarFile.isEmpty()) {
+                // 1. Delete old avatar from Supabase
+                if (user.getAvatarImageUrl() != null && !user.getAvatarImageUrl().isBlank()) {
+                    supabaseStorageService.deleteFile(IMAGE_BUCKET, user.getAvatarImageUrl());
+                }
+                // 2. Upload new avatar
+                String newAvatarPath = supabaseStorageService.uploadFile(IMAGE_BUCKET, avatarFile);
+                // 3. Save path
+                user.setAvatarImageUrl(newAvatarPath);
+            }
+
+            userRepository.save(user);
+            return toResponseWithSignedAvatar(user);
         }
 
-        if (avatar != null && !avatar.isEmpty()) {
-            // TODO: replace with real S3 upload, store returned URL
-            String avatarUrl = "avatars/" + UUID.randomUUID() + "_" + avatar.getOriginalFilename();
-            user.setAvatarImageUrl(avatarUrl);
+        // ─── HELPERS ──────────────────────────────────────────────────────────────
+
+        /**
+         * MapStruct handles all scalar fields.
+         * We manually attach the signed URL afterward since it's dynamic.
+         */
+        private UserProfileResponse toResponseWithSignedAvatar(User user) {
+            UserProfileResponse response = userMapper.toResponse(user);   // MapStruct
+
+            if (user.getAvatarImageUrl() != null && !user.getAvatarImageUrl().isBlank()) {
+                response.setAvatarSignedUrl(
+                        supabaseStorageService.generateSignedUrl(
+                                IMAGE_BUCKET, user.getAvatarImageUrl(), SIGNED_URL_TTL
+                        )
+                );
+            }
+
+            return response;
         }
 
-        return userMapper.toResponse(userRepository.save(user)); // MapStruct
+        private User getUserByEmail(String email) {
+            return userRepository.findByEmailAndIsDeletedFalse(email)
+                    .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
+        }
     }
-
-    // ─── HELPER ───────────────────────────────────────────
-
-    private User getUserByEmail(String email) {
-        return userRepository.findByEmailAndIsDeletedFalse(email)
-                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
-    }
-}
