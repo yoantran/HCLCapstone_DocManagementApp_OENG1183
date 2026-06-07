@@ -29,7 +29,15 @@ public class DocumentController {
 
     @Operation(
             summary = "Upload a single document",
-            description = "Uploads one document file. Automatically assigns it to the uploader's department. Triggers a WebSocket notification to the department manager."
+            description = """
+                Uploads one document file to the Supabase documents bucket.
+                Automatically assigns it to the uploader's department.
+                Triggers a WebSocket notification to the department boss.
+                A signed URL (valid for 1 hour) is returned to view the document.
+                
+                Allowed formats: PDF, DOCX, CSV
+                Max file size: 10MB
+                """
     )
     @ApiResponses({
             @ApiResponse(
@@ -38,32 +46,37 @@ public class DocumentController {
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(value = """
-                    {
-                        "id": "doc-uuid-001",
-                        "name": "Q1_Report.pdf",
-                        "documentLink": "uploads/550e8400_Q1_Report.pdf",
-                        "type": "CONTRACT",
-                        "format": "PDF",
-                        "size": 204800,
-                        "uploaderId": "user-uuid-123",
-                        "uploaderName": "John Doe",
-                        "departmentId": "dept-uuid-123",
-                        "uploadedDateTime": "2026-04-20T10:30:00",
-                        "latestViewedDateTime": null
-                    }
-                """)
+                {
+                    "id": "doc-uuid-001",
+                    "name": "Q1_Report.pdf",
+                    "type": "CONTRACT",
+                    "format": "PDF",
+                    "size": 204800,
+                    "uploaderId": "user-uuid-123",
+                    "uploaderName": "John Doe",
+                    "departmentId": "dept-uuid-123",
+                    "uploadedDateTime": "2026-04-20T10:30:00",
+                    "latestViewedDateTime": null,
+                    "signedUrl": "https://pkbwoortbtsvbcggybia.supabase.co/storage/v1/object/sign/documents/uuid_Q1_Report.pdf?token=eyJ..."
+                }
+            """)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid file type or document type"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden")
+            @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed) or invalid document type, or file exceeds 10MB"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
     })
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
     public ResponseEntity<DocumentResponse> uploadOne(
-            @Parameter(description = "The document file to upload (PDF, WORD, CSV)")
+            @Parameter(description = "The document file to upload. Allowed formats: PDF, DOCX, CSV. Max size: 10MB")
             @RequestParam("file") MultipartFile file,
-            @Parameter(description = "Document type", example = "CONTRACT",
-                    schema = @io.swagger.v3.oas.annotations.media.Schema(allowableValues = {"CONTRACT", "BALANCE_SHEET", "PAY_SLIP"}))
+            @Parameter(
+                    description = "Document type",
+                    example = "CONTRACT",
+                    schema = @io.swagger.v3.oas.annotations.media.Schema(
+                            allowableValues = {"CONTRACT", "BALANCE_SHEET", "PAY_SLIP"}
+                    )
+            )
             @RequestParam("type") String type,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -72,25 +85,61 @@ public class DocumentController {
 
     @Operation(
             summary = "Upload multiple documents",
-            description = "Uploads multiple document files in one request. Each file is processed individually and triggers a manager notification."
+            description = """
+                Uploads multiple document files in one request.
+                Each file is processed individually and triggers a boss notification.
+                All files in the batch must share the same document type.
+                A signed URL (valid for 1 hour) is returned per document.
+                
+                Allowed formats: PDF, DOCX, CSV
+                Max file size per file: 10MB
+                """
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "All documents uploaded successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid file or type"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized")
+            @ApiResponse(
+                    responseCode = "201",
+                    description = "All documents uploaded successfully",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                [
+                    {
+                        "id": "doc-uuid-001",
+                        "name": "Q1_Report.pdf",
+                        "type": "PAY_SLIP",
+                        "format": "PDF",
+                        "size": 204800,
+                        "uploaderId": "user-uuid-123",
+                        "uploaderName": "John Doe",
+                        "departmentId": "dept-uuid-123",
+                        "uploadedDateTime": "2026-04-20T10:30:00",
+                        "latestViewedDateTime": null,
+                        "signedUrl": "https://pkbwoortbtsvbcggybia.supabase.co/storage/v1/object/sign/documents/uuid_Q1_Report.pdf?token=eyJ..."
+                    }
+                ]
+            """)
+                    )
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed) or invalid document type, or a file exceeds 10MB"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
     })
     @PostMapping(value = "/upload/batch", consumes = "multipart/form-data")
     public ResponseEntity<List<DocumentResponse>> uploadMany(
-            @Parameter(description = "List of document files to upload")
+            @Parameter(description = "List of document files to upload. Allowed formats: PDF, DOCX, CSV. Max size per file: 10MB")
             @RequestParam("files") List<MultipartFile> files,
-            @Parameter(description = "Document type for all files", example = "PAY_SLIP",
-                    schema = @io.swagger.v3.oas.annotations.media.Schema(allowableValues = {"CONTRACT", "BALANCE_SHEET", "PAY_SLIP"}))
+            @Parameter(
+                    description = "Document type applied to all files in the batch",
+                    example = "PAY_SLIP",
+                    schema = @io.swagger.v3.oas.annotations.media.Schema(
+                            allowableValues = {"CONTRACT", "BALANCE_SHEET", "PAY_SLIP"}
+                    )
+            )
             @RequestParam("type") String type,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(documentService.uploadMany(files, type, userDetails.getUsername()));
     }
-
     @Operation(
             summary = "Get my documents",
             description = "Returns all non-deleted documents uploaded by the currently logged-in user."
@@ -98,7 +147,8 @@ public class DocumentController {
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
-                    description = "Documents retrieved successfully",
+                    description = "Documents retrieved successfully,                     \"Signed url is available for 1 hour to view document\"\n"
+                    ,
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(value = """
@@ -106,7 +156,7 @@ public class DocumentController {
                         {
                             "id": "doc-uuid-001",
                             "name": "Q1_Report.pdf",
-                            "documentLink": "uploads/550e8400_Q1_Report.pdf",
+                            "signedUrl": "uploads/550e8400_Q1_Report.pdf",
                             "type": "CONTRACT",
                             "format": "PDF",
                             "size": 204800,

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
+import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 
@@ -19,8 +20,9 @@ public class Document {
     @Column(nullable = false)
     private String name;
 
+    @CreationTimestamp
     @Column(nullable = false, updatable = false)
-    private LocalDateTime uploadedDateTime = LocalDateTime.now();
+    private LocalDateTime uploadedDateTime;
 
     private LocalDateTime latestViewedDateTime;
 
