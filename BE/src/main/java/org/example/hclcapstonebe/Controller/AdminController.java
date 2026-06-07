@@ -16,7 +16,7 @@ import org.example.hclcapstonebe.DTO.Request.CreateDepartmentRequest;
 import org.example.hclcapstonebe.DTO.Request.CreateUserRequest;
 import org.example.hclcapstonebe.DTO.Request.UpdateDepartmentRequest;
 import org.example.hclcapstonebe.DTO.Response.DepartmentResponse;
-import org.example.hclcapstonebe.DTO.Response.UserResponse;
+import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Service.AdminService;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -49,7 +49,7 @@ public class AdminController {
                     description = "User created successfully",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = UserResponse.class),
+                            schema = @Schema(implementation = UserProfileResponse.class),
                             examples = {
                                     @ExampleObject(
                                             name = "Created with department",
@@ -91,7 +91,7 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "Email already in use")
     })
     @PostMapping("/users")
-    public ResponseEntity<UserResponse> createUser(
+    public ResponseEntity<UserProfileResponse> createUser(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "User creation payload. `departmentId` is optional.",
                     required = true,
@@ -190,7 +190,7 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "User or department not found")
     })
     @PatchMapping("/users/{id}")
-    public ResponseEntity<UserResponse> reassignStaff(
+    public ResponseEntity<UserProfileResponse> reassignStaff(
             @Parameter(description = "UUID of the STAFF user to assign", example = "user-uuid-123")
             @PathVariable String id,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -236,7 +236,7 @@ public class AdminController {
         return ResponseEntity.noContent().build();
     }
     @GetMapping("/users")
-    public ResponseEntity<List<UserResponse>> getAllUsers() {
+    public ResponseEntity<List<UserProfileResponse>> getAllUsers() {
         return ResponseEntity.ok(adminService.getAllUsers());
     }
 
@@ -270,7 +270,7 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @GetMapping("/users/{id}")
-    public ResponseEntity<UserResponse> getUserById(
+    public ResponseEntity<UserProfileResponse> getUserById(
             @Parameter(description = "UUID of the user", example = "550e8400-e29b-41d4-a716-446655440000")
             @PathVariable String id) {
         return ResponseEntity.ok(adminService.getUserById(id));

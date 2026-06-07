@@ -4,7 +4,7 @@ import org.example.hclcapstonebe.DTO.Request.CreateDepartmentRequest;
 import org.example.hclcapstonebe.DTO.Request.CreateUserRequest;
 import org.example.hclcapstonebe.DTO.Request.UpdateDepartmentRequest;
 import org.example.hclcapstonebe.DTO.Response.DepartmentResponse;
-import org.example.hclcapstonebe.DTO.Response.UserResponse;
+import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Entities.Department;
 import org.example.hclcapstonebe.Entities.User;
 import org.example.hclcapstonebe.Enums.RoleEnum;
@@ -36,7 +36,7 @@ public class AdminService {
     // ─── USER ─────────────────────────────────────────────
 
     // ─── CREATE USER ──────────────────────────────────────
-    public UserResponse createUser(CreateUserRequest req) {
+    public UserProfileResponse createUser(CreateUserRequest req) {
         if (userRepository.existsByEmail(req.getEmail())) {
             throw new AppException("Email already in use", HttpStatus.CONFLICT);
         }
@@ -55,7 +55,7 @@ public class AdminService {
         return userMapper.toResponse(userRepository.save(user));
     }
     @Transactional
-    public UserResponse assignDepartmentToUser(String userId, AssignDepartmentRequest req) {
+    public UserProfileResponse assignDepartmentToUser(String userId, AssignDepartmentRequest req) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
@@ -100,14 +100,14 @@ public class AdminService {
         userRepository.save(user);
     }
 
-    public List<UserResponse> getAllUsers() {
+    public List<UserProfileResponse> getAllUsers() {
         return userRepository.findByIsDeletedFalse()
                 .stream()
                 .map(userMapper::toResponse)                // MapStruct method reference
                 .collect(Collectors.toList());
     }
 
-    public UserResponse getUserById(String id) {
+    public UserProfileResponse getUserById(String id) {
         User user = userRepository.findByIdAndIsDeletedFalse(id)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
         return userMapper.toResponse(user);                 // MapStruct

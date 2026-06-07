@@ -7,11 +7,11 @@ import org.example.hclcapstonebe.Enums.RoleEnum;
 import java.time.LocalDateTime;
 
 @Data
-public class UserResponse {
+public class UserProfileResponse {
     private String id;
     private String email;
     private String name;
-    private String avatarImageUrl;
+    private String avatarSignedUrl;
     private String phoneNumber;
     private String departmentId;
     private String departmentName;
