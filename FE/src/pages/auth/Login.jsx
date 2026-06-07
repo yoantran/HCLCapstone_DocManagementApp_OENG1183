@@ -49,15 +49,6 @@ function Login() {
         }
     };
 
-    const [showConfirmModal, setShowConfirmModal] = useState(false);
-
-    const handleExecuteAction = () => {
-        console.log("Action confirmed and executed successfully!");
-        pushSuccess("Successfully submitted!");
-        setShowConfirmModal(false); // Close modal when finished
-    };
-
-
     return (
         <div className="min-h-screen w-full">
             <form className="flex max-w-md flex-col gap-4" onSubmit={handleSubmit}>
@@ -90,26 +81,10 @@ function Login() {
                     <Checkbox id="remember" />
                     <Label htmlFor="remember">Remember me</Label>
                 </div>
-                <CustomButton outline color={"red"} type="submit" disabled={loading}>
+                <CustomButton type="submit" disabled={loading}>
                     {loading ? 'Signing in...' : 'Submit'}
                 </CustomButton>
             </form>
-
-            <div>
-                <CustomButton color="primary" onClick={() => setShowConfirmModal(true)}>
-                    Complete Action
-                </CustomButton>
-
-                <PopUpModal
-                    isOpen={showConfirmModal}
-                    onClose={() => setShowConfirmModal(false)}
-                    onConfirm={handleExecuteAction}
-                    title="Are you sure you want to complete this action?"
-                    description="This cannot be undone."
-                    confirmText="Yes"
-                    cancelText="No"
-                />
-            </div>
             {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}
             {success ? <p style={{ color: 'green', marginTop: '12px' }}>{success}</p> : null}
         </div>
