@@ -4,8 +4,10 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
+import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "documents")
@@ -14,13 +16,14 @@ public class Document {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    private String id;
+    private UUID id;
 
     @Column(nullable = false)
     private String name;
 
+    @CreationTimestamp
     @Column(nullable = false, updatable = false)
-    private LocalDateTime uploadedDateTime = LocalDateTime.now();
+    private LocalDateTime uploadedDateTime;
 
     private LocalDateTime latestViewedDateTime;
 
@@ -35,7 +38,7 @@ public class Document {
     @Column(nullable = false)
     private DocumentFormatEnum format;
 
-    private Long size; // bytes
+    private Long byteSize; // bytes
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "uploader_id", nullable = false)
