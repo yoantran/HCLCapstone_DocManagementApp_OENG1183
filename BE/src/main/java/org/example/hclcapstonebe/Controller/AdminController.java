@@ -22,6 +22,7 @@ import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/admin")
@@ -76,7 +77,7 @@ public class AdminController {
                             "avatarImageUrl": null,
                             "phoneNumber": "0901234567",
                             "departmentId": null,
-                            "roleEnum": "manager",
+                            "roleEnum": "MANAGER",
                             "createdAtDateTime": "2026-04-20T10:00:00"
                         }
                     """
@@ -209,7 +210,7 @@ public class AdminController {
                     )
             )
             @RequestBody AssignDepartmentRequest req) {
-        return ResponseEntity.ok(adminService.assignDepartmentToUser(id, req));
+        return ResponseEntity.ok(adminService.assignDepartmentToUser(UUID.fromString(id), req));
     }
     @Operation(
             summary = "Soft delete a user",
@@ -232,7 +233,7 @@ public class AdminController {
     public ResponseEntity<Void> deleteUser(
             @Parameter(description = "UUID of the user to delete", example = "550e8400-e29b-41d4-a716-446655440000")
             @PathVariable String id) {
-        adminService.deleteUser(id);
+        adminService.deleteUser(UUID.fromString(id));
         return ResponseEntity.noContent().build();
     }
     @GetMapping("/users")
@@ -273,7 +274,7 @@ public class AdminController {
     public ResponseEntity<UserProfileResponse> getUserById(
             @Parameter(description = "UUID of the user", example = "550e8400-e29b-41d4-a716-446655440000")
             @PathVariable String id) {
-        return ResponseEntity.ok(adminService.getUserById(id));
+        return ResponseEntity.ok(adminService.getUserById(UUID.fromString(id)));
     }
 
     // ─── DEPARTMENTS ──────────────────────────────────────
@@ -457,7 +458,7 @@ public class AdminController {
     public ResponseEntity<Void> deleteDepartment(
             @Parameter(description = "UUID of the department to delete", example = "dept-uuid-123")
             @PathVariable String id) {
-        adminService.deleteDepartment(id);
+        adminService.deleteDepartment(UUID.fromString(id));
         return ResponseEntity.noContent().build();
     }
 

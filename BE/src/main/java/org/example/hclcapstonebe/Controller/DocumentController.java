@@ -32,7 +32,7 @@ public class DocumentController {
             description = """
                 Uploads one document file to the Supabase documents bucket.
                 Automatically assigns it to the uploader's department.
-                Triggers a WebSocket notification to the department boss.
+                Triggers a WebSocket notification to the department manager.
                 A signed URL (valid for 1 hour) is returned to view the document.
                 
                 Allowed formats: PDF, DOCX, CSV
@@ -87,12 +87,13 @@ public class DocumentController {
             summary = "Upload multiple documents",
             description = """
                 Uploads multiple document files in one request.
-                Each file is processed individually and triggers a boss notification.
+                Each file is processed individually and triggers a manager notification.
                 All files in the batch must share the same document type.
                 A signed URL (valid for 1 hour) is returned per document.
                 
                 Allowed formats: PDF, DOCX, CSV
                 Max file size per file: 10MB
+                Max files per request: 10
                 """
     )
     @ApiResponses({
@@ -120,7 +121,7 @@ public class DocumentController {
             """)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed) or invalid document type, or a file exceeds 10MB"),
+            @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed), invalid document type, file exceeds 10MB, or more than 10 files in one request"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
             @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
     })
@@ -141,7 +142,7 @@ public class DocumentController {
                 .body(documentService.uploadMany(files, type, userDetails.getUsername()));
     }
     @Operation(
-            summary = "Get my documents",
+            summary = "Staff only: Get my uploaded documents",
             description = "Returns all non-deleted documents uploaded by the currently logged-in user."
     )
     @ApiResponses({
@@ -179,7 +180,7 @@ public class DocumentController {
     }
 
     @Operation(
-            summary = "Get my document by ID",
+            summary = "Staff only: Get my uploaded document by ID",
             description = "Returns a single document uploaded by the current user. Updates latestViewedDateTime on access."
     )
     @ApiResponses({

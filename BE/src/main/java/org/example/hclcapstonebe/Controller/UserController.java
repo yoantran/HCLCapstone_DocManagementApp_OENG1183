@@ -34,7 +34,7 @@ public class UserController {
             description = """
                     Returns the currently logged-in user's profile.
                     Includes a signed URL for the avatar image (valid for 1 hour).
-                    Available to both Staff and Boss.
+                    Available to both Staff and Manager.
                     """
     )
     @ApiResponses({

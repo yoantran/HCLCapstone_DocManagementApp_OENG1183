@@ -5,6 +5,7 @@ import lombok.Data;
 import org.example.hclcapstonebe.Enums.RoleEnum;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Data
 public class UserProfileResponse {

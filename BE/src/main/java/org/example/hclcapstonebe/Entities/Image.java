@@ -6,6 +6,7 @@ import lombok.*;
 import org.example.hclcapstonebe.Enums.ImageFormatEnum;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "images")
@@ -14,7 +15,7 @@ public class Image {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
-    private String id;
+    private UUID id;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime uploadedDateTime = LocalDateTime.now();

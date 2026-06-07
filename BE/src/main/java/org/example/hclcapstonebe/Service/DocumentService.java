@@ -51,6 +51,17 @@ public class DocumentService {
 
     public List<DocumentResponse> uploadMany(List<MultipartFile> files, String type,
                                              String currentUserEmail) {
+        // ── Batch size validation ─────────────────────────────────────────────
+        if (files == null || files.isEmpty()) {
+            throw new AppException("No files provided", HttpStatus.BAD_REQUEST);
+        }
+        if (files.size() > 10) {
+            throw new AppException(
+                    "Batch upload limit exceeded — maximum 10 documents per request, got " + files.size(),
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
         User uploader = getUserByEmail(currentUserEmail);
         return files.stream().map(file -> {
             Document doc = buildAndSaveDocument(file, type, uploader);
@@ -58,7 +69,6 @@ public class DocumentService {
             return toResponseWithSignedUrl(doc);
         }).collect(Collectors.toList());
     }
-
     private Document buildAndSaveDocument(MultipartFile file, String type, User uploader) {
         String originalName = file.getOriginalFilename() != null
                 ? file.getOriginalFilename()
@@ -73,7 +83,7 @@ public class DocumentService {
                 : originalName;
 
         // ── Deduplicate filename for this user ──────────────────
-        String finalName = resolveUniqueFileName(baseName, ext, UUID.fromString(uploader.getId()));
+        String finalName = resolveUniqueFileName(baseName, ext, UUID.fromString(String.valueOf(uploader.getId())));
 
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
         String storagePath = supabaseStorageService.uploadFile(BUCKET, file);
@@ -83,7 +93,7 @@ public class DocumentService {
                 .documentLink(storagePath)
                 .type(DocumentTypeEnum.valueOf(type.toUpperCase()))
                 .format(DocumentFormatEnum.valueOf(ext))
-                .size(file.getSize())
+                .byteSize(file.getSize())
                 .uploadedDateTime(LocalDateTime.now())
                 .uploader(uploader)
                 .department(uploader.getDepartment())
@@ -100,7 +110,7 @@ public class DocumentService {
     private String resolveUniqueFileName(String baseName, String ext, UUID uploaderId) {
         // Fetch all non-deleted doc names for this user
         List<String> existingNames = documentRepository
-                .findByUploaderIdAndIsDeletedFalse(String.valueOf(uploaderId))
+                .findByUploaderIdAndIsDeletedFalse(uploaderId)
                 .stream()
                 .map(Document::getName)
                 .toList();
@@ -237,7 +247,7 @@ public class DocumentService {
     }
 
     private Document getDocumentOrThrow(String docId) {
-        return documentRepository.findByIdAndIsDeletedFalse(docId)
+        return documentRepository.findByIdAndIsDeletedFalse(UUID.fromString(docId))
                 .orElseThrow(() -> new AppException("Document not found", HttpStatus.NOT_FOUND));
     }
 }

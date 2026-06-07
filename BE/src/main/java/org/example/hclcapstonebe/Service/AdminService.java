@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -55,11 +56,11 @@ public class AdminService {
         return userMapper.toResponse(userRepository.save(user));
     }
     @Transactional
-    public UserProfileResponse assignDepartmentToUser(String userId, AssignDepartmentRequest req) {
+    public UserProfileResponse assignDepartmentToUser(UUID userId, AssignDepartmentRequest req) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
-        if (user.getRoleEnum() == RoleEnum.manager) {
+        if (user.getRoleEnum() == RoleEnum.MANAGER) {
             throw new AppException(
                     "Cannot assign department to a manager here. Use Update Department API to assign a manager to a department.",
                     HttpStatus.BAD_REQUEST
@@ -78,12 +79,12 @@ public class AdminService {
         return userMapper.toResponse(userRepository.save(user));
     }
     @Transactional
-    public void deleteUser(String userId) {
+    public void deleteUser(UUID userId) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
         // If user is a manager → auto clear department's manager
-        if (user.getRoleEnum() == RoleEnum.manager && user.getDepartment() != null) {
+        if (user.getRoleEnum() == RoleEnum.MANAGER && user.getDepartment() != null) {
             Department dept = user.getDepartment();
             if (dept.getManager() != null && dept.getManager().getId().equals(userId)) {
                 dept.setManager(null);
@@ -107,7 +108,7 @@ public class AdminService {
                 .collect(Collectors.toList());
     }
 
-    public UserProfileResponse getUserById(String id) {
+    public UserProfileResponse getUserById(UUID id) {
         User user = userRepository.findByIdAndIsDeletedFalse(id)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
         return userMapper.toResponse(user);                 // MapStruct
@@ -121,10 +122,10 @@ public class AdminService {
         // manager is optional on creation
         User manager = null;
         if (req.getManagerId() != null) {
-            manager = userRepository.findByIdAndIsDeletedFalse(req.getManagerId())
+            manager = userRepository.findByIdAndIsDeletedFalse(UUID.fromString(req.getManagerId()))
                     .orElseThrow(() -> new AppException("manager user not found", HttpStatus.NOT_FOUND));
 
-            if (manager.getRoleEnum() != RoleEnum.manager) {
+            if (manager.getRoleEnum() != RoleEnum.MANAGER) {
                 throw new AppException("Assigned user is not a manager", HttpStatus.BAD_REQUEST);
             }
 
@@ -179,10 +180,10 @@ public class AdminService {
 
             // ── Assign or replace manager ─────────────────────────
         } else if (req.getManagerId() != null && !req.getManagerId().isBlank()) {
-            User newmanager = userRepository.findByIdAndIsDeletedFalse(req.getManagerId())
+            User newmanager = userRepository.findByIdAndIsDeletedFalse(UUID.fromString(req.getManagerId()))
                     .orElseThrow(() -> new AppException("New manager not found", HttpStatus.NOT_FOUND));
 
-            if (newmanager.getRoleEnum() != RoleEnum.manager) {
+            if (newmanager.getRoleEnum() != RoleEnum.MANAGER) {
                 throw new AppException("Assigned user is not a manager", HttpStatus.BAD_REQUEST);
             }
 
@@ -220,7 +221,7 @@ public class AdminService {
     }
 
     @Transactional
-    public void deleteDepartment(String deptId) {
+    public void deleteDepartment(UUID deptId) {
         Department dept = departmentRepository.findById(deptId)
                 .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
 

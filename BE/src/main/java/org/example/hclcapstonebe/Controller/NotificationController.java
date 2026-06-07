@@ -16,6 +16,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/notifications")
@@ -98,7 +99,7 @@ public class NotificationController {
     @PatchMapping("/{id}/read")
     public ResponseEntity<NotificationResponse> markAsRead(
             @Parameter(description = "UUID of the notification to mark as read", example = "notif-uuid-001")
-            @PathVariable String id,
+            @PathVariable UUID id,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(notificationService.markAsRead(id, userDetails.getUsername()));
     }

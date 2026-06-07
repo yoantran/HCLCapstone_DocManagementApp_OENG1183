@@ -58,7 +58,7 @@ public class SampleDataPopulator {
         String[] managerPhones= {"0901111111","0902222222","0903333333","0904444444","0905555555"};
 
         for (int i = 0; i < 5; i++) {
-            insertUser(managerIds[i], managerEmails[i], pw, managerNames[i], managerPhones[i], RoleEnum.manager, null, now);
+            insertUser(managerIds[i], managerEmails[i], pw, managerNames[i], managerPhones[i], RoleEnum.MANAGER, null, now);
         }
 
         // ── Departments ────────────────────────────────────
