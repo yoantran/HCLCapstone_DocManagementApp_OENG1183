@@ -29,7 +29,8 @@ public class AuthService {
         }
 
         String token = jwtUtil.generateToken(user.getEmail());
-        return new AuthResponse(token, user.getRoleEnum().name(), user.getEmail(), user.getName());
+        return new AuthResponse(user.getId(), token, user.getRoleEnum().name(), user.getEmail(), user.getName());
+
     }
 
     // Logout: on client side, discard the token.
