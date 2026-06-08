@@ -6,8 +6,8 @@ import { useAuth } from '../../context/AuthContext';
 import {Checkbox, Label} from 'flowbite-react';
 import { CustomButton} from '../../components/button';
 import {CustomTextInput} from "../../components/textInput/index.jsx";
-import {PopUpModal} from "../../components/popUpModal/index.jsx";
-import {pushSuccess} from "../../components/toast/index.jsx";
+
+
 // TODO: WIP Login
 function Login() {
     const [email, setEmail] = useState('');
@@ -32,18 +32,26 @@ function Login() {
             });
 
             if (response?.token) {
-                const role = response.role
+                // const role = response.role
+                const userId = response.id || response._id || response.user?.id || response.user?._id;
+                const role = response.role || response.user?.role;
+                const name = response.name || response.user?.name;
+                const userEmail = response.email || response.user?.email;
+
+                if (!userId) {
+                    throw new Error("Server response did not include a valid User ID attribute.");
+                }
                 login(
-                    { email: response.email, name: response.name, role },
+                    { id: userId, email: userEmail, name, role },
                     response.token
                 );
-                navigate(role === 'ADMIN' ? '/admin' : '/');
+                navigate(`/${userId}/submit-request`, { replace: true });
             } else {
                 setError(response?.message || 'Login failed');
             }
         } catch (err) {
-            setError('Login failed');
-            console.error('Login error:', err);
+            setError(err?.response?.data?.message || 'Invalid credentials or connection dropped.');
+            console.error('Login submission fault context:', err);
         } finally {
             setLoading(false);
         }
@@ -59,7 +67,7 @@ function Login() {
                     <CustomTextInput
                         id="email1"
                         type="email"
-                        placeholder="name@flowbite.com"
+                        placeholder="yourEmail@gmail.com"
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         required

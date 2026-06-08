@@ -17,7 +17,7 @@ function RootRedirect() {
     if (loading) return null;
     if (!user) return <Navigate to="/login" replace />;
 
-    return <Navigate to={`/${user.id}/dashboard`} replace />;
+    return <Navigate to={`/${user.id}/submit-request`} replace />;
 }
 
 export const router = createBrowserRouter([
@@ -29,43 +29,26 @@ export const router = createBrowserRouter([
         ],
     },
 
-    // STAFF & BOSS
     {
-        element: <ProtectedRoute allowedRoles={['STAFF', 'BOSS']} />,
+        element: <ProtectedRoute allowedRoles={['STAFF', 'MANAGER', 'ADMIN']} />,
         children: [
             {
                 path: '/:userId',
                 element: <MainLayout />,
                 children: [
-                    { path: 'dashboard'},
-                    { path: 'submit-request'},
-                    { path: 'documents'},
-                    { path: 'profile'},
-                ],
-            },
-        ],
-    },
+                    // Default redirect when visiting /:userId base route directly
+                    { index: true, element: <Navigate to="submit-request" replace /> },
 
-    // ADMIN-ONLY
-    {
-        element: <ProtectedRoute allowedRoles={['ADMIN']} />,
-        children: [
-            {
-                path: '/:userId',
-                element: <MainLayout />,
-                children: [
-                    { path: 'dashboard'},
-                    { path: 'submit-request'},
-                    { path: 'documents'},
-                    { path: 'profile'},
+                    { path: 'submit-request', element: <div>Submit Request Form Canvas</div> },
+                    { path: 'documents' },
+                    { path: 'profile' },
 
-                    // Admin-exclusive
+
                     {
                         path: 'admin',
+                        element: <ProtectedRoute allowedRoles={['ADMIN']} />,
                         children: [
-                            { index: true, element: <Navigate to="departments" replace /> },
-                            { path: 'departments'},
-                            { path: 'users'},
+                            { path: 'management' },
                         ]
                     }
                 ],

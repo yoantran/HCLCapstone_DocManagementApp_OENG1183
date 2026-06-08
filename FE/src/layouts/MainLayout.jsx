@@ -4,11 +4,6 @@ import dmsLogo from '../assets/DMSLogo.svg';
 import avatar from '../assets/avatar.svg';
 import bellOff from '../assets/bell-off.svg';
 import {
-    Avatar,
-    Dropdown,
-    DropdownDivider,
-    DropdownHeader,
-    DropdownItem,
     Navbar,
     NavbarBrand, NavbarCollapse,
     NavbarLink, NavbarToggle
@@ -24,16 +19,15 @@ export default function MainLayout() {
     const currentRole = user.role?.toUpperCase();
     const userId = user.id;
 
-    const isStaffFeatureAllowed = ['STAFF', 'BOSS', 'ADMIN'].includes(currentRole);
+    const isStaffFeatureAllowed = ['STAFF', 'MANAGER', 'ADMIN'].includes(currentRole);
 
-    const isManagerOnly = currentRole === 'BOSS';
+    const isManagerOnly = currentRole === 'MANAGER';
     const isAdminOnly = currentRole === 'ADMIN';
 
     // TODO: WIP NavBar
     return (
         <div
             className="border-r border-(--cool-gray-200)"
-            // className="flex flex-col min-h-screen bg-(--dark-blue-700) text-(--ch-cool-gray)"
         >
             {/* Global Navbar*/}
             <Navbar
@@ -49,7 +43,7 @@ export default function MainLayout() {
                         className="h-11.25 w-11.25 object-contain"
                     />
                 </NavbarBrand>
-                {/* Middle Navigation Link Grid Blocks */}
+                {/* Middle Navigation */}
                 <NavbarCollapse>
                     {/*  Staff & Manager */}
                     {isStaffFeatureAllowed && (
@@ -71,21 +65,12 @@ export default function MainLayout() {
                     )}
                     {/* 2. Admin */}
                     {isAdminOnly && (
-                        <>
-                            <NavbarLink
-                                as={Link}
-                                to={`/${userId}/admin/departments`}
-                            >
-                                Departments
-                            </NavbarLink>
-
-                            <NavbarLink
-                                as={Link}
-                                to={`/${userId}/admin/users`}
-                            >
-                                Users
-                            </NavbarLink>
-                        </>
+                        <NavbarLink
+                            as={Link}
+                            to={`/${userId}/admin`}
+                        >
+                            Users & Departments Management
+                        </NavbarLink>
                     )}
                 </NavbarCollapse>
                 </div>
