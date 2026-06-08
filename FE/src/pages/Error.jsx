@@ -1,1 +1,3 @@
-export default function Error() { return <div>404 — Page Not Found</div>; }
+// noinspection LossyEncoding
+
+export default function Error() { return <div>404 ï¿½ Page Not Found</div>; }
