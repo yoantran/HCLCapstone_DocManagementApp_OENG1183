@@ -36,7 +36,7 @@ export default function MainLayout() {
             >
                 <div className="flex items-center gap-10">
                 {/* Left Side: Brand Logo */}
-                <NavbarBrand as={Link} to={`/${userId}/dashboard`}>
+                <NavbarBrand as={Link} to={`/${userId}/submit-request`}>
                     <img
                         src={dmsLogo}
                         alt="DMS Icon"

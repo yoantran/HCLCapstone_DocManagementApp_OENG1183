@@ -120,6 +120,8 @@ function Login() {
                         {loading ? 'Signing in...' : 'Log In'}
                     </CustomButton>
                 </div>
+                {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}
+                {success ? <p style={{ color: 'green', marginTop: '12px' }}>{success}</p> : null}
             </form>
 
             <div className="w-full max-w-sm mt-10">
@@ -133,9 +135,6 @@ function Login() {
                     </button>
                 </div>
             </div>
-
-            {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}
-            {success ? <p style={{ color: 'green', marginTop: '12px' }}>{success}</p> : null}
         </div>
     );
 }
