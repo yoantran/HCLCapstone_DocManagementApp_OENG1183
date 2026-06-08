@@ -3,11 +3,11 @@ import { postRequest } from '../../api/apiHelpers';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
-import {Checkbox, Label} from 'flowbite-react';
+import {Label} from 'flowbite-react';
 import { CustomButton} from '../../components/button';
 import {CustomTextInput} from "../../components/textInput/index.jsx";
-import {PopUpModal} from "../../components/popUpModal/index.jsx";
-import {pushSuccess} from "../../components/toast/index.jsx";
+import dmsLogo from "../../assets/DMSLogo.svg";
+
 
 function Login() {
     const [email, setEmail] = useState('');
@@ -32,50 +32,67 @@ function Login() {
             });
 
             if (response?.token) {
-                const role = response.role
+                const userId = response.id || response._id || response.user?.id || response.user?._id;
+                const role = response.role || response.user?.role;
+                const name = response.name || response.user?.name;
+                const userEmail = response.email || response.user?.email;
+
+                if (!userId) {
+                    throw new Error("Server response did not include a valid User ID attribute.");
+                }
                 login(
-                    { email: response.email, name: response.name, role },
+                    { id: userId, email: userEmail, name, role },
                     response.token
                 );
-                navigate(role === 'ADMIN' ? '/admin' : '/');
+                navigate(`/${userId}/submit-request`, { replace: true });
             } else {
                 setError(response?.message || 'Login failed');
             }
         } catch (err) {
-            setError('Login failed');
-            console.error('Login error:', err);
+            setError(err?.response?.data?.message || 'Invalid credentials or connection dropped.');
+            console.error('Login submission fault context:', err);
         } finally {
             setLoading(false);
         }
     };
 
-    const [showConfirmModal, setShowConfirmModal] = useState(false);
-
-    const handleExecuteAction = () => {
-        console.log("Action confirmed and executed successfully!");
-        pushSuccess("Successfully submitted!");
-        setShowConfirmModal(false); // Close modal when finished
-    };
-
-
     return (
-        <div>
-            <form className="flex max-w-md flex-col gap-4" onSubmit={handleSubmit}>
+        <div className="w-full flex flex-col items-center justify-center text-left">
+            <div className="flex justify-center">
+                <div className="text-center">
+                    <img
+                        src={dmsLogo}
+                        alt="DMS Icon"
+                        className="w-[113px] object-contain"
+                    />
+                </div>
+            </div>
+
+            <div className="w-full max-w-sm mb-8">
+                <h1 className="text-[38px] text-5xl-custom! font-serif leading-tight">
+                    Log in
+                </h1>
+                <p className="text-base-custom! text-sm font-normal">
+                    Welcome back! Please enter your details.
+                </p>
+            </div>
+
+            <form className="w-full max-w-sm flex flex-col gap-5" onSubmit={handleSubmit}>
                 <div>
-                    <div className="mb-2 block">
+                    <div className="flex flex-col gap-2">
                         <Label htmlFor="email1">Your email</Label>
                     </div>
                     <CustomTextInput
                         id="email1"
                         type="email"
-                        placeholder="name@flowbite.com"
+                        placeholder="youremail@gmail.com"
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         required
                     />
                 </div>
                 <div>
-                    <div className="mb-2 block">
+                    <div className="flex flex-col gap-2">
                         <Label htmlFor="password1">Your password</Label>
                     </div>
                     <CustomTextInput
@@ -86,32 +103,38 @@ function Login() {
                         required
                     />
                 </div>
-                <div className="flex items-center gap-2">
-                    <Checkbox id="remember" />
-                    <Label htmlFor="remember">Remember me</Label>
+
+                <div className="w-full flex justify-end">
+                    <button
+                        type="button"
+                        className="text-(--lighter-blue-500) hover:text-(--lighter-blue-300) text-xs font-medium transition-colors cursor-pointer"
+                    >
+                        Forgot my password
+                    </button>
                 </div>
-                <CustomButton outline color={"red"} type="submit" disabled={loading}>
-                    {loading ? 'Signing in...' : 'Submit'}
-                </CustomButton>
+
+                <div className=" flex justify-center">
+                    <CustomButton type="submit" disabled={loading}
+                                  className="w-fit"
+                    >
+                        {loading ? 'Signing in...' : 'Log In'}
+                    </CustomButton>
+                </div>
+                {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}
+                {success ? <p style={{ color: 'green', marginTop: '12px' }}>{success}</p> : null}
             </form>
 
-            <div>
-                <CustomButton color="primary" onClick={() => setShowConfirmModal(true)}>
-                    Complete Action
-                </CustomButton>
-
-                <PopUpModal
-                    isOpen={showConfirmModal}
-                    onClose={() => setShowConfirmModal(false)}
-                    onConfirm={handleExecuteAction}
-                    title="Are you sure you want to complete this action?"
-                    description="This cannot be undone."
-                    confirmText="Yes"
-                    cancelText="No"
-                />
+            <div className="w-full max-w-sm mt-10">
+                <div className="w-full h-px bg-(--dark-blue-300) mb-3" />
+                <div className="text-center">
+                    <button
+                        type="button"
+                        className="text-(--lighter-blue-500) hover:text-(--lighter-blue-300) text-xs font-medium tracking-wide transition-colors cursor-pointer"
+                    >
+                        Create a New Account
+                    </button>
+                </div>
             </div>
-            {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}
-            {success ? <p style={{ color: 'green', marginTop: '12px' }}>{success}</p> : null}
         </div>
     );
 }

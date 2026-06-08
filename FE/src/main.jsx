@@ -1,15 +1,26 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { RouterProvider } from 'react-router-dom';
 import './index.css';
 
 import { AuthProvider } from './context/AuthContext';
-import router from './router';
+import App from "./App.jsx";
+import {ToastContainer} from "react-toastify";
 
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <AuthProvider>
-      <RouterProvider router={router} />
-    </AuthProvider>
-  </StrictMode>,
+    <>
+        <StrictMode>
+            <ToastContainer
+                autoClose={3000}
+                hideProgressBar
+                closeButton={false}
+                position={"bottom-left"}
+                newestOnTop
+                pauseOnFocusLoss={false}
+                style={{ fontFamily: "inherit" }}
+            />
+            <AuthProvider>
+                <App />
+            </AuthProvider>
+        </StrictMode>
+    </>
 );
