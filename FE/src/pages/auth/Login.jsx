@@ -3,12 +3,12 @@ import { postRequest } from '../../api/apiHelpers';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
-import {Checkbox, Label} from 'flowbite-react';
+import {Label} from 'flowbite-react';
 import { CustomButton} from '../../components/button';
 import {CustomTextInput} from "../../components/textInput/index.jsx";
+import dmsLogo from "../../assets/DMSLogo.svg";
 
 
-// TODO: WIP Login
 function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -32,7 +32,6 @@ function Login() {
             });
 
             if (response?.token) {
-                // const role = response.role
                 const userId = response.id || response._id || response.user?.id || response.user?._id;
                 const role = response.role || response.user?.role;
                 const name = response.name || response.user?.name;
@@ -58,23 +57,42 @@ function Login() {
     };
 
     return (
-        <div className="min-h-screen w-full">
-            <form className="flex max-w-md flex-col gap-4" onSubmit={handleSubmit}>
+        <div className="w-full flex flex-col items-center justify-center text-left">
+            <div className="flex justify-center">
+                <div className="text-center">
+                    <img
+                        src={dmsLogo}
+                        alt="DMS Icon"
+                        className="w-[113px] object-contain"
+                    />
+                </div>
+            </div>
+
+            <div className="w-full max-w-sm mb-8">
+                <h1 className="text-[38px] text-5xl-custom! font-serif leading-tight">
+                    Log in
+                </h1>
+                <p className="text-base-custom! text-sm font-normal">
+                    Welcome back! Please enter your details.
+                </p>
+            </div>
+
+            <form className="w-full max-w-sm flex flex-col gap-5" onSubmit={handleSubmit}>
                 <div>
-                    <div className="mb-2 block">
+                    <div className="flex flex-col gap-2">
                         <Label htmlFor="email1">Your email</Label>
                     </div>
                     <CustomTextInput
                         id="email1"
                         type="email"
-                        placeholder="yourEmail@gmail.com"
+                        placeholder="youremail@gmail.com"
                         value={email}
                         onChange={(event) => setEmail(event.target.value)}
                         required
                     />
                 </div>
                 <div>
-                    <div className="mb-2 block">
+                    <div className="flex flex-col gap-2">
                         <Label htmlFor="password1">Your password</Label>
                     </div>
                     <CustomTextInput
@@ -85,14 +103,37 @@ function Login() {
                         required
                     />
                 </div>
-                <div className="flex items-center gap-2">
-                    <Checkbox id="remember" />
-                    <Label htmlFor="remember">Remember me</Label>
+
+                <div className="w-full flex justify-end">
+                    <button
+                        type="button"
+                        className="text-(--lighter-blue-500) hover:text-(--lighter-blue-300) text-xs font-medium transition-colors cursor-pointer"
+                    >
+                        Forgot my password
+                    </button>
                 </div>
-                <CustomButton type="submit" disabled={loading}>
-                    {loading ? 'Signing in...' : 'Submit'}
-                </CustomButton>
+
+                <div className=" flex justify-center">
+                    <CustomButton type="submit" disabled={loading}
+                                  className="w-fit"
+                    >
+                        {loading ? 'Signing in...' : 'Log In'}
+                    </CustomButton>
+                </div>
             </form>
+
+            <div className="w-full max-w-sm mt-10">
+                <div className="w-full h-px bg-(--dark-blue-300) mb-3" />
+                <div className="text-center">
+                    <button
+                        type="button"
+                        className="text-(--lighter-blue-500) hover:text-(--lighter-blue-300) text-xs font-medium tracking-wide transition-colors cursor-pointer"
+                    >
+                        Create a New Account
+                    </button>
+                </div>
+            </div>
+
             {error ? <p style={{ color: 'crimson', marginTop: '12px' }}>{error}</p> : null}
             {success ? <p style={{ color: 'green', marginTop: '12px' }}>{success}</p> : null}
         </div>

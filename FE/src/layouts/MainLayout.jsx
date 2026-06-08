@@ -24,7 +24,7 @@ export default function MainLayout() {
     const isManagerOnly = currentRole === 'MANAGER';
     const isAdminOnly = currentRole === 'ADMIN';
 
-    // TODO: WIP NavBar
+
     return (
         <div
             className="border-r border-(--cool-gray-200)"
