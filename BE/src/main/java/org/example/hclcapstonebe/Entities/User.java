@@ -37,8 +37,8 @@ public class User {
     private Department department;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private RoleEnum roleEnum;
+    @Column(name = "role_enum", nullable = false)
+    private RoleEnum role;
 
     @Column(nullable = false)
     private boolean isDeleted = false;
