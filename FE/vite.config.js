@@ -8,4 +8,9 @@ export default defineConfig({
   plugins: [react(), flowbiteReact(),
     tailwindcss()
   ],
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './src/setupTests.js',
+  },
 })
