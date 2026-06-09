@@ -1,4 +1,4 @@
-import {Link, Outlet, useNavigate} from 'react-router-dom';
+import {Link, Outlet} from 'react-router-dom';
 import {useAuth} from "../context/AuthContext.jsx";
 import dmsLogo from '../assets/DMSLogo.svg';
 import avatar from '../assets/avatar.svg';
@@ -13,7 +13,6 @@ import UserDropdown from "../components/userDropdown/index.jsx";
 
 export default function MainLayout() {
     const { user, logout } = useAuth();
-    useNavigate();
     if (!user) return null;
 
     const currentRole = user.role?.toUpperCase();

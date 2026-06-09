@@ -12,7 +12,7 @@ const api = axios.create({
 
 api.interceptors.request.use(
     async (config) => {
-        const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+        const token = localStorage.getItem('token');
 
         if (token) {
             config.headers["Authorization"] = `Bearer ${token}`;
@@ -37,9 +37,12 @@ api.interceptors.response.use(
             console.warn('403 Forbidden');
         }
         if (error?.response?.status === 401) {
-            // Token expired — clear storage and hard-redirect
-            localStorage.removeItem('token');
-            window.location.href = '/login';
+            // Skip redirect for auth endpoints — let the caller handle login failures
+            const url = error?.config?.url ?? '';
+            if (!url.startsWith('/auth/')) {
+                localStorage.removeItem('token');
+                window.location.href = '/login';
+            }
         }
         throw error;
     }
