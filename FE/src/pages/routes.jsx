@@ -1,10 +1,12 @@
-import {createBrowserRouter, Navigate} from "react-router-dom";
-import {useAuth} from "../context/AuthContext.jsx";
+import { createBrowserRouter, Navigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext.jsx";
 import AuthLayout from "../layouts/AuthLayout.jsx";
 import Login from "./auth/Login.jsx";
 import ProtectedRoute from "../router/ProtectedRoute.jsx";
 import MainLayout from "../layouts/MainLayout.jsx";
 import Error from './Error';
+import RequestSubmission from "./RequestSubmission.jsx";
+import Documents from "./Documents.jsx";
 
 /**
  * RootRedirect handles users typing the base URL exactly ("/") without a userId.
@@ -39,8 +41,8 @@ export const router = createBrowserRouter([
                     // Default redirect when visiting /:userId base route directly
                     { index: true, element: <Navigate to="submit-request" replace /> },
 
-                    { path: 'submit-request', element: <div>Submit Request Form Canvas</div> },
-                    { path: 'documents' },
+                    { path: 'submit-request', element: <RequestSubmission /> },
+                    { path: 'documents', element: <Documents /> },
                     { path: 'profile' },
 
 
