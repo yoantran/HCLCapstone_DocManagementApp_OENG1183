@@ -21,7 +21,7 @@ const router = createBrowserRouter([
 
   // Authenticated — staff + manager
   {
-    element: <ProtectedRoute allowedRoles={['STAFF', 'manager']} />,
+    element: <ProtectedRoute allowedRoles={['STAFF', 'MANAGER']} />,
     children: [
       {
         element: <MainLayout />,
