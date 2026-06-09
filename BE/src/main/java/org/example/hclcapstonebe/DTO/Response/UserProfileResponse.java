@@ -16,6 +16,6 @@ public class UserProfileResponse {
     private String phoneNumber;
     private String departmentId;
     private String departmentName;
-    private RoleEnum roleEnum;
+    private RoleEnum role;
     private LocalDateTime createdAtDateTime;
 }

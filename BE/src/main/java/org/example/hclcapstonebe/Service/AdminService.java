@@ -60,7 +60,7 @@ public class AdminService {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
-        if (user.getRoleEnum() == RoleEnum.MANAGER) {
+        if (user.getRole() == RoleEnum.MANAGER) {
             throw new AppException(
                     "Cannot assign department to a manager here. Use Update Department API to assign a manager to a department.",
                     HttpStatus.BAD_REQUEST
@@ -84,7 +84,7 @@ public class AdminService {
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
         // If user is a manager → auto clear department's manager
-        if (user.getRoleEnum() == RoleEnum.MANAGER && user.getDepartment() != null) {
+        if (user.getRole() == RoleEnum.MANAGER && user.getDepartment() != null) {
             Department dept = user.getDepartment();
             if (dept.getManager() != null && dept.getManager().getId().equals(userId)) {
                 dept.setManager(null);
@@ -125,7 +125,7 @@ public class AdminService {
             manager = userRepository.findByIdAndIsDeletedFalse(UUID.fromString(req.getManagerId()))
                     .orElseThrow(() -> new AppException("manager user not found", HttpStatus.NOT_FOUND));
 
-            if (manager.getRoleEnum() != RoleEnum.MANAGER) {
+            if (manager.getRole() != RoleEnum.MANAGER) {
                 throw new AppException("Assigned user is not a manager", HttpStatus.BAD_REQUEST);
             }
 
@@ -183,7 +183,7 @@ public class AdminService {
             User newmanager = userRepository.findByIdAndIsDeletedFalse(UUID.fromString(req.getManagerId()))
                     .orElseThrow(() -> new AppException("New manager not found", HttpStatus.NOT_FOUND));
 
-            if (newmanager.getRoleEnum() != RoleEnum.MANAGER) {
+            if (newmanager.getRole() != RoleEnum.MANAGER) {
                 throw new AppException("Assigned user is not a manager", HttpStatus.BAD_REQUEST);
             }
 
