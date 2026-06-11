@@ -18,6 +18,7 @@ public class DocumentResponse {
     private String uploaderId;
     private String uploaderName;
     private String departmentId;
+    private String departmentName;
     private LocalDateTime uploadedDateTime;
     private LocalDateTime latestViewedDateTime;
 }
