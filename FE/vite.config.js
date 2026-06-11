@@ -8,6 +8,9 @@ export default defineConfig({
   plugins: [react(), flowbiteReact(),
     tailwindcss()
   ],
+  esbuild: {
+    jsx: 'automatic',
+  },
   test: {
     environment: 'jsdom',
     globals: true,

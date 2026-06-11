@@ -48,43 +48,7 @@ public class SecurityConfig {
                                 "/dev/**" // ← add this
                         ).permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/documents/department/**").hasRole("MANAGER@Service\n" +
-                                "@RequiredArgsConstructor\n" +
-                                "public class NotificationService {\n" +
-                                "\n" +
-                                "    private final NotificationRepository notificationRepository;\n" +
-                                "    private final UserRepository userRepository;\n" +
-                                "    private final NotificationMapper notificationMapper;\n" +
-                                "\n" +
-                                "    public List<NotificationResponse> getMyNotifications(String email) {\n" +
-                                "        var user = userRepository.findByEmailAndIsDeletedFalse(email)\n" +
-                                "                .orElseThrow(() -> new AppException(\"User not found\", HttpStatus.NOT_FOUND));\n" +
-                                "\n" +
-                                "        return notificationRepository\n" +
-                                "                .findByReceiverIdOrderByCreatedAtDesc(user.getId())\n" +
-                                "                .stream()\n" +
-                                "                .map(notificationMapper::toResponse)\n" +
-                                "                .collect(Collectors.toList());\n" +
-                                "    }\n" +
-                                "\n" +
-                                "    public NotificationResponse markAsRead(UUID notifId, String email) {\n" +
-                                "        var user = userRepository.findByEmailAndIsDeletedFalse(email)\n" +
-                                "                .orElseThrow(() -> new AppException(\"User not found\", HttpStatus.NOT_FOUND));\n" +
-                                "\n" +
-                                "        Notification notif = notificationRepository.findById(notifId)\n" +
-                                "                .orElseThrow(() -> new AppException(\"Notification not found\", HttpStatus.NOT_FOUND));\n" +
-                                "\n" +
-                                "        if (!notif.getReceiver().getId().equals(user.getId())) {\n" +
-                                "            throw new AppException(\"Access denied\", HttpStatus.FORBIDDEN);\n" +
-                                "        }\n" +
-                                "\n" +
-                                "        notif.setHasRead(true);\n" +
-                                "        notif.setIsReadDateTime(LocalDateTime.now());\n" +
-                                "        notificationRepository.save(notif);\n" +
-                                "\n" +
-                                "        return notificationMapper.toResponse(notif);\n" +
-                                "    }\n" +
-                                "}")
+                        .requestMatchers("/documents/department/**").hasRole("MANAGER")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
