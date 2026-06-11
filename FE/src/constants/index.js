@@ -9,12 +9,6 @@ export const ACCEPTED_FILE_TYPES = {
     JPG: "image/jpeg",
 };
 
-export const DOCUMENT_ACCEPTED_FILE_TYPES = [
-    ACCEPTED_FILE_TYPES.PDF,
-    ACCEPTED_FILE_TYPES.CSV,
-    ACCEPTED_FILE_TYPES.DOC,
-].join(",");
-
 export const DOC_MULTIPART_ENDPOINTS = {
     single: "/documents/upload",
     multiple: "/documents/upload/batch",
