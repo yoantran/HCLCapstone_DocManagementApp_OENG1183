@@ -52,12 +52,12 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
 
     return (
         <div
-            className={`rounded-md py-3 px-1 justify-items-center w-[97%] mx-auto my-2 border ${isInvalid ? "border-red-500 ring-2 ring-red-200" : "border-(--color-primary-200)"
+            className={`rounded-md py-3 px-1 justify-items-center w-[97%] mx-auto my-2 border ${isInvalid ? "border-red-500 ring-2 ring-red-200" : "border-primary-200"
                 }`}
         >
             <div className="flex w-[95%] flex-col gap-4 text-left md:flex-row md:gap-x-1 md:gap-y-0">
                 <div className="w-full md:w-1/2">
-                    <Label className="mb-2 block cursor-pointer" htmlFor={selectId}>
+                    <Label className="mb-2 block cursor-pointer text-white" htmlFor={selectId}>
                         Document Type
                     </Label>
                     <Select
@@ -79,7 +79,7 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
 
                 <div className="w-full md:w-1/2">
                     <div id="fileUpload" className="max-w-md">
-                        <Label className="mb-2 block" htmlFor={fileInputId}>
+                        <Label className="mb-2 block text-white" htmlFor={fileInputId}>
                             Upload Document
                         </Label>
                         <Label
