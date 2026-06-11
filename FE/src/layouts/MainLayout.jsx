@@ -66,7 +66,7 @@ export default function MainLayout() {
                     {isAdminOnly && (
                         <NavbarLink
                             as={Link}
-                            to={`/${userId}/admin`}
+                            to={`/${userId}/admin/management`}
                         >
                             Users & Departments Management
                         </NavbarLink>

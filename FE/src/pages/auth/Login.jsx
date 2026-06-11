@@ -36,12 +36,13 @@ function Login() {
                 const role = response.role || response.user?.role;
                 const name = response.name || response.user?.name;
                 const userEmail = response.email || response.user?.email;
+                const departmentId = response.departmentId ?? response.user?.departmentId ?? null;
 
                 if (!userId) {
                     throw new Error("Server response did not include a valid User ID attribute.");
                 }
                 login(
-                    { id: userId, email: userEmail, name, role },
+                    { id: userId, email: userEmail, name, role, departmentId },
                     response.token
                 );
                 navigate(`/${userId}/submit-request`, { replace: true });

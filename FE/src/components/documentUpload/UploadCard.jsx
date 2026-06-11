@@ -1,9 +1,7 @@
 import { useId, useRef } from "react";
 import { Select, FileInput, Label, Button } from "flowbite-react";
 
-import { ACCEPTED_FILE_TYPES } from "../../constants";
-
-const supportedFileTypes = Object.values(ACCEPTED_FILE_TYPES).join(",");
+import { DOCUMENT_ACCEPTED_FILE_TYPES } from "../../constants";
 
 
 export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirst = true, firstDocumentType = "", onDocumentTypeChange }) => {
@@ -33,7 +31,7 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
         }
 
         onChange({
-            file: "",
+            file: null,
             fileName: "",
             // documentType: "",
         })
@@ -115,7 +113,7 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
                                 ref={fileInputRef}
                                 id={fileInputId}
                                 className="hidden"
-                                accept={ACCEPTED_FILE_TYPES[documentType] || supportedFileTypes}
+                                accept={DOCUMENT_ACCEPTED_FILE_TYPES}
                                 onChange={handleFileChange}
                             />
                         </Label>
