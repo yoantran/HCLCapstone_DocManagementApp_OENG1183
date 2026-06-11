@@ -40,7 +40,7 @@ export const DocumentUpload = () => {
         setCards((prev) => prev.map((card) => ({ ...card, documentType: type })));
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         setSubmitAttempted(true);
         const hasIncompleteCard = cards.some((card) => !card.file) || !documentType;
 
@@ -49,12 +49,13 @@ export const DocumentUpload = () => {
             return;
         }
 
-        // build form data + payload for submission
         const { url, data } = buildMultipartFormPayload({ documentType, cards });
-        postFormDataRequest({ url, data });
-
-        setSubmitError("");
-        console.log("Submitting request:", { url, data });
+        try {
+            await postFormDataRequest({ url, data });
+            handleClearAll();
+        } catch (err) {
+            setSubmitError(err?.response?.data?.message || "Upload failed. Please try again.");
+        }
     };
 
     const handleClearAll = () => {
