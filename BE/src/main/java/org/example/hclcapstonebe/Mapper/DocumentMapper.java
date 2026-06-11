@@ -11,6 +11,7 @@ public interface DocumentMapper {
     @Mapping(source = "uploader.id",     target = "uploaderId")
     @Mapping(source = "uploader.name",   target = "uploaderName")
     @Mapping(source = "department.id",   target = "departmentId")
+    @Mapping(source = "department.name", target = "departmentName")
     @Mapping(source = "byteSize",        target = "byteSize")        // ← add this
     @Mapping(source = "type",            target = "type",   qualifiedByName = "enumToString")
     @Mapping(source = "format",          target = "format", qualifiedByName = "enumToString")
