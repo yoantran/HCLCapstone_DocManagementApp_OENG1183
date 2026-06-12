@@ -9,7 +9,7 @@ import { DownloadButton } from "../components/documentTable/modal/DownloadButton
 
 export default function ViewDocument() {
     const { documentId } = useParams();
-    const [document, setDocument] = useState([]);
+    const [document, setDocument] = useState(null);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -22,6 +22,8 @@ export default function ViewDocument() {
                 console.error("Error fetching document:", error);
             });
     }, []);
+
+    if (!document) return null;
 
     return (
         <>
