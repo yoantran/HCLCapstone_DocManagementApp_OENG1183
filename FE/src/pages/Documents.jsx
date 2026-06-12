@@ -44,7 +44,7 @@ export default function Documents() {
     }, []);
 
     // get column pattern based on role
-    const columns = columnsByRole[user.role];
+    const columns = columnsByRole[user.role?.toUpperCase()] ?? [];
 
     return (
         <>
