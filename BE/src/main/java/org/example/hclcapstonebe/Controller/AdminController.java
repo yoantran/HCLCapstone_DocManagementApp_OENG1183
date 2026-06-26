@@ -25,7 +25,8 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/admin")
+@RequestMapping("/")
+//remove /admin like hcl required
 @RequiredArgsConstructor
 @Tag(name = "Admin", description = "Admin-only APIs for managing users and departments. Requires ADMIN role.")
 @SecurityRequirement(name = "bearerAuth")
