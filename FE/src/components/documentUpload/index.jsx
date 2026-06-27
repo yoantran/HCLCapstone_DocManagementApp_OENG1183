@@ -74,8 +74,6 @@ export const DocumentUpload = () => {
             setShowConfirmModal(false);
             pushSuccess("Documents submitted successfully.");
 
-            console.log("Submitted successfully");
-
             // success -> redirect
             navigate("../documents");
         }
@@ -104,7 +102,7 @@ export const DocumentUpload = () => {
             <div className="w-full px-20 md:px-40 rounded-md py-10 bg-(--code-bg)">
                 {/* title */}
                 <div>
-                    <h2 className="text-left">Add New Load Request</h2>
+                    <h2 className="text-left">Add New Loan Request</h2>
                 </div>
                 <hr className="dark:border-amber-50" />
 

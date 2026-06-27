@@ -1,6 +1,6 @@
 import { useAuth } from '../context/AuthContext';
 import { useEffect, useState } from 'react';
-import { columnsByRole } from '../components/documentTable/Columns';
+import { columnsByRole } from '../components/documentTable/columns';
 import { DocumentTable } from '../components/documentTable';
 import { DocumentModal } from '../components/documentTable/modal';
 import { getRequest } from '../api/apiHelpers';
@@ -36,7 +36,7 @@ export default function Documents() {
         getRequest({ url: "/documents/mine" })
             .then((response) => {
                 // console.log("Fetched documents:", response);
-                setDocuments(response);
+                setDocuments(response ?? []);
             })
             .catch((error) => {
                 console.error("Error fetching documents:", error);

@@ -21,7 +21,7 @@ export default function ViewDocument() {
             .catch((error) => {
                 console.error("Error fetching document:", error);
             });
-    }, []);
+    }, [documentId]);
 
     if (!document) return null;
 
