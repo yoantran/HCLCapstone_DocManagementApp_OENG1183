@@ -3,7 +3,9 @@ package org.example.hclcapstonebe.Config;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.*;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -26,6 +28,8 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final ServiceTokenAccessDeniedHandler accessDeniedHandler;
+    private final ScanGuard scanGuard;   // inject the guard bean directly
 
     @Value("${app.cors.allowed-origins}")
     private String[] allowedOrigins;
@@ -36,18 +40,27 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(ex -> ex.accessDeniedHandler(accessDeniedHandler))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/auth/**",
+                                "/auth/**",            // includes /auth/service-token
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",
                                 "/swagger-resources/**",
                                 "/webjars/**",
                                 "/ws/**",
-                                "/dev/**" // ← add this
+                                "/dev/**"
                         ).permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
+                        // Uploads: valid USER JWT (uploader identity) AND valid service token (caller is scan service)
+                        .requestMatchers(HttpMethod.POST, "/documents/upload", "/documents/upload/batch")
+                        .access((authentication, context) -> {
+                            boolean authenticated = authentication.get() != null
+                                    && authentication.get().isAuthenticated();
+                            boolean scanOk = scanGuard.isAuthorized(context.getRequest());
+                            return new AuthorizationDecision(authenticated && scanOk);
+                        })
                         .requestMatchers("/documents/department/**").hasRole("MANAGER")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
@@ -75,9 +88,7 @@ public class SecurityConfig {
         corsConfiguration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // apply to all endpoints
         source.registerCorsConfiguration("/**", corsConfiguration);
-
         return source;
     }
 }

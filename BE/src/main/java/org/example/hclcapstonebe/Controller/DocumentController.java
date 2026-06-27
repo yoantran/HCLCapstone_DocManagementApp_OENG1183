@@ -28,13 +28,19 @@ public class DocumentController {
     private final DocumentService documentService;
 
     @Operation(
-            summary = "Upload a single document",
+            summary = "Upload a single document (via scan service)",
             description = """
                 Uploads one document file to the Supabase documents bucket.
                 Automatically assigns it to the uploader's department.
                 Triggers a WebSocket notification to the department manager.
                 A signed URL (valid for 1 hour) is returned to view the document.
-                
+
+                This endpoint is called by the trusted malware-scan service, NOT directly by the browser.
+                The caller must send BOTH:
+                  • Authorization: Bearer <user JWT>   — identifies the real uploader
+                  • X-Service-Token: <service JWT>     — proves the request came through the scan service
+                Obtain the service token from POST /auth/service-token.
+
                 Allowed formats: PDF, DOCX, CSV
                 Max file size: 10MB
                 """
@@ -63,8 +69,8 @@ public class DocumentController {
                     )
             ),
             @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed) or invalid document type, or file exceeds 10MB"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
+            @ApiResponse(responseCode = "401", description = "Unauthorized — user JWT missing or expired"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — missing or invalid X-Service-Token (call did not come through the scan service)")
     })
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
     public ResponseEntity<DocumentResponse> uploadOne(
@@ -78,19 +84,32 @@ public class DocumentController {
                     )
             )
             @RequestParam("type") String type,
+            @Parameter(
+                    name = "X-Service-Token",
+                    in = io.swagger.v3.oas.annotations.enums.ParameterIn.HEADER,
+                    required = true,
+                    description = "Short-lived service JWT obtained from POST /auth/service-token"
+            )
+            @RequestHeader("X-Service-Token") String serviceToken,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(documentService.uploadOne(file, type, userDetails.getUsername()));
     }
 
     @Operation(
-            summary = "Upload multiple documents",
+            summary = "Upload multiple documents (via scan service)",
             description = """
                 Uploads multiple document files in one request.
                 Each file is processed individually and triggers a manager notification.
                 All files in the batch must share the same document type.
                 A signed URL (valid for 1 hour) is returned per document.
-                
+
+                This endpoint is called by the trusted malware-scan service, NOT directly by the browser.
+                The caller must send BOTH:
+                  • Authorization: Bearer <user JWT>   — identifies the real uploader
+                  • X-Service-Token: <service JWT>     — proves the request came through the scan service
+                Obtain the service token from POST /auth/service-token.
+
                 Allowed formats: PDF, DOCX, CSV
                 Max file size per file: 10MB
                 Max files per request: 10
@@ -122,8 +141,8 @@ public class DocumentController {
                     )
             ),
             @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed), invalid document type, file exceeds 10MB, or more than 10 files in one request"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
+            @ApiResponse(responseCode = "401", description = "Unauthorized — user JWT missing or expired"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — missing or invalid X-Service-Token (call did not come through the scan service)")
     })
     @PostMapping(value = "/upload/batch", consumes = "multipart/form-data")
     public ResponseEntity<List<DocumentResponse>> uploadMany(
@@ -137,10 +156,18 @@ public class DocumentController {
                     )
             )
             @RequestParam("type") String type,
+            @Parameter(
+                    name = "X-Service-Token",
+                    in = io.swagger.v3.oas.annotations.enums.ParameterIn.HEADER,
+                    required = true,
+                    description = "Short-lived service JWT obtained from POST /auth/service-token"
+            )
+            @RequestHeader("X-Service-Token") String serviceToken,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(documentService.uploadMany(files, type, userDetails.getUsername()));
     }
+
     @Operation(
             summary = "Staff only: Get my uploaded documents",
             description = "Returns all non-deleted documents uploaded by the currently logged-in user."
