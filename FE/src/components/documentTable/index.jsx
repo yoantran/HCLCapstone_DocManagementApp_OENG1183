@@ -11,7 +11,7 @@ export const DocumentTable = ({ columns, data, onRowClick, onDeleteSuccess }) =>
             <TableHeader columns={columns} />
 
             <TableBody>
-                {data.map((document) => (
+                {(data ?? []).map((document) => (
                     <CustomTableRow
                         key={document.id}
                         document={document}

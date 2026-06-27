@@ -3,6 +3,10 @@ import { toast } from "react-toastify";
 
 export const DownloadButton = ({ file, className }) => {
     const handleDownload = async () => {
+        if (!file?.signedUrl) {
+            toast.error("No download link available — please refresh and try again.");
+            return;
+        }
         try {
             const response = await fetch(file.signedUrl);
             if (!response.ok) {
