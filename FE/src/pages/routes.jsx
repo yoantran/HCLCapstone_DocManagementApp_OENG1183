@@ -8,6 +8,7 @@ import Error from './Error';
 import RequestSubmission from "./RequestSubmission.jsx";
 import Documents from "./Documents.jsx";
 import ViewDocument from "./ViewDocument.jsx";
+import AdminManagement from "./AdminManagement.jsx";
 
 /**
  * RootRedirect handles users typing the base URL exactly ("/") without a userId.
@@ -52,7 +53,7 @@ export const router = createBrowserRouter([
                         path: 'admin',
                         element: <ProtectedRoute allowedRoles={['ADMIN']} />,
                         children: [
-                            { path: 'management' },
+                            { path: 'management', element: <AdminManagement /> },
                         ]
                     }
                 ],
@@ -62,6 +63,6 @@ export const router = createBrowserRouter([
 
     // GLOBAL FALLBACK ROUTING
     { path: '/', element: <RootRedirect /> },
-    { path: '/unauthorized', element: <div>403 — Access Denied</div> },
+    { path: '/unauthorized', element: <div>403 - Access Denied</div> },
     { path: '*', element: <Error /> },
 ]);
