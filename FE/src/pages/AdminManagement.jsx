@@ -1,9 +1,8 @@
 import {useEffect, useState} from "react";
 import {CustomButton} from "../components/button/index.jsx";
 import {getRequest} from "../api/apiHelpers.js";
-import {DocumentModal} from "../components/documentTable/modal/index.jsx";
-import {DocumentTable} from "../components/documentTable/index.jsx";
-import {adminManagementColumns} from "../components/table/columns.jsx";
+import {CustomTable} from "../components/customTable/index.jsx";
+import {adminManagementColumns} from "../components/customTable/columns.jsx";
 
 
 export default function AdminManagement() {
@@ -66,7 +65,7 @@ export default function AdminManagement() {
                     </CustomButton>
                 </div>
                 <div>
-                    <DocumentTable
+                    <CustomTable
                         data={currentData}
                         columns={currentColumns}
                         onDeleteSuccess={handleDeleteSuccess}
