@@ -1,5 +1,5 @@
 import { TableHeader } from "../table/TableHeader.jsx"
-import { CustomTableRow } from "./CustomTableRow"
+import { CustomTableRow } from "../table/CustomTableRow.jsx"
 import { Table, TableBody } from "flowbite-react";
 
 export const DocumentTable = ({ columns, data, onRowClick, onDeleteSuccess }) => {
@@ -11,12 +11,12 @@ export const DocumentTable = ({ columns, data, onRowClick, onDeleteSuccess }) =>
             <TableHeader columns={columns} />
 
             <TableBody>
-                {(data ?? []).map((document) => (
+                {(data ?? []).map((row) => (
                     <CustomTableRow
-                        key={document.id}
-                        document={document}
+                        key={row.id}
+                        row={row}
                         columns={columns}
-                        onClick={() => onRowClick(document)}
+                        onClick={() => onRowClick(row)}
                         onDeleteSuccess={onDeleteSuccess}
                     />
                 ))}

@@ -1,7 +1,9 @@
 import { TableCell } from "flowbite-react";
 
 
-export const CustomTableCell = ({ column, document, onDeleteSuccess }) => {
+export const CustomTableCell = ({ column, row, onDeleteSuccess }) => {
+    const cellValue = column.accessor ? row[column.accessor] : row[column.key];
+
     if (column.Cell) {
         const CustomCell = column.Cell;
 
@@ -10,10 +12,10 @@ export const CustomTableCell = ({ column, document, onDeleteSuccess }) => {
                 className="text-center"
             >
                 <CustomCell
-                    document={document}
+                    row={row}
                     className={column.className || ''}
                     onDeleteSuccess={onDeleteSuccess}
-                    value={document[column.accessor]}
+                    value={cellValue}
                 />
             </TableCell>
         );
@@ -23,7 +25,7 @@ export const CustomTableCell = ({ column, document, onDeleteSuccess }) => {
         <TableCell
             className={column.className}
         >
-            {document[column.accessor]}
+            {cellValue}
         </TableCell>
     );
 }

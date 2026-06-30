@@ -1,8 +1,11 @@
 import { Icon } from "../../icons";
 import { Tooltip } from "flowbite-react";
 
-export const StatusCell = ({ document }) => {
-    const status = document.secureStatus ?? null;
+export const StatusCell = ({ row, document }) => {
+    // const status = document.secureStatus ?? null;
+
+    const item = row || document;
+    const status = item?.secureStatus ?? null;
 
     if (status === null) {
         return <Tooltip content="Malware scan pending" style="light">
