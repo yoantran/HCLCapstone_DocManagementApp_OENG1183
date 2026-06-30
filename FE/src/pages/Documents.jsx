@@ -1,6 +1,6 @@
 import { useAuth } from '../context/AuthContext';
 import { useEffect, useState } from 'react';
-import { columnsByRole } from '../components/documentTable/columns';
+import { columnsByRole } from '../components/table/columns.jsx';
 import { DocumentTable } from '../components/documentTable';
 import { DocumentModal } from '../components/documentTable/modal';
 import { getRequest } from '../api/apiHelpers';

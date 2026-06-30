@@ -3,7 +3,7 @@ import {CustomButton} from "../components/button/index.jsx";
 import {getRequest} from "../api/apiHelpers.js";
 import {DocumentModal} from "../components/documentTable/modal/index.jsx";
 import {DocumentTable} from "../components/documentTable/index.jsx";
-import {adminManagementColumns} from "../components/documentTable/columns.jsx";
+import {adminManagementColumns} from "../components/table/columns.jsx";
 
 
 // const userColumns = [

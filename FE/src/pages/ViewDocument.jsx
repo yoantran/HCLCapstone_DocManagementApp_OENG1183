@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { PublicViewer } from "../components/documentProcess/view"
 import { DocInfo } from "../components/documentProcess/view/docInfo/DocInfo";
 import { getRequest } from "../api/apiHelpers";
-import { DeleteAction } from "../components/documentTable/cells/DeleteAction";
+import { DeleteAction } from "../components/action/DeleteAction.jsx";
 import { DownloadButton } from "../components/documentTable/modal/DownloadButton";
 
 export default function ViewDocument() {

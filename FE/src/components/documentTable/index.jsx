@@ -1,4 +1,4 @@
-import { TableHeader } from "./TableHeader"
+import { TableHeader } from "../table/TableHeader.jsx"
 import { CustomTableRow } from "./CustomTableRow"
 import { Table, TableBody } from "flowbite-react";
 
