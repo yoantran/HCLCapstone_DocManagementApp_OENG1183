@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { CustomButton } from "../../button";
-import { deleteRequest } from "../../../api/apiHelpers";
-import { pushSuccess, pushError } from "../../toast";
-import { PopUpModal } from "../../popUpModal";
+import { CustomButton } from "../button/index.jsx";
+import { deleteRequest } from "../../api/apiHelpers.js";
+import { pushSuccess, pushError } from "../toast/index.jsx";
+import { PopUpModal } from "../popUpModal/index.jsx";
 
 export const DeleteAction = ({
                                  document,
