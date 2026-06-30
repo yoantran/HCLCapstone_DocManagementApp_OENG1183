@@ -31,12 +31,12 @@ export const DeleteAction = ({
             });
 
             onDeleteSuccess?.(itemId);
-            pushSuccess("${entityLabel} deleted successfully.");
+            pushSuccess(`${entityLabel} deleted successfully.`);
 
         } catch (err) {
             pushError(
                 err?.response?.data?.message ||
-                "Failed to delete ${entityLabel.toLowerCase()}"
+                `Failed to delete ${entityLabel.toLowerCase()}.`
             );
         } finally {
             setShowDeleteConfirm(false);
@@ -63,7 +63,7 @@ export const DeleteAction = ({
                     handleDelete()
                 }}
                 title="Delete Document?"
-                description={`Are you sure you want to delete "${itemName}"?`}
+                description={`Are you sure you want to delete this ${itemName}?`}
                 confirmText="Delete"
                 cancelText="Cancel"
             />
