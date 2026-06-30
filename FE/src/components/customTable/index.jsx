@@ -1,8 +1,8 @@
-import { TableHeader } from "../table/TableHeader.jsx"
-import { CustomTableRow } from "../table/CustomTableRow.jsx"
+import { TableHeader } from "./TableHeader.jsx"
+import { CustomTableRow } from "./CustomTableRow.jsx"
 import { Table, TableBody } from "flowbite-react";
 
-export const DocumentTable = ({ columns, data, onRowClick, onDeleteSuccess }) => {
+export const CustomTable = ({ columns, data, onRowClick, onDeleteSuccess }) => {
     // log data for debugging
     // console.log("Rendering DocumentTable with data:", data);
 
