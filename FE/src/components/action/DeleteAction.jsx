@@ -9,6 +9,7 @@ export const DeleteAction = ({
                                  row, // Generic standard item reference
                                  idKey = "id",  // The key to find the item's unique identifier
                                  nameKey = "name",  // key to find the display name
+                                 itemName: passedItemName,
                                  endpoint = "/documents", // API path prefix
                                  entityLabel = "Document", // Text used in confirmation messages and toasts
                                  className,
@@ -18,7 +19,9 @@ export const DeleteAction = ({
 
     const targetItem = row || document;
     const itemId = targetItem?.[idKey];
-    const itemName = targetItem?.[nameKey] || "<Unknown>";
+
+
+    const itemName = passedItemName || targetItem?.[nameKey] || "<Unknown>";
 
     const handleDelete = async () => {
         if (!itemId) {
@@ -62,8 +65,8 @@ export const DeleteAction = ({
                     e.stopPropagation();
                     handleDelete()
                 }}
-                title="Delete Document?"
-                description={`Are you sure you want to delete this ${itemName}?`}
+                title={`Delete ${entityLabel}?`}
+                description={`Are you sure you want to delete ${entityLabel.toLowerCase()} "${itemName}"?`}
                 confirmText="Delete"
                 cancelText="Cancel"
             />

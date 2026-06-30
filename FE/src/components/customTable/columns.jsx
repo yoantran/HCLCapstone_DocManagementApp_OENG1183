@@ -140,16 +140,19 @@ export const adminManagementColumns = {
         {
             key: 'action',
             label: 'Action',
-            Cell: ({ row, onDeleteSuccess }) => (
-                <DeleteAction
-                    row={row}
-                    nameKey="user"               // Points to row.user for the name
-                    endpoint="/admin/users"       // Target deletion endpoint
-                    entityLabel="User"           // Toast message modifier
-                    className={deleteButtonStyle}
-                    onDeleteSuccess={onDeleteSuccess}
-                />
-            )
+            Cell: ({ row, document, onDeleteSuccess }) => {
+                const item = row || document;
+                return(
+                    <DeleteAction
+                        row={item}
+                        itemName={item?.user}
+                        endpoint="/admin/users"
+                        entityLabel="User"
+                        className={deleteButtonStyle}
+                        onDeleteSuccess={onDeleteSuccess}
+                    />
+                )
+            }
         }
     ],
     DEPARTMENTS: [
@@ -160,16 +163,19 @@ export const adminManagementColumns = {
         {
             key: 'action',
             label: 'Action',
-            Cell: ({ row, onDeleteSuccess }) => (
-                <DeleteAction
-                    row={row}
-                    nameKey="department"         // Points to row.department for the name
-                    endpoint="/admin/departments" // Target deletion endpoint
-                    entityLabel="Department"     // Toast message modifier
-                    className={deleteButtonStyle}
-                    onDeleteSuccess={onDeleteSuccess}
-                />
-            )
+            Cell: ({ row, document, onDeleteSuccess }) => {
+                const item = row || document;
+                return (
+                    <DeleteAction
+                        row={item}
+                        itemName={item?.department}
+                        endpoint="/admin/departments"
+                        entityLabel="Department"
+                        className={deleteButtonStyle}
+                        onDeleteSuccess={onDeleteSuccess}
+                    />
+                )
+            }
         }
     ]
 };
