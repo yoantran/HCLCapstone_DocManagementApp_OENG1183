@@ -8,6 +8,7 @@ import Error from './Error';
 import RequestSubmission from "./RequestSubmission.jsx";
 import Documents from "./Documents.jsx";
 import ViewDocument from "./ViewDocument.jsx";
+import Profile from "./Profile.jsx";
 
 /**
  * RootRedirect handles users typing the base URL exactly ("/") without a userId.
@@ -44,7 +45,7 @@ export const router = createBrowserRouter([
 
                     { path: 'submit-request', element: <RequestSubmission /> },
                     { path: 'documents', element: <Documents /> },
-                    { path: 'profile' },
+                    { path: 'profile', element: <Profile /> },
                     { path: 'view-document/:documentId', element: <ViewDocument /> },
 
 
