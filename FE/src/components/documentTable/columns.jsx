@@ -137,13 +137,13 @@ export const adminManagementColumns = {
         { key: 'department', label: 'Department', accessor: 'department' },
         { key: 'email', label: 'Email', accessor: 'email' },
         { key: 'phoneNumber', label: 'Phone Number', accessor: 'phoneNumber' },
-        { key: 'action', label: 'Action', Cell: ManageActionCell }
+        // { key: 'action', label: 'Action', Cell: ManageActionCell }
     ],
     DEPARTMENTS: [
         { key: 'id', label: 'ID', accessor: 'id' },
         { key: 'department', label: 'Department', accessor: 'department' },
         { key: 'boss', label: 'Boss', accessor: 'boss' },
         { key: 'staffs', label: 'Staffs', accessor: 'staffs' },
-        { key: 'action', label: 'Action', Cell: ManageActionCell }
+        // { key: 'action', label: 'Action', Cell: ManageActionCell }
     ]
 };
