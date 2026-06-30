@@ -6,32 +6,10 @@ import {DocumentTable} from "../components/documentTable/index.jsx";
 import {adminManagementColumns} from "../components/table/columns.jsx";
 
 
-// const userColumns = [
-//     { label: "ID", key: "id" },
-//     { label: "User", key: "user" },
-//     { label: "Role", key: "role" },
-//     { label: "Department", key: "department" },
-//     { label: "Email", key: "email" },
-//     { label: "Phone Number", key: "phoneNumber" },
-//     { label: "Action", key: "action" }
-// ];
-//
-// const departmentColumns = [
-//     { label: "ID", key: "id" },
-//     { label: "Department", key: "department" },
-//     { label: "Boss", key: "boss" },
-//     { label: "Staffs", key: "staffs" },
-//     { label: "Action", key: "action" }
-// ];
-
 export default function AdminManagement() {
     const [activeTab, setActiveTab] = useState('users');
-
     const [usersData, setUsersData] = useState([]);
     const [departmentsData, setDepartmentsData] = useState([]);
-    //
-    // const [openModal, setOpenModal] = useState(false);
-    // const [selectedItem, setSelectedItem] = useState(null);
 
     // Fetch data whenever the active tab switches
     useEffect(() => {
@@ -52,30 +30,16 @@ export default function AdminManagement() {
         }
     }, [activeTab]);
 
-    // const handleRowClick = (item) => {
-    //     setSelectedItem(item);
-    //     setOpenModal(true);
-    // };
-    //
-    // const handleCloseModal = () => {
-    //     setSelectedItem(null);
-    //     setOpenModal(false);
-    // };
-    //
-    // const handleDeleteSuccess = (deletedId) => {
-    //     if (activeTab === 'users') {
-    //         setUsersData((prev) => prev.filter((user) => user.id !== deletedId));
-    //     } else {
-    //         setDepartmentsData((prev) => prev.filter((dept) => dept.id !== deletedId));
-    //     }
-    //     setSelectedItem(null);
-    //     setOpenModal(false);
-    // };
-    //
-    // const currentColumns = activeTab === 'users' ? userColumns : departmentColumns;
-    // const currentData = activeTab === 'users' ? usersData : departmentsData;
+    const handleDeleteSuccess = (deletedId) => {
+        if (activeTab === 'users') {
+            setUsersData((prev) => prev.filter((user) => user.id !== deletedId));
+        } else {
+            setDepartmentsData((prev) => prev.filter((dept) => dept.id !== deletedId));
+        }
+    };
 
-    // const columns = adminManagementColumns[user.role?.toUpperCase()] ?? [];
+    const currentColumns = adminManagementColumns[activeTab.toUpperCase()] ?? [];
+    const currentData = activeTab === 'users' ? usersData : departmentsData;
 
     return (
         <>
@@ -101,20 +65,13 @@ export default function AdminManagement() {
                         Department Management
                     </CustomButton>
                 </div>
-                {/*<div>*/}
-                {/*    <DocumentTable*/}
-                {/*        data={currentData}*/}
-                {/*        columns={currentColumns}*/}
-                {/*        onRowClick={handleRowClick}*/}
-                {/*        onDeleteSuccess={handleDeleteSuccess}*/}
-                {/*    />*/}
-                {/*</div>*/}
-                {/*<DocumentModal*/}
-                {/*    document={selectedItem}*/}
-                {/*    show={openModal}*/}
-                {/*    onClose={handleCloseModal}*/}
-                {/*    onDeleteSuccess={handleDeleteSuccess}*/}
-                {/*/>*/}
+                <div>
+                    <DocumentTable
+                        data={currentData}
+                        columns={currentColumns}
+                        onDeleteSuccess={handleDeleteSuccess}
+                    />
+                </div>
             </div>
         </>
     )
