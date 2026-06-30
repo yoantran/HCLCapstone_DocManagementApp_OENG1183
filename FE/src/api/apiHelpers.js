@@ -41,6 +41,16 @@ export const putRequest = async ({ url, data = {}, params = {} }) => {
     return res.data;
 };
 
+export const putFormDataRequest = async ({ url, data = {}, params = {} }) => {
+    const res = await axios.put(url, data, {
+        params,
+        headers: {
+            "Content-Type": "multipart/form-data"
+        },
+    });
+    return res.data;
+};
+
 export const deleteRequest = async ({ url, params = {} }) => {
     const res = await axios.delete(url, { params });
     return res.data;
