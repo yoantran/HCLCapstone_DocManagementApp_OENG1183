@@ -4,22 +4,39 @@ import { deleteRequest } from "../../../api/apiHelpers";
 import { pushSuccess, pushError } from "../../toast";
 import { PopUpModal } from "../../popUpModal";
 
-export const DeleteAction = ({ document, className, onDeleteSuccess }) => {
+export const DeleteAction = ({
+                                 document,
+                                 row, // Generic standard item reference
+                                 idKey = "id",  // The key to find the item's unique identifier
+                                 nameKey = "name",  // key to find the display name
+                                 endpoint = "/documents", // API path prefix
+                                 entityLabel = "Document", // Text used in confirmation messages and toasts
+                                 className,
+                                 onDeleteSuccess,
+}) => {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+    const targetItem = row || document;
+    const itemId = targetItem?.[idKey];
+    const itemName = targetItem?.[nameKey] || "<Unknown>";
+
     const handleDelete = async () => {
+        if (!itemId) {
+            pushError("Cannot delete")
+        }
+
         try {
             await deleteRequest({
-                url: `/documents/${document.id}`,
+                url: `${endpoint}/${itemId}`,
             });
 
-            onDeleteSuccess?.(document.id);
-            pushSuccess("Document deleted successfully.");
+            onDeleteSuccess?.(itemId);
+            pushSuccess("${entityLabel} deleted successfully.");
 
         } catch (err) {
             pushError(
                 err?.response?.data?.message ||
-                "Failed to delete document."
+                "Failed to delete ${entityLabel.toLowerCase()}"
             );
         } finally {
             setShowDeleteConfirm(false);
@@ -46,7 +63,7 @@ export const DeleteAction = ({ document, className, onDeleteSuccess }) => {
                     handleDelete()
                 }}
                 title="Delete Document?"
-                description={`Are you sure you want to delete "${document?.name}"?`}
+                description={`Are you sure you want to delete "${itemName}"?`}
                 confirmText="Delete"
                 cancelText="Cancel"
             />
