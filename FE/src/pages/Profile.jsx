@@ -4,11 +4,13 @@ import { CustomButton } from "../components/button";
 import { CustomTextInput } from "../components/textInput";
 import { getRequest, putFormDataRequest } from "../api/apiHelpers";
 import { pushSuccess, pushError } from "../components/toast";
+import { useAuth } from "../context/AuthContext";
 import defaultAvatar from "../assets/avatar.svg";
 
 const MAX_AVATAR_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export default function Profile() {
+    const { updateUser } = useAuth();
     const [profile, setProfile] = useState(null);
     const [name, setName] = useState("");
     const [phoneNumber, setPhoneNumber] = useState("");
@@ -45,6 +47,7 @@ export default function Profile() {
 
             const updated = await putFormDataRequest({ url: "/users/me", data: formData });
             setProfile(updated);
+            updateUser({ name: updated.name, avatarSignedUrl: updated.avatarSignedUrl });
             setAvatarFile(null);
             setAvatarPreview(null);
             setName("");
