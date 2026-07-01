@@ -92,7 +92,7 @@ export default function MainLayout() {
                         userId={userId}
                         currentRole={currentRole}
                         logout={logout}
-                        avatarAsset={avatar}
+                        avatarAsset={user.avatarSignedUrl || avatar}
                     />
 
                     {/* Core toggle trigger for small responsive screen handling collapse */}

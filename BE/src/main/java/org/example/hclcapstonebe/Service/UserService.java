@@ -76,11 +76,15 @@ import org.springframework.web.multipart.MultipartFile;
             UserProfileResponse response = userMapper.toResponse(user);   // MapStruct
 
             if (user.getAvatarImageUrl() != null && !user.getAvatarImageUrl().isBlank()) {
-                response.setAvatarSignedUrl(
-                        supabaseStorageService.generateSignedUrl(
-                                IMAGE_BUCKET, user.getAvatarImageUrl(), SIGNED_URL_TTL
-                        )
-                );
+                try {
+                    response.setAvatarSignedUrl(
+                            supabaseStorageService.generateSignedUrl(
+                                    IMAGE_BUCKET, user.getAvatarImageUrl(), SIGNED_URL_TTL
+                            )
+                    );
+                } catch (Exception ignored) {
+                    // Supabase unavailable or key misconfigured — serve profile without avatar
+                }
             }
 
             return response;

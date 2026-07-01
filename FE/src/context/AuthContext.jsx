@@ -11,7 +11,17 @@ export function AuthProvider({ children }) {
   const login = useCallback((userData, jwt) => {
     localStorage.setItem('token', jwt);
     setToken(jwt);
-    setUser(userData);
+    setUser(userData); // set immediately so navigation can proceed
+    // enrich with full profile (adds departmentName, avatarSignedUrl, etc.)
+    import('../api/apiHelpers').then(({ getRequest }) => {
+      getRequest({ url: '/users/me' })
+        .then((data) => { if (data?.id) setUser(data); })
+        .catch(() => {}); // keep userData as fallback
+    });
+  }, []);
+
+  const updateUser = useCallback((updates) => {
+    setUser((prev) => prev ? { ...prev, ...updates } : prev);
   }, []);
 
   const logout = useCallback(() => {
@@ -48,7 +58,7 @@ export function AuthProvider({ children }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
