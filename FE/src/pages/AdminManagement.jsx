@@ -46,7 +46,7 @@ export default function AdminManagement() {
                 <h2>
                     {activeTab === 'users' ? 'User Management' : 'Department Management'}
                 </h2>
-                <div className={"inline-flex"}>
+                <div className={"inline-flex py-4 gap-2"}>
                     <CustomButton
                         onClick={() => setActiveTab('users')}
                         pill

@@ -131,11 +131,11 @@ export const columnsByRole = {
 
 export const adminManagementColumns = {
     USERS: [
-        { key: 'id', label: 'ID', accessor: 'id' },
-        { key: 'name', label: 'Name', accessor: 'name' },
+        // { key: 'id', label: 'ID', accessor: 'id' },
+        { key: 'name', label: 'User', accessor: 'name' },
         { key: 'role', label: 'Role', accessor: 'role' },
-        { key: 'email', label: 'Email', accessor: 'email' },
         { key: 'departmentName', label: 'Department', accessor: 'departmentName' },
+        { key: 'email', label: 'Email', accessor: 'email' },
         { key: 'phoneNumber', label: 'Phone Number', accessor: 'phoneNumber' },
         {
             key: 'action',
@@ -156,10 +156,9 @@ export const adminManagementColumns = {
         }
     ],
     DEPARTMENTS: [
-        { key: 'id', label: 'ID', accessor: 'id' },
+        // { key: 'id', label: 'ID', accessor: 'id' },
         { key: 'name', label: 'Department', accessor: 'name' },
-        { key: 'managerName', label: 'Manager Name', accessor: 'managerName' },
-        { key: 'managerId', label: 'Manager ID', accessor: 'managerId' },
+        { key: 'managerName', label: 'Manager', accessor: 'managerName' },
         {
             key: 'action',
             label: 'Action',
@@ -168,7 +167,7 @@ export const adminManagementColumns = {
                 return (
                     <DeleteAction
                         row={item}
-                        itemName={item?.department}
+                        itemName={item?.name}
                         endpoint="/admin/departments"
                         entityLabel="Department"
                         className={deleteButtonStyle}
