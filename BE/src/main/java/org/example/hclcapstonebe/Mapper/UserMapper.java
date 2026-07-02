@@ -20,6 +20,7 @@ public interface UserMapper {
     @Mapping(target = "department",        ignore = true)
     @Mapping(target = "isDeleted",         ignore = true)
     @Mapping(target = "deletedAt",         ignore = true)
+    @Mapping(target = "role",              source = "roleEnum")
     User toEntity(CreateUserRequest request);
 }
 
