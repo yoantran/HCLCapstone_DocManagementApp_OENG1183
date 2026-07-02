@@ -132,10 +132,10 @@ export const columnsByRole = {
 export const adminManagementColumns = {
     USERS: [
         { key: 'id', label: 'ID', accessor: 'id' },
-        { key: 'user', label: 'User', accessor: 'user' },
+        { key: 'name', label: 'Name', accessor: 'name' },
         { key: 'role', label: 'Role', accessor: 'role' },
-        { key: 'department', label: 'Department', accessor: 'department' },
         { key: 'email', label: 'Email', accessor: 'email' },
+        { key: 'departmentName', label: 'Department', accessor: 'departmentName' },
         { key: 'phoneNumber', label: 'Phone Number', accessor: 'phoneNumber' },
         {
             key: 'action',
@@ -157,9 +157,9 @@ export const adminManagementColumns = {
     ],
     DEPARTMENTS: [
         { key: 'id', label: 'ID', accessor: 'id' },
-        { key: 'department', label: 'Department', accessor: 'department' },
-        { key: 'boss', label: 'Boss', accessor: 'boss' },
-        { key: 'staffs', label: 'Staffs', accessor: 'staffs' },
+        { key: 'name', label: 'Department', accessor: 'name' },
+        { key: 'managerName', label: 'Manager Name', accessor: 'managerName' },
+        { key: 'managerId', label: 'Manager ID', accessor: 'managerId' },
         {
             key: 'action',
             label: 'Action',
