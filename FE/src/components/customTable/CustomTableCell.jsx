@@ -9,7 +9,7 @@ export const CustomTableCell = ({ column, row, onDeleteSuccess }) => {
 
         return (
             <TableCell
-                className="text-center"
+                className="text-center align-middle"
             >
                 <CustomCell
                     row={row}
@@ -23,7 +23,7 @@ export const CustomTableCell = ({ column, row, onDeleteSuccess }) => {
 
     return (
         <TableCell
-            className={column.className}
+            className={`text-center align-middle ${column.className}`}
         >
             {cellValue}
         </TableCell>

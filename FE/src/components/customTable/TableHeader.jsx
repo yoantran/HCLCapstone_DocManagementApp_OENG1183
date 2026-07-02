@@ -7,7 +7,7 @@ export const TableHeader = ({ columns }) => {
                 {columns.map((column) => (
                     <TableHeadCell
                         key={column.key}
-                        className="text-center text-white bg-(--dark-blue-300)"
+                        className="text-center align-middle text-white bg-(--dark-blue-300)"
                     >
                         {column.label}
                     </TableHeadCell>

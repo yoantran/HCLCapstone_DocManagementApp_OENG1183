@@ -7,7 +7,7 @@ export const CustomTable = ({ columns, data, onRowClick, onDeleteSuccess }) => {
     // console.log("Rendering DocumentTable with data:", data);
 
     return (
-        <Table className="bg-(--code-bg) text-white">
+        <Table className="bg-(--code-bg) text-white w-fit mx-auto">
             <TableHeader columns={columns} />
 
             <TableBody>
