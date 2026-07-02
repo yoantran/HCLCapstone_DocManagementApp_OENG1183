@@ -1,6 +1,6 @@
-import { StatusCell } from './cells/StatusCell';
-import { DeleteAction } from './cells/DeleteAction';
-import { formatDate } from '../../utils/formatFields';
+import { StatusCell } from '../documentTable/cells/StatusCell.jsx';
+import { DeleteAction } from '../action/DeleteAction.jsx';
+import { formatDate } from '../../utils/formatFields.js';
 
 const deleteButtonStyle = 'border-2 border-red-500 text-red-500 bg-(--code-bg) hover:bg-red-500 hover:text-white'
 
@@ -127,4 +127,54 @@ export const columnsByRole = {
             className: deleteButtonStyle
         },
     ],
+};
+
+export const adminManagementColumns = {
+    USERS: [
+        // { key: 'id', label: 'ID', accessor: 'id' },
+        { key: 'name', label: 'User', accessor: 'name' },
+        { key: 'role', label: 'Role', accessor: 'role' },
+        { key: 'departmentName', label: 'Department', accessor: 'departmentName' },
+        { key: 'email', label: 'Email', accessor: 'email' },
+        { key: 'phoneNumber', label: 'Phone Number', accessor: 'phoneNumber' },
+        {
+            key: 'action',
+            label: 'Action',
+            Cell: ({ row, document, onDeleteSuccess }) => {
+                const item = row || document;
+                return(
+                    <DeleteAction
+                        row={item}
+                        itemName={item?.user}
+                        endpoint="/admin/users"
+                        entityLabel="User"
+                        className={deleteButtonStyle}
+                        onDeleteSuccess={onDeleteSuccess}
+                    />
+                )
+            }
+        }
+    ],
+    DEPARTMENTS: [
+        // { key: 'id', label: 'ID', accessor: 'id' },
+        { key: 'name', label: 'Department', accessor: 'name' },
+        { key: 'managerName', label: 'Manager', accessor: 'managerName' },
+        {
+            key: 'action',
+            label: 'Action',
+            Cell: ({ row, document, onDeleteSuccess }) => {
+                const item = row || document;
+                return (
+                    <DeleteAction
+                        row={item}
+                        itemName={item?.name}
+                        endpoint="/admin/departments"
+                        entityLabel="Department"
+                        className={deleteButtonStyle}
+                        onDeleteSuccess={onDeleteSuccess}
+                    />
+                )
+            }
+        }
+    ]
 };

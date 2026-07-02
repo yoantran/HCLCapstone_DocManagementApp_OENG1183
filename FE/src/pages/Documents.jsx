@@ -1,7 +1,7 @@
 import { useAuth } from '../context/AuthContext';
 import { useEffect, useState } from 'react';
-import { columnsByRole } from '../components/documentTable/columns';
-import { DocumentTable } from '../components/documentTable';
+import { columnsByRole } from '../components/customTable/columns.jsx';
+import { CustomTable } from '../components/customTable/index.jsx';
 import { DocumentModal } from '../components/documentTable/modal';
 import { getRequest } from '../api/apiHelpers';
 
@@ -48,7 +48,7 @@ export default function Documents() {
 
     return (
         <>
-            <DocumentTable
+            <CustomTable
                 data={documents}
                 columns={columns}
                 onRowClick={handleRowClick}

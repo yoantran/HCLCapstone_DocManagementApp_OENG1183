@@ -7,7 +7,7 @@ import {
     Card,
 } from "flowbite-react";
 import { DownloadButton } from "./DownloadButton";
-import { DeleteAction } from "../cells/DeleteAction";
+import { DeleteAction } from "../../action/DeleteAction.jsx";
 import { formatDate, formatSize } from '../../../utils/formatFields';
 
 export const DocumentModal = ({

@@ -1,8 +1,8 @@
-import { CustomTableCell } from "./CustomTableCell"
+import { CustomTableCell } from "./CustomTableCell.jsx"
 import { TableRow } from "flowbite-react";
 
 
-export const CustomTableRow = ({ columns, document, onClick, onDeleteSuccess }) => {
+export const CustomTableRow = ({ columns, row, onClick, onDeleteSuccess }) => {
     return (
         <TableRow
             className="cursor-pointer hover:bg-(--cool-gray-500)"
@@ -12,7 +12,7 @@ export const CustomTableRow = ({ columns, document, onClick, onDeleteSuccess }) 
                 <CustomTableCell
                     key={column.key}
                     column={column}
-                    document={document}
+                    row={row}
                     onDeleteSuccess={onDeleteSuccess}
                 />
             ))}
