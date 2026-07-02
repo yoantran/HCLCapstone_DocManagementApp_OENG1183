@@ -1,6 +1,5 @@
 package org.example.hclcapstonebe.Service;
 
-
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
 import org.example.hclcapstonebe.Entities.Department;
 import org.example.hclcapstonebe.Entities.Document;
@@ -35,10 +34,10 @@ public class DocumentService {
     private final NotificationRepository notificationRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final DocumentMapper documentMapper;
-    private final SupabaseStorageService supabaseStorageService;   // ← injected
+    private final SupabaseStorageService supabaseStorageService;
 
     private static final String BUCKET = "documents";
-    private static final int    SIGNED_URL_TTL = 3600;            // 1 hour in seconds
+    private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
 
     // ─── UPLOAD ───────────────────────────────────────────
 
@@ -50,7 +49,7 @@ public class DocumentService {
     }
 
     public List<DocumentResponse> uploadMany(List<MultipartFile> files, String type,
-                                             String currentUserEmail) {
+            String currentUserEmail) {
         // ── Batch size validation ─────────────────────────────────────────────
         if (files == null || files.isEmpty()) {
             throw new AppException("No files provided", HttpStatus.BAD_REQUEST);
@@ -58,8 +57,7 @@ public class DocumentService {
         if (files.size() > 10) {
             throw new AppException(
                     "Batch upload limit exceeded — maximum 10 documents per request, got " + files.size(),
-                    HttpStatus.BAD_REQUEST
-            );
+                    HttpStatus.BAD_REQUEST);
         }
 
         User uploader = getUserByEmail(currentUserEmail);
@@ -69,6 +67,7 @@ public class DocumentService {
             return toResponseWithSignedUrl(doc);
         }).collect(Collectors.toList());
     }
+
     private Document buildAndSaveDocument(MultipartFile file, String type, User uploader) {
         String originalName = file.getOriginalFilename() != null
                 ? file.getOriginalFilename()
@@ -89,7 +88,7 @@ public class DocumentService {
         String storagePath = supabaseStorageService.uploadFile(BUCKET, file);
 
         Document doc = Document.builder()
-                .name(finalName)                          // deduplicated display name
+                .name(finalName)
                 .documentLink(storagePath)
                 .type(DocumentTypeEnum.valueOf(type.toUpperCase()))
                 .format(DocumentFormatEnum.valueOf(ext))
@@ -118,7 +117,7 @@ public class DocumentService {
         String candidate = baseName + "." + ext.toLowerCase();
 
         if (!existingNames.contains(candidate)) {
-            return candidate;   // "hello.pdf" — no conflict
+            return candidate;
         }
 
         // Try hello (1).pdf, hello (2).pdf ...
@@ -199,9 +198,11 @@ public class DocumentService {
 
     private void sendNotificationToManager(Document doc, User uploader) {
         Department dept = uploader.getDepartment();
-        if (dept == null || dept.getManager() == null) return;
+        if (dept == null || dept.getManager() == null)
+            return;
 
-        if (dept.getManager().getId().equals(uploader.getId())) return;
+        if (dept.getManager().getId().equals(uploader.getId()))
+            return;
 
         User manager = dept.getManager();
         String content = uploader.getName() + " uploaded a new document: " + doc.getName();
@@ -214,30 +215,32 @@ public class DocumentService {
 
         notificationRepository.save(notification);
 
+        java.util.Map<String, Object> wsPayload = new java.util.HashMap<>();
+        wsPayload.put("id", notification.getId());
+        wsPayload.put("content", content);
+        wsPayload.put("documentId", doc.getId());
+        wsPayload.put("documentName", doc.getName());
+        wsPayload.put("hasRead", false);
+        wsPayload.put("createdAt", java.time.LocalDateTime.now().toString());
+
         messagingTemplate.convertAndSendToUser(
                 manager.getEmail(),
                 "/queue/notifications",
-                Map.of(
-                        "id",           notification.getId(),
-                        "content",      content,
-                        "documentId",   doc.getId(),
-                        "documentName", doc.getName()
-                )
-        );
+                wsPayload);
     }
 
     // ─── HELPERS ──────────────────────────────────────────
 
     /**
      * Maps a Document to a response DTO and attaches a fresh signed URL.
-     * The signed URL lets the FE read the file directly from Supabase for SIGNED_URL_TTL seconds.
+     * The signed URL lets the FE read the file directly from Supabase for
+     * SIGNED_URL_TTL seconds.
      */
     private DocumentResponse toResponseWithSignedUrl(Document doc) {
         DocumentResponse response = documentMapper.toResponse(doc);
         String signedUrl = supabaseStorageService.generateSignedUrl(
-                BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL
-        );
-        response.setSignedUrl(signedUrl);   // add this field to your DocumentResponse DTO
+                BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL);
+        response.setSignedUrl(signedUrl); // add this field to your DocumentResponse DTO
         return response;
     }
 
