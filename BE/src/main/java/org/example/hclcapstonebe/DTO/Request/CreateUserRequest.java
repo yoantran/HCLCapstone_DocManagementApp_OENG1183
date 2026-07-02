@@ -1,10 +1,10 @@
 package org.example.hclcapstonebe.DTO.Request;
 
-
-import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 import org.example.hclcapstonebe.Enums.RoleEnum;
+
+import java.util.UUID;
 
 @Data
 public class CreateUserRequest {
@@ -18,5 +18,5 @@ public class CreateUserRequest {
     @NotNull
     private RoleEnum roleEnum;
 
-    private String departmentId;
+    private UUID departmentId;
 }
