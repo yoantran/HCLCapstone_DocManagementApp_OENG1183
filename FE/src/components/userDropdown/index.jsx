@@ -1,6 +1,6 @@
 // src/components/navbar/UserDropdown.jsx
 import { Link } from 'react-router-dom';
-import { Dropdown, DropdownHeader, DropdownItem, DropdownDivider, Avatar } from "flowbite-react";
+import { Dropdown, DropdownHeader, DropdownItem, DropdownDivider } from "flowbite-react";
 
 export default function UserDropdown({ user, userId, currentRole, logout, avatarAsset }) {
     const customDropdownTheme = {
@@ -22,17 +22,26 @@ export default function UserDropdown({ user, userId, currentRole, logout, avatar
             arrowIcon={false}
             inline
             label={
-                <Avatar
-                    alt="User Menu Options"
-                    img={avatarAsset}
-                    rounded
-                    className="w-8 h-8 object-contain cursor-pointer"
-                />
+                <div className="w-8 h-8 rounded-full overflow-hidden cursor-pointer flex-shrink-0 transition-opacity duration-[160ms] ease-out hover:opacity-80">
+                    <img src={avatarAsset} alt="User Menu" className="w-full h-full object-cover" />
+                </div>
             }
             theme={customDropdownTheme}
         >
             <DropdownHeader className="bg-(--dark-blue-700) text-(--ch-light-canvas) border-b border-(--cool-gray-200)">
-                <span className="block text-sm font-semibold">{user?.name || 'User Name'}, {userId || 'ID'}</span>
+                <div className="flex flex-col items-center gap-0.5 py-1">
+                    <span className="text-sm font-semibold">{user?.name || 'User'}</span>
+                    <span className="text-xs text-(--cool-gray-500)">{user?.email}</span>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-xs font-medium text-(--lighter-blue-300)">{user?.role}</span>
+                        {user?.departmentName && (
+                            <>
+                                <span className="text-(--dark-blue-300)">·</span>
+                                <span className="text-xs text-(--cool-gray-500)">{user?.departmentName}</span>
+                            </>
+                        )}
+                    </div>
+                </div>
             </DropdownHeader>
 
             <DropdownItem as={Link} to={`/${userId}/profile`} >

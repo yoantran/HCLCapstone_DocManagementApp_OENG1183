@@ -1,15 +1,15 @@
-import {Link, Outlet} from 'react-router-dom';
-import {useAuth} from "../context/AuthContext.jsx";
+import { Link, Outlet } from 'react-router-dom';
+import { useAuth } from "../context/AuthContext.jsx";
 import dmsLogo from '../assets/DMSLogo.svg';
 import avatar from '../assets/avatar.svg';
-import bellOff from '../assets/bell-off.svg';
 import {
     Navbar,
     NavbarBrand, NavbarCollapse,
     NavbarLink, NavbarToggle
 } from "flowbite-react";
-import {customNavbarTheme} from "../components/navbar/index.jsx";
+import { customNavbarTheme } from "../components/navbar/index.jsx";
 import UserDropdown from "../components/userDropdown/index.jsx";
+import { NotificationBell } from '../components/navbar/NotificationBell.jsx';
 
 export default function MainLayout() {
     const { user, logout } = useAuth();
@@ -34,44 +34,44 @@ export default function MainLayout() {
                 theme={customNavbarTheme}
             >
                 <div className="flex items-center gap-10">
-                {/* Left Side: Brand Logo */}
-                <NavbarBrand as={Link} to={`/${userId}/submit-request`}>
-                    <img
-                        src={dmsLogo}
-                        alt="DMS Icon"
-                        className="h-11.25 w-11.25 object-contain"
-                    />
-                </NavbarBrand>
-                {/* Middle Navigation */}
-                <NavbarCollapse>
-                    {/*  Staff & Manager */}
-                    {isStaffFeatureAllowed && (
-                        <>
-                            <NavbarLink
-                                as={Link}
-                                to={`/${userId}/submit-request`}
-                            >
-                                Submit New Request
-                            </NavbarLink>
+                    {/* Left Side: Brand Logo */}
+                    <NavbarBrand as={Link} to={`/${userId}/submit-request`}>
+                        <img
+                            src={dmsLogo}
+                            alt="DMS Icon"
+                            className="h-11.25 w-11.25 object-contain"
+                        />
+                    </NavbarBrand>
+                    {/* Middle Navigation */}
+                    <NavbarCollapse>
+                        {/*  Staff & Manager */}
+                        {isStaffFeatureAllowed && (
+                            <>
+                                <NavbarLink
+                                    as={Link}
+                                    to={`/${userId}/submit-request`}
+                                >
+                                    Submit New Request
+                                </NavbarLink>
 
+                                <NavbarLink
+                                    as={Link}
+                                    to={`/${userId}/documents`}
+                                >
+                                    Documents
+                                </NavbarLink>
+                            </>
+                        )}
+                        {/* 2. Admin */}
+                        {isAdminOnly && (
                             <NavbarLink
                                 as={Link}
-                                to={`/${userId}/documents`}
+                                to={`/${userId}/admin/management`}
                             >
-                                Documents
+                                Users & Departments Management
                             </NavbarLink>
-                        </>
-                    )}
-                    {/* 2. Admin */}
-                    {isAdminOnly && (
-                        <NavbarLink
-                            as={Link}
-                            to={`/${userId}/admin/management`}
-                        >
-                            Users & Departments Management
-                        </NavbarLink>
-                    )}
-                </NavbarCollapse>
+                        )}
+                    </NavbarCollapse>
                 </div>
 
                 {/* Right Side Actions: Notification Bell + Dropdown Avatar Profile Wrapper */}
@@ -79,12 +79,8 @@ export default function MainLayout() {
 
                     {/* notification */}
                     {isManagerOnly && (
-                        <div className="cursor-pointer transition-opacity hover:opacity-80">
-                            <img
-                                src={bellOff}
-                                alt="bellOff"
-                                className="h-8 w-8"
-                            />
+                        <div>
+                            <NotificationBell userId={userId} userEmail={user?.email} />
                         </div>
                     )}
                     <UserDropdown
@@ -92,7 +88,7 @@ export default function MainLayout() {
                         userId={userId}
                         currentRole={currentRole}
                         logout={logout}
-                        avatarAsset={avatar}
+                        avatarAsset={user.avatarSignedUrl || avatar}
                     />
 
                     {/* Core toggle trigger for small responsive screen handling collapse */}
