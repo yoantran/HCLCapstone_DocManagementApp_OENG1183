@@ -43,7 +43,7 @@ public class AdminService {
         }
 
         Department dept = null;
-        if (req.getDepartmentId() != null && !req.getDepartmentId().isBlank()) {
+        if (req.getDepartmentId() != null) {
             dept = departmentRepository.findById(req.getDepartmentId())
                     .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
         }
@@ -154,7 +154,7 @@ public class AdminService {
 
 
     @Transactional
-    public DepartmentResponse updateDepartment(String deptId, UpdateDepartmentRequest req) {
+    public DepartmentResponse updateDepartment(UUID deptId, UpdateDepartmentRequest req) {
         Department dept = departmentRepository.findById(deptId)
                 .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
 
@@ -245,7 +245,7 @@ public class AdminService {
                 .collect(Collectors.toList());
     }
 
-    public DepartmentResponse getDepartmentById(String id) {
+    public DepartmentResponse getDepartmentById(UUID id) {
         Department dept = departmentRepository.findById(id)
                 .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
         return departmentMapper.toResponse(dept);           // MapStruct

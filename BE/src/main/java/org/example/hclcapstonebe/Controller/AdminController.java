@@ -412,7 +412,7 @@ public class AdminController {
     @PutMapping("/departments/{id}")
     public ResponseEntity<DepartmentResponse> updateDepartment(
             @Parameter(description = "UUID of the department to update", example = "dept-uuid-123")
-            @PathVariable String id,
+            @PathVariable UUID id,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "All fields optional. Only sent fields are updated.",
                     content = @Content(
@@ -528,7 +528,7 @@ public class AdminController {
     @GetMapping("/departments/{id}")
     public ResponseEntity<DepartmentResponse> getDepartmentById(
             @Parameter(description = "UUID of the department", example = "dept-uuid-123")
-            @PathVariable String id) {
+            @PathVariable UUID id) {
         return ResponseEntity.ok(adminService.getDepartmentById(id));
     }
 }
