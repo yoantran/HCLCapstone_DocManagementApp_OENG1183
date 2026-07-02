@@ -53,7 +53,19 @@ public class AdminService {
         user.setPassword(passwordEncoder.encode(req.getPassword()));
         user.setCreatedAtDateTime(LocalDateTime.now());
 
-        return userMapper.toResponse(userRepository.save(user));
+        // update department's manager if role = manager
+        if (user.getRole() == RoleEnum.MANAGER && dept != null) {
+            if (dept.getManager() != null) {
+                throw new AppException("Department already has a manager", HttpStatus.BAD_REQUEST);
+            }
+            user = userRepository.save(user);
+            dept.setManager(user);
+            departmentRepository.save(dept);
+        } else {
+            user = userRepository.save(user);
+        }
+
+        return userMapper.toResponse(user);
     }
     @Transactional
     public UserProfileResponse assignDepartmentToUser(UUID userId, AssignDepartmentRequest req) {
