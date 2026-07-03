@@ -63,7 +63,7 @@ export function UserFormContent({
         (showDepartment && selectedDepartment !== (initialData?.department || initialData?.departmentName || "")) ||
         avatarFile;
 
-    const AvatarSection = () => (
+    const RenderAvatarSection = () => (
         <div className="flex flex-col items-center gap-3 mb-6">
             <button
                 type="button"
@@ -83,7 +83,7 @@ export function UserFormContent({
         </div>
     );
 
-    const FormFields = () => (
+    const RenderFormFields = () => (
         <div className="flex flex-col gap-5 w-full">
             <div>
                 <Label className="mb-2 block" htmlFor="form-name">Change Name</Label>
@@ -119,20 +119,18 @@ export function UserFormContent({
     if (layout === "split") {
         return (
             <form onSubmit={handleSubmit} className="w-full flex flex-col md:flex-row gap-8 items-start text-left">
-                {/* eslint-disable-next-line react-hooks/static-components */}
-                <div className="flex-1 w-full"><FormFields /></div>
-                {/* eslint-disable-next-line react-hooks/static-components */}
-                <div className="w-full md:w-1/3 flex justify-center bg-gray-900/30 p-4 rounded-lg border border-(--dark-blue-300)"><AvatarSection /></div>
+                <div className="flex-1 w-full">{RenderFormFields()}</div>
+                <div className="w-full md:w-1/3 flex justify-center bg-gray-900/30 p-4 rounded-lg border border-(--dark-blue-300)">
+                    {RenderAvatarSection()}
+                </div>
             </form>
         );
     }
 
     return (
         <form onSubmit={handleSubmit} className="w-full max-w-sm flex flex-col items-center">
-            {/* eslint-disable-next-line react-hooks/static-components */}
-            <AvatarSection />
-            {/* eslint-disable-next-line react-hooks/static-components */}
-            <FormFields />
+            {RenderAvatarSection()}
+            {RenderFormFields()}
         </form>
     );
 }
