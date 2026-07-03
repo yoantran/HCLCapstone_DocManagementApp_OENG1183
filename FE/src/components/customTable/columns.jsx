@@ -1,6 +1,9 @@
 import { StatusCell } from '../documentTable/cells/StatusCell.jsx';
 import { DeleteAction } from '../action/DeleteAction.jsx';
 import { formatDate } from '../../utils/formatFields.js';
+import {ManageAction} from "../action/ManageAction.jsx";
+import {UserModal} from "../adminManagement/userModal/index.jsx";
+import {DepartmentModal} from "../adminManagement/departmentModal/index.jsx";
 
 const deleteButtonStyle = 'border-2 border-red-500 text-red-500 bg-(--code-bg) hover:bg-red-500 hover:text-white'
 
@@ -129,9 +132,12 @@ export const columnsByRole = {
     ],
 };
 
-export const adminManagementColumns = {
+export const adminManagementColumns = (
+    depsList, usersList, refreshUsers, refreshDeps
+    // onEditUser, onEditDept
+) => ({
     USERS: [
-        // { key: 'id', label: 'ID', accessor: 'id' },
+        { key: 'id', label: 'ID', accessor: 'id' },
         { key: 'name', label: 'User', accessor: 'name' },
         { key: 'role', label: 'Role', accessor: 'role' },
         { key: 'departmentName', label: 'Department', accessor: 'departmentName' },
@@ -140,17 +146,31 @@ export const adminManagementColumns = {
         {
             key: 'action',
             label: 'Action',
-            Cell: ({ row, document, onDeleteSuccess }) => {
-                const item = row || document;
+            Cell: ({ row, onDeleteSuccess }) => {
+                const item = row;
                 return(
-                    <DeleteAction
-                        row={item}
-                        itemName={item?.user}
-                        endpoint="/admin/users"
-                        entityLabel="User"
-                        className={deleteButtonStyle}
-                        onDeleteSuccess={onDeleteSuccess}
-                    />
+                    <div className="flex items-center justify-center gap-2">
+                        <ManageAction
+                            row={item}
+                            ModalComponent={UserModal}
+                            modalProps={{ departments: depsList }}
+                            onSuccess={refreshUsers}
+                        />
+                        {/*<button*/}
+                        {/*    onClick={() => onEditUser(row)}*/}
+                        {/*    className={manageButtonStyle}*/}
+                        {/*>*/}
+                        {/*    Manage*/}
+                        {/*</button>*/}
+                        <DeleteAction
+                            row={item}
+                            itemName={item?.name}
+                            endpoint="/admin/users"
+                            entityLabel="User"
+                            className={deleteButtonStyle}
+                            onDeleteSuccess={onDeleteSuccess}
+                        />
+                    </div>
                 )
             }
         }
@@ -165,16 +185,30 @@ export const adminManagementColumns = {
             Cell: ({ row, document, onDeleteSuccess }) => {
                 const item = row || document;
                 return (
-                    <DeleteAction
-                        row={item}
-                        itemName={item?.name}
-                        endpoint="/admin/departments"
-                        entityLabel="Department"
-                        className={deleteButtonStyle}
-                        onDeleteSuccess={onDeleteSuccess}
-                    />
+                    <div className="flex items-center justify-center gap-2">
+                        <ManageAction
+                            row={item}
+                            ModalComponent={DepartmentModal}
+                            modalProps={{ users: usersList }}
+                            onSuccess={refreshDeps}
+                        />
+                        {/*<button*/}
+                        {/*    onClick={() => onEditDept(item)}*/}
+                        {/*    className={manageButtonStyle}*/}
+                        {/*>*/}
+                        {/*    Manage*/}
+                        {/*</button>*/}
+                        <DeleteAction
+                            row={item}
+                            itemName={item?.name}
+                            endpoint="/admin/departments"
+                            entityLabel="Department"
+                            className={deleteButtonStyle}
+                            onDeleteSuccess={onDeleteSuccess}
+                        />
+                    </div>
                 )
             }
         }
     ]
-};
+});
