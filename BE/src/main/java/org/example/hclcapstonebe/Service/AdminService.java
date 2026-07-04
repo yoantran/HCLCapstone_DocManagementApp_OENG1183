@@ -79,7 +79,7 @@ public class AdminService {
             );
         }
 
-        if (req.getDepartmentId() != null && !req.getDepartmentId().isBlank()) {
+        if (req.getDepartmentId() != null) {
             Department newDept = departmentRepository.findById(req.getDepartmentId())
                     .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
             user.setDepartment(newDept);
