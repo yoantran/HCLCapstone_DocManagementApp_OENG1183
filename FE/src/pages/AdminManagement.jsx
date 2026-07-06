@@ -68,13 +68,13 @@ export default function AdminManagement() {
             return String(b.id ?? '').localeCompare(String(a.id ?? ''), undefined, { numeric: true });
         }
         if (currentSort === 'name-asc') {
-            const nameA = String(a.user || a.name || '');
-            const nameB = String(b.user || b.name || '');
+            const nameA = String( a.name || '');
+            const nameB = String(b.name || '');
             return nameA.localeCompare(nameB);
         }
         if (currentSort === 'name-desc') {
-            const nameA = String(a.user || a.name || '');
-            const nameB = String(b.user || b.name || '');
+            const nameA = String(a.name || '');
+            const nameB = String(b.name || '');
             return nameB.localeCompare(nameA);
         }
         return 0;
@@ -119,6 +119,16 @@ export default function AdminManagement() {
                         </div>
                     }
                 />
+
+                <div className="flex w-[95%] max-w-365 h-12 items-center bg-(--dark-blue-800) px-4 text-xs border-b border-r border-l border-(--ch-cool-gray) select-none">
+                    <div className="flex items-center gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
+                        <span className="text-(--ch-cool-gray)">Current Table:</span>
+                        <span className="font-semibold capitalize text-white">
+                        {activeTab === 'users' ? 'Users Management' : 'Departments Management'}
+                        </span>
+                    </div>
+                </div>
 
                 <ConfigTable
                     isOpen={showConfigMenu}
