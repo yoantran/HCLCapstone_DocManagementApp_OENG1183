@@ -6,6 +6,7 @@ import FilteringPanel from "../components/filteringPanel/index.jsx";
 import {Button} from "flowbite-react";
 import { HiPlus } from "react-icons/hi";
 import ConfigTable from "../components/filteringPanel/ConfigTable.jsx";
+import SortTable from "../components/filteringPanel/SortTable.jsx";
 
 
 export default function AdminManagement() {
@@ -17,6 +18,9 @@ export default function AdminManagement() {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [showConfigMenu, setShowConfigMenu] = useState(false);
+
+    const [showFilterMenu, setShowFilterMenu] = useState(false);
+    const [currentSort, setCurrentSort] = useState('id-asc');
 
     // Fetch data whenever the active tab switches
     useEffect(() => {
@@ -56,7 +60,27 @@ export default function AdminManagement() {
         );
     });
 
-    const displayedData = filteredData.slice((currentPage - 1) * 10, currentPage * 10);
+    const sortedData = [...filteredData].sort((a, b) => {
+        if (currentSort === 'id-asc') {
+            return String(a.id ?? '').localeCompare(String(b.id ?? ''), undefined, { numeric: true });
+        }
+        if (currentSort === 'id-desc') {
+            return String(b.id ?? '').localeCompare(String(a.id ?? ''), undefined, { numeric: true });
+        }
+        if (currentSort === 'name-asc') {
+            const nameA = String(a.user || a.name || '');
+            const nameB = String(b.user || b.name || '');
+            return nameA.localeCompare(nameB);
+        }
+        if (currentSort === 'name-desc') {
+            const nameA = String(a.user || a.name || '');
+            const nameB = String(b.user || b.name || '');
+            return nameB.localeCompare(nameA);
+        }
+        return 0;
+    });
+
+    const displayedData = sortedData.slice((currentPage - 1) * 10, currentPage * 10);
 
     return (
         <>
@@ -76,7 +100,7 @@ export default function AdminManagement() {
                         setCurrentPage(1);
                     }}
                     showFilter={true}
-                    onFilterClick={() => console.log("Filter open")}
+                    onFilterClick={() => setShowFilterMenu(!showFilterMenu)}
 
                     customButton={
                         <div className="flex items-center gap-2">
@@ -102,6 +126,16 @@ export default function AdminManagement() {
                     onClose={() => setShowConfigMenu(false)}
                     onApply={(selectedTab) => setActiveTab(selectedTab)}
                 />
+
+                <SortTable
+                    isOpen={showFilterMenu}
+                    currentSort={currentSort}
+                    onClose={() => setShowFilterMenu(false)}
+                    onApply={(selectedSort) => {
+                        setCurrentSort(selectedSort);
+                    }}
+                />
+
                 <div className={"mt-5"}>
                     <CustomTable
                         data={displayedData}
