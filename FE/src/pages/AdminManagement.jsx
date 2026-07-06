@@ -3,6 +3,8 @@ import {CustomButton} from "../components/button/index.jsx";
 import {getRequest} from "../api/apiHelpers.js";
 import {CustomTable} from "../components/customTable/index.jsx";
 import {adminManagementColumns} from "../components/customTable/columns.jsx";
+import {DepartmentModal} from "../components/adminManagement/departmentModal/index.jsx";
+import {UserModal} from "../components/adminManagement/userModal/index.jsx";
 
 
 export default function AdminManagement() {
@@ -10,24 +12,39 @@ export default function AdminManagement() {
     const [usersData, setUsersData] = useState([]);
     const [departmentsData, setDepartmentsData] = useState([]);
 
-    // Fetch data whenever the active tab switches
+    const [editingUser, setEditingUser] = useState(null);
+    const [editingDept, setEditingDept] = useState(null);
+
+    const handleUserUpdate = (updatedUser) => {
+        setUsersData(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    };
+
+    const handleDeptUpdate = (updatedDept) => {
+        setDepartmentsData(prev => prev.map(d => d.id === updatedDept.id ? updatedDept : d));
+    };
+
+
     useEffect(() => {
-        if (activeTab === 'users') {
-            // Adjust endpoint URL to match your real user/document backend route
-            getRequest({ url: "/admin/users" })
-                .then((response) => {
-                    setUsersData(response ?? []);
-                })
-                .catch((error) => console.error("Error fetching users:", error));
-        } else {
-            // Adjust endpoint URL to match your real department backend route
-            getRequest({ url: "/admin/departments" })
-                .then((response) => {
-                    setDepartmentsData(response ?? []);
-                })
-                .catch((error) => console.error("Error fetching departments:", error));
-        }
-    }, [activeTab]);
+        // Fetch Users
+        getRequest({ url: "/admin/users" })
+            .then((response) => {
+                const cleanUsers = Array.isArray(response)
+                    ? response
+                    : (response?.data || response?.users || []);
+                setUsersData(cleanUsers);
+            })
+            .catch((error) => console.error("Error fetching users:", error));
+
+        // Fetch Departments
+        getRequest({ url: "/admin/departments" })
+            .then((response) => {
+                const cleanDepts = Array.isArray(response)
+                    ? response
+                    : (response?.data || response?.departments || []);
+                setDepartmentsData(cleanDepts);
+            })
+            .catch((error) => console.error("Error fetching departments:", error));
+    }, []);
 
     const handleDeleteSuccess = (deletedId) => {
         if (activeTab === 'users') {
@@ -37,7 +54,16 @@ export default function AdminManagement() {
         }
     };
 
-    const currentColumns = adminManagementColumns[activeTab.toUpperCase()] ?? [];
+    const allColumns = adminManagementColumns(
+        departmentsData,
+        usersData,
+        handleUserUpdate,
+        handleDeptUpdate,
+        setEditingUser,
+        setEditingDept
+    );
+
+    const currentColumns = allColumns[activeTab.toUpperCase()] ?? [];
     const currentData = activeTab === 'users' ? usersData : departmentsData;
 
     return (
@@ -71,6 +97,24 @@ export default function AdminManagement() {
                         onDeleteSuccess={handleDeleteSuccess}
                     />
                 </div>
+
+                <UserModal
+                    show={!!editingUser}
+                    user={editingUser}
+                    // departments={departmentsData}
+                    departments={Array.isArray(departmentsData) ? departmentsData : []}
+                    onClose={() => setEditingUser(null)}
+                    onUpdateSuccess={handleUserUpdate}
+                    onDeleteSuccess={handleDeleteSuccess}
+                />
+                <DepartmentModal
+                    show={!!editingDept}
+                    department={editingDept}
+                    // users={usersData}
+                    users={Array.isArray(usersData) ? usersData : []}
+                    onClose={() => setEditingDept(null)}
+                    onUpdateSuccess={handleDeptUpdate}
+                />
             </div>
         </>
     )
