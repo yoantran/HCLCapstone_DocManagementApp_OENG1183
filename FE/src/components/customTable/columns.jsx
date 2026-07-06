@@ -134,10 +134,9 @@ export const columnsByRole = {
 
 export const adminManagementColumns = (
     depsList, usersList, refreshUsers, refreshDeps
-    // onEditUser, onEditDept
 ) => ({
     USERS: [
-        { key: 'id', label: 'ID', accessor: 'id' },
+        // { key: 'id', label: 'ID', accessor: 'id' },
         { key: 'name', label: 'User', accessor: 'name' },
         { key: 'role', label: 'Role', accessor: 'role' },
         { key: 'departmentName', label: 'Department', accessor: 'departmentName' },
@@ -156,12 +155,6 @@ export const adminManagementColumns = (
                             modalProps={{ departments: depsList }}
                             onSuccess={refreshUsers}
                         />
-                        {/*<button*/}
-                        {/*    onClick={() => onEditUser(row)}*/}
-                        {/*    className={manageButtonStyle}*/}
-                        {/*>*/}
-                        {/*    Manage*/}
-                        {/*</button>*/}
                         <DeleteAction
                             row={item}
                             itemName={item?.name}
@@ -192,12 +185,6 @@ export const adminManagementColumns = (
                             modalProps={{ users: usersList }}
                             onSuccess={refreshDeps}
                         />
-                        {/*<button*/}
-                        {/*    onClick={() => onEditDept(item)}*/}
-                        {/*    className={manageButtonStyle}*/}
-                        {/*>*/}
-                        {/*    Manage*/}
-                        {/*</button>*/}
                         <DeleteAction
                             row={item}
                             itemName={item?.name}
