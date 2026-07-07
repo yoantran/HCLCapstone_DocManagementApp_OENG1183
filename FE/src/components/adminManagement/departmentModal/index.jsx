@@ -86,8 +86,7 @@ export const DepartmentModal = ({
                     <div className="mb-2">
                         <h5 className="text-2xl font-bold tracking-tight">{department.name || "_error Department"}</h5>
                         <p className="text-sm text-gray-400">
-                            {/*TODO: Is it necessary to display Staff Count?*/}
-                            Department ID: {department.id} · Active Staff: <span className="text-cyan-400 font-semibold">{department.staff?.length || 0}</span>
+                            Department ID: {department.id}
                         </p>
                     </div>
                     <hr className="border-(--dark-blue-300) mb-6" />
@@ -120,7 +119,7 @@ export const DepartmentModal = ({
                                 <option value="">Remove Current Manager</option>
                                 {users.map((user) => (
                                     <option key={user.id} value={user.id}>
-                                        {user.name} ({user.role || "Staff"})
+                                        {user.name} ({user.role || "unknown"})
                                     </option>
                                 ))}
                             </Select>

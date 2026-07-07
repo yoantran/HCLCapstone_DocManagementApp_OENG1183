@@ -72,7 +72,6 @@ export const UserModal = (
                         </div>
                         <hr className="border-(--dark-blue-300) mb-4"/>
 
-                        {/*TODO: Can Admin edit User info?*/}
                         <UserFormContent
                             initialData={user}
                             onSave={handleAdminSave}
