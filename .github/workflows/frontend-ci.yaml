@@ -6,8 +6,11 @@ on:
       - FE/src/**
     branches:
       - main
+      - dev
   workflow_dispatch:   # manual trigger
 
+env:
+  IMAGE_TAG: ${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
 
 jobs:
   ci_job:
@@ -22,7 +25,7 @@ jobs:
 
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: 'npm'
@@ -63,6 +66,6 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tco-dms-fe:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tco-dms-fe:${{ env.IMAGE_TAG }}
           platforms: linux/amd64,linux/arm64
           context: FE
