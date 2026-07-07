@@ -1,6 +1,6 @@
 package org.example.hclcapstonebe.Controller;
-
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -9,8 +9,9 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.example.hclcapstonebe.DTO.Request.UpdateProfileRequest;
-import org.example.hclcapstonebe.DTO.Response.UserResponse;
+import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Service.UserService;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -20,15 +21,21 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/users")
 @RequiredArgsConstructor
-@Tag(name = "Users", description = "Profile management for logged-in users. Available to both STAFF and BOSS.")
+@Tag(name = "Users", description = "Profile management for logged-in users. Available to both STAFF and manager.")
 @SecurityRequirement(name = "bearerAuth")
 public class UserController {
 
     private final UserService userService;
 
+    // ─── GET MY PROFILE ───────────────────────────────────────────────────────
+
     @Operation(
             summary = "Get my profile",
-            description = "Returns the full profile of the currently authenticated user including department and role info."
+            description = """
+                    Returns the currently logged-in user's profile.
+                    Includes a signed URL for the avatar image (valid for 1 hour).
+                    Available to both Staff and Manager.
+                    """
     )
     @ApiResponses({
             @ApiResponse(
@@ -39,35 +46,42 @@ public class UserController {
                             examples = @ExampleObject(value = """
                     {
                         "id": "user-uuid-123",
-                        "email": "john.doe@hcl.com",
                         "name": "John Doe",
-                        "avatarImageUrl": "avatars/john_avatar.png",
+                        "email": "john.doe@example.com",
                         "phoneNumber": "0901234567",
+                        "role": "STAFF",
                         "departmentId": "dept-uuid-123",
-                        "departmentName": "Engineering",
-                        "roleEnum": "STAFF",
-                        "createdAtDateTime": "2026-04-20T10:00:00"
+                        "departmentName": "Finance",
+                        "avatarSignedUrl": "https://pkbwoortbtsvbcggybia.supabase.co/storage/v1/object/sign/images/uuid_avatar.png?token=eyJ..."
                     }
-                """)
+                    """)
                     )
             ),
-            @ApiResponse(responseCode = "401", description = "Unauthorized — JWT missing or expired"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @GetMapping("/me")
-    public ResponseEntity<UserResponse> getProfile(
+    public ResponseEntity<UserProfileResponse> getMyProfile(
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(userService.getProfile(userDetails.getUsername()));
     }
 
+    // ─── UPDATE MY PROFILE ────────────────────────────────────────────────────
+
     @Operation(
             summary = "Update my profile",
             description = """
-            Updates the current user's profile. All fields are optional — only send what needs to change.
-            Send as multipart/form-data:
-            - `data` part: JSON with name and/or phoneNumber
-            - `avatar` part: image file (PNG or JPEG)
-            """
+                    Updates the currently logged-in user's name, phone number, and/or avatar image.
+                    All fields are optional — only provided fields will be updated.
+                    
+                    Avatar rules:
+                    - Allowed formats: JPEG, PNG
+                    - Max file size: 10MB
+                    - Old avatar is automatically deleted from storage when a new one is uploaded
+                    - A signed URL (valid for 1 hour) is returned to view the new avatar
+                    
+                    Available to both Staff and Boss.
+                    """
     )
     @ApiResponses({
             @ApiResponse(
@@ -78,36 +92,40 @@ public class UserController {
                             examples = @ExampleObject(value = """
                     {
                         "id": "user-uuid-123",
-                        "email": "john.doe@hcl.com",
                         "name": "John Updated",
-                        "avatarImageUrl": "avatars/new_avatar.png",
+                        "email": "john.doe@example.com",
                         "phoneNumber": "0909999999",
+                        "role": "STAFF",
                         "departmentId": "dept-uuid-123",
-                        "departmentName": "Engineering",
-                        "roleEnum": "STAFF",
-                        "createdAtDateTime": "2026-04-20T10:00:00"
+                        "departmentName": "Finance",
+                        "avatarSignedUrl": "https://pkbwoortbtsvbcggybia.supabase.co/storage/v1/object/sign/images/uuid_new_avatar.png?token=eyJ..."
                     }
-                """)
-                    )
-            ),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-    @PatchMapping(value = "/me", consumes = "multipart/form-data")
-    public ResponseEntity<UserResponse> updateProfile(
-            @AuthenticationPrincipal UserDetails userDetails,
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Profile update — send as multipart/form-data",
-                    content = @Content(
-                            examples = @ExampleObject(value = """
-                        data: { "name": "John Updated", "phoneNumber": "0909999999" }
-                        avatar: [image file]
                     """)
                     )
-            )
-            @RequestPart(value = "data", required = false) UpdateProfileRequest req,
-            @RequestPart(value = "avatar", required = false) MultipartFile avatar) {
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid avatar format (only JPEG, PNG allowed) or file exceeds 10MB"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
+            @ApiResponse(responseCode = "404", description = "User not found")
+    })
+    @PutMapping(value = "/me", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<UserProfileResponse> updateMyProfile(
+            @Parameter(description = "Updated name (optional)")
+            @RequestParam(value = "name", required = false) String name,
+
+            @Parameter(description = "Updated phone number (optional)")
+            @RequestParam(value = "phoneNumber", required = false) String phoneNumber,
+
+            @Parameter(description = "New avatar image — JPEG or PNG, max 10MB (optional). Replaces and deletes the old avatar.")
+            @RequestParam(value = "avatar", required = false) MultipartFile avatar,
+
+            @AuthenticationPrincipal UserDetails userDetails) {
+
+        UpdateProfileRequest request = new UpdateProfileRequest();
+        request.setName(name);
+        request.setPhoneNumber(phoneNumber);
+
         return ResponseEntity.ok(
-                userService.updateProfile(userDetails.getUsername(), req, avatar));
+                userService.updateProfile(userDetails.getUsername(), request, avatar)
+        );
     }
 }

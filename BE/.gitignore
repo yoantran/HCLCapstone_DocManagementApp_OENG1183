@@ -3,6 +3,9 @@ target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+.env
+*.env
+*.log
 
 ### STS ###
 .apt_generated
@@ -31,3 +34,4 @@ build/
 
 ### VS Code ###
 .vscode/
+
