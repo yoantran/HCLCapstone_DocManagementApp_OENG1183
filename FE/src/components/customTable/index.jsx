@@ -16,7 +16,7 @@ export const CustomTable = ({ columns, data, onRowClick, onDeleteSuccess }) => {
                         key={row.id}
                         row={row}
                         columns={columns}
-                        onClick={() => onRowClick(row)}
+                        onClick={() => onRowClick?.(row)}
                         onDeleteSuccess={onDeleteSuccess}
                     />
                 ))}
