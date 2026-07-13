@@ -33,24 +33,11 @@ export default function Documents() {
 
     useEffect(() => {
         const isManager = user.role?.toUpperCase() === 'MANAGER';
+        const url = isManager ? "/documents/department" : "/documents/mine";
 
-        const fetchPromises = isManager
-            ? [getRequest({ url: "/documents/mine" }), getRequest({ url: "/documents/department" })]
-            : [getRequest({ url: "/documents/mine" })];
-
-        Promise.all(fetchPromises)
-            .then(([mine, department]) => {
-                if (isManager) {
-                    const merged = [...(mine ?? []), ...(department ?? [])];
-                    const unique = Array.from(new Map(merged.map(doc => [doc.id, doc])).values());
-                    setDocuments(unique);
-                } else {
-                    setDocuments(mine ?? []);
-                }
-            })
-            .catch((error) => {
-                console.error("Error fetching documents:", error);
-            });
+        getRequest({ url })
+            .then((response) => setDocuments(response ?? []))
+            .catch((error) => console.error("Error fetching documents:", error));
     }, []);
 
     // get column pattern based on role
