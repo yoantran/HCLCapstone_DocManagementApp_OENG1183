@@ -20,7 +20,7 @@ export default function AdminManagement() {
     const [showConfigMenu, setShowConfigMenu] = useState(false);
 
     const [showFilterMenu, setShowFilterMenu] = useState(false);
-    const [currentSort, setCurrentSort] = useState('id-asc');
+    const [currentSort, setCurrentSort] = useState('date-desc');
 
     // Fetch data whenever the active tab switches
     useEffect(() => {
@@ -76,6 +76,16 @@ export default function AdminManagement() {
             const nameA = String(a.name || '');
             const nameB = String(b.name || '');
             return nameB.localeCompare(nameA);
+        }
+        if (currentSort === 'date-asc') {
+            const timeA = a.createdAtDateTime ? new Date(a.createdAtDateTime).getTime() : 0;
+            const timeB = b.createdAtDateTime ? new Date(b.createdAtDateTime).getTime() : 0;
+            return timeA - timeB;
+        }
+        if (currentSort === 'date-desc') {
+            const timeA = a.createdAtDateTime ? new Date(a.createdAtDateTime).getTime() : 0;
+            const timeB = b.createdAtDateTime ? new Date(b.createdAtDateTime).getTime() : 0;
+            return timeB - timeA;
         }
         return 0;
     });

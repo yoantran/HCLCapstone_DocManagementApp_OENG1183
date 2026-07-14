@@ -33,6 +33,28 @@ export default function SortTable ({
                 </h4>
                 <div className="flex flex-col gap-3 p-3 mb-4 rounded bg-(--lighter-blue-800) border border-(--cool-gray-500)/40">
 
+                    {/*Date ascend*/}
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none text-(--ch-cool-gray) hover:text-white transition-colors">
+                        <input
+                            type="radio"
+                            name="table-sort"
+                            checked={tempSort === 'date-asc'}
+                            onChange={() => setTempSort('date-asc')}
+                            className="rounded-full bg-(--lighter-blue-800) border-slate-600 text-(--color-primary-500) focus:ring-0 focus:ring-offset-0 w-4 h-4"
+                        />
+                        <span>Date Asc</span>
+                    </label>
+                    {/*Date descend*/}
+                    <label className="flex items-center gap-2.5 cursor-pointer select-none text-(--ch-cool-gray) hover:text-white transition-colors">
+                        <input
+                            type="radio"
+                            name="table-sort"
+                            checked={tempSort === 'date-desc'}
+                            onChange={() => setTempSort('date-desc')}
+                            className="rounded-full bg-(--lighter-blue-800) border-slate-600 text-(--color-primary-500) focus:ring-0 focus:ring-offset-0 w-4 h-4"
+                        />
+                        <span>Date Desc</span>
+                    </label>
                     {/*ID ascend*/}
                     <label className="flex items-center gap-2.5 cursor-pointer select-none text-(--ch-cool-gray) hover:text-white transition-colors">
                         <input
