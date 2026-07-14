@@ -58,23 +58,21 @@ export default function AdminManagement() {
             })
             .catch((error) => console.error("Error fetching departments:", error));
     }, []);
-        if (activeTab === 'users') {
-            getRequest({ url: "/admin/users" })
-                .then((response) => {
-                    setUsersData(response ?? []);
-                })
-                .catch((error) => console.error("Error fetching users:", error));
-        } else {
-            getRequest({ url: "/admin/departments" })
-                .then((response) => {
-                    setDepartmentsData(response ?? []);
-                })
-                .catch((error) => console.error("Error fetching departments:", error));
-        }
-
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setCurrentPage(1);
-    }, [activeTab]);
+    //     if (activeTab === 'users') {
+    //         getRequest({ url: "/admin/users" })
+    //             .then((response) => {
+    //                 setUsersData(response ?? []);
+    //             })
+    //             .catch((error) => console.error("Error fetching users:", error));
+    //     } else {
+    //         getRequest({ url: "/admin/departments" })
+    //             .then((response) => {
+    //                 setDepartmentsData(response ?? []);
+    //             })
+    //             .catch((error) => console.error("Error fetching departments:", error));
+    //     }
+    //     setCurrentPage(1);
+    // }, [activeTab]);
 
     const handleDeleteSuccess = (deletedId) => {
         if (activeTab === 'users') {
