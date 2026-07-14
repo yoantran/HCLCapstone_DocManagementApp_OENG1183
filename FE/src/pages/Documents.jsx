@@ -31,16 +31,13 @@ export default function Documents() {
         setOpenModal(false);
     };
 
-    // fetch the actual documents on page load
     useEffect(() => {
-        getRequest({ url: "/documents/mine" })
-            .then((response) => {
-                // console.log("Fetched documents:", response);
-                setDocuments(response ?? []);
-            })
-            .catch((error) => {
-                console.error("Error fetching documents:", error);
-            });
+        const isManager = user.role?.toUpperCase() === 'MANAGER';
+        const url = isManager ? "/documents/department" : "/documents/mine";
+
+        getRequest({ url })
+            .then((response) => setDocuments(response ?? []))
+            .catch((error) => console.error("Error fetching documents:", error));
     }, []);
 
     // get column pattern based on role

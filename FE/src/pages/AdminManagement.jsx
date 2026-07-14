@@ -2,6 +2,8 @@ import {useEffect, useState} from "react";
 import {getRequest} from "../api/apiHelpers.js";
 import {CustomTable} from "../components/customTable/index.jsx";
 import {adminManagementColumns} from "../components/customTable/columns.jsx";
+import {DepartmentModal} from "../components/adminManagement/departmentModal/index.jsx";
+import {UserModal} from "../components/adminManagement/userModal/index.jsx";
 import FilteringPanel from "../components/filteringPanel/index.jsx";
 import {Button} from "flowbite-react";
 import { HiPlus } from "react-icons/hi";
@@ -14,6 +16,18 @@ export default function AdminManagement() {
     const [usersData, setUsersData] = useState([]);
     const [departmentsData, setDepartmentsData] = useState([]);
 
+    const [editingUser, setEditingUser] = useState(null);
+    const [editingDept, setEditingDept] = useState(null);
+
+    const handleUserUpdate = (updatedUser) => {
+        setUsersData(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    };
+
+    const handleDeptUpdate = (updatedDept) => {
+        setDepartmentsData(prev => prev.map(d => d.id === updatedDept.id ? updatedDept : d));
+    };
+
+
     // filteringPanel
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -24,6 +38,26 @@ export default function AdminManagement() {
 
     // Fetch data whenever the active tab switches
     useEffect(() => {
+        // Fetch Users
+        getRequest({ url: "/admin/users" })
+            .then((response) => {
+                const cleanUsers = Array.isArray(response)
+                    ? response
+                    : (response?.data || response?.users || []);
+                setUsersData(cleanUsers);
+            })
+            .catch((error) => console.error("Error fetching users:", error));
+
+        // Fetch Departments
+        getRequest({ url: "/admin/departments" })
+            .then((response) => {
+                const cleanDepts = Array.isArray(response)
+                    ? response
+                    : (response?.data || response?.departments || []);
+                setDepartmentsData(cleanDepts);
+            })
+            .catch((error) => console.error("Error fetching departments:", error));
+    }, []);
         if (activeTab === 'users') {
             getRequest({ url: "/admin/users" })
                 .then((response) => {
@@ -50,7 +84,16 @@ export default function AdminManagement() {
         }
     };
 
-    const currentColumns = adminManagementColumns[activeTab.toUpperCase()] ?? [];
+    const allColumns = adminManagementColumns(
+        departmentsData,
+        usersData,
+        handleUserUpdate,
+        handleDeptUpdate,
+        setEditingUser,
+        setEditingDept
+    );
+
+    const currentColumns = allColumns[activeTab.toUpperCase()] ?? [];
     const currentData = activeTab === 'users' ? usersData : departmentsData;
 
     const filteredData = currentData.filter((item) => {
@@ -163,6 +206,24 @@ export default function AdminManagement() {
                         onDeleteSuccess={handleDeleteSuccess}
                     />
                 </div>
+
+                <UserModal
+                    show={!!editingUser}
+                    user={editingUser}
+                    // departments={departmentsData}
+                    departments={Array.isArray(departmentsData) ? departmentsData : []}
+                    onClose={() => setEditingUser(null)}
+                    onUpdateSuccess={handleUserUpdate}
+                    onDeleteSuccess={handleDeleteSuccess}
+                />
+                <DepartmentModal
+                    show={!!editingDept}
+                    department={editingDept}
+                    // users={usersData}
+                    users={Array.isArray(usersData) ? usersData : []}
+                    onClose={() => setEditingDept(null)}
+                    onUpdateSuccess={handleDeptUpdate}
+                />
             </div>
         </>
     )
