@@ -127,7 +127,7 @@ export default function Documents() {
 
             <ConfigTable
                 isOpen={showConfigMenu}
-                activeTab={activeTab === 'mine' ? 'My Documents' : 'Department Documents'}
+                activeTab={activeTab === 'mine' ? 'mine' : 'department'}
                 onClose={() => setShowConfigMenu(false)}
                 onApply={(selectedTab) => setActiveTab(selectedTab)}
                 options={[

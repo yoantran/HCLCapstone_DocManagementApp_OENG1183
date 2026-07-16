@@ -36,7 +36,7 @@ export default function ConfigTable({
                     {options.map((option) => (
                         <label key={option.value} className="flex items-center gap-2.5 cursor-pointer select-none text-(--ch-cool-gray) hover:text-white transition-colors">
                             <input
-                                type="checkbox"
+                                type="radio"
                                 checked={tempSelectedTab === option.value}
                                 onChange={() => setTempSelectedTab(option.value)}
                                 className="rounded bg-(--lighter-blue-800) border-slate-600 text-(--color-primary-500) focus:ring-0 focus:ring-offset-0 w-4 h-4"
