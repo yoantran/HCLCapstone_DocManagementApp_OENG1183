@@ -1,9 +1,9 @@
 import { StatusCell } from '../documentTable/cells/StatusCell.jsx';
 import { DeleteAction } from '../action/DeleteAction.jsx';
 import { formatDate } from '../../utils/formatFields.js';
-import {ManageAction} from "../action/ManageAction.jsx";
-import {UserModal} from "../adminManagement/userModal/index.jsx";
-import {DepartmentModal} from "../adminManagement/departmentModal/index.jsx";
+import { ManageAction } from "../action/ManageAction.jsx";
+import { UserModal } from "../adminManagement/userModal/index.jsx";
+import { DepartmentModal } from "../adminManagement/departmentModal/index.jsx";
 
 const deleteButtonStyle = 'border-2 border-red-500 text-red-500 bg-(--code-bg) hover:bg-red-500 hover:text-white'
 
@@ -49,6 +49,7 @@ export const columnsByRole = {
             key: 'name',
             label: 'Name',
             accessor: 'name',
+            className: 'text-left min-w-44 sm:max-w-52 break-words',
         },
         {
             key: 'format',
@@ -147,7 +148,7 @@ export const adminManagementColumns = (
             label: 'Action',
             Cell: ({ row, onDeleteSuccess }) => {
                 const item = row;
-                return(
+                return (
                     <div className="flex items-center justify-center gap-2">
                         <ManageAction
                             row={item}

@@ -38,7 +38,7 @@ export const DocumentModal = ({
                 </div>
             </ModalHeader>
 
-            <ModalBody className="flex justify-center bg-(--dark-blue-700)">
+            <ModalBody className="flex justify-center bg-(--dark-blue-700) wrap-break-word">
                 <Card className="w-4/5 bg-(--dark-blue-700) text-white">
                     <h5 className="text-2xl font-bold tracking-tight">
                         {document.name || "<Unknown>"}
@@ -106,7 +106,7 @@ export const DocumentModal = ({
                 </Card>
 
             </ModalBody>
-            <div className="flex justify-center gap-6 bg-(--dark-blue-700) px-10">
+            <div className="flex justify-center gap-6 bg-(--dark-blue-700) px-10 pb-5">
                 <DeleteAction
                     document={document}
                     className="bg-red-700 border border-red-700 hover:bg-(--dark-blue-700) w-2/3"

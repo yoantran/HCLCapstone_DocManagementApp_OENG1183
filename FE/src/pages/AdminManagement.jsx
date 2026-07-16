@@ -1,11 +1,11 @@
-import {useEffect, useState} from "react";
-import {getRequest} from "../api/apiHelpers.js";
-import {CustomTable} from "../components/customTable/index.jsx";
-import {adminManagementColumns} from "../components/customTable/columns.jsx";
-import {DepartmentModal} from "../components/adminManagement/departmentModal/index.jsx";
-import {UserModal} from "../components/adminManagement/userModal/index.jsx";
+import { useEffect, useState } from "react";
+import { getRequest } from "../api/apiHelpers.js";
+import { CustomTable } from "../components/customTable/index.jsx";
+import { adminManagementColumns } from "../components/customTable/columns.jsx";
+import { DepartmentModal } from "../components/adminManagement/departmentModal/index.jsx";
+import { UserModal } from "../components/adminManagement/userModal/index.jsx";
 import FilteringPanel from "../components/filteringPanel/index.jsx";
-import {Button} from "flowbite-react";
+import { Button } from "flowbite-react";
 import { HiPlus } from "react-icons/hi";
 import ConfigTable from "../components/filteringPanel/ConfigTable.jsx";
 import SortTable from "../components/filteringPanel/SortTable.jsx";
@@ -109,7 +109,7 @@ export default function AdminManagement() {
             return String(b.id ?? '').localeCompare(String(a.id ?? ''), undefined, { numeric: true });
         }
         if (currentSort === 'name-asc') {
-            const nameA = String( a.name || '');
+            const nameA = String(a.name || '');
             const nameB = String(b.name || '');
             return nameA.localeCompare(nameB);
         }
@@ -153,6 +153,14 @@ export default function AdminManagement() {
                     showFilter={true}
                     onFilterClick={() => setShowFilterMenu(!showFilterMenu)}
 
+                    activeTabLabel={activeTab === 'users' ? 'Users Management' : 'Departments Management'}
+                    onClearFilters={() => {
+                        setSearchTerm('');
+                        setCurrentSort('date-desc');
+                        setActiveTab('users');
+                        setCurrentPage(1);
+                    }}
+
                     customButton={
                         <div className="flex items-center gap-2">
                             <Button disabled
@@ -170,16 +178,6 @@ export default function AdminManagement() {
                         </div>
                     }
                 />
-
-                <div className="flex w-[95%] max-w-365 h-12 items-center bg-(--dark-blue-800) px-4 text-xs border-b border-r border-l border-(--ch-cool-gray) select-none">
-                    <div className="flex items-center gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
-                        <span className="text-(--ch-cool-gray)">Current Table:</span>
-                        <span className="font-semibold capitalize text-white">
-                        {activeTab === 'users' ? 'Users Management' : 'Departments Management'}
-                        </span>
-                    </div>
-                </div>
 
                 <ConfigTable
                     isOpen={showConfigMenu}
