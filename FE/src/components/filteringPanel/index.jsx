@@ -1,40 +1,42 @@
-import {TextInput} from "flowbite-react";
-import {CustomSearchIcon} from "./icon/CustomSearchIcon.jsx";
-import {CustomSettingIcon} from "./icon/CustomSettingIcon.jsx";
-import {LeftArrowIcon} from "./icon/LeftArrowIcon.jsx";
-import {RightArrowIcon} from "./icon/RightArrowIcon.jsx";
-import {CustomFilterIcon} from "./icon/CustomFilterIcon.jsx";
-import {useEffect} from "react";
+import { TextInput } from "flowbite-react";
+import { CustomSearchIcon } from "./icon/CustomSearchIcon.jsx";
+import { CustomSettingIcon } from "./icon/CustomSettingIcon.jsx";
+import { LeftArrowIcon } from "./icon/LeftArrowIcon.jsx";
+import { RightArrowIcon } from "./icon/RightArrowIcon.jsx";
+import { CustomFilterIcon } from "./icon/CustomFilterIcon.jsx";
+import { useEffect } from "react";
 
 const searchInputTheme = {
-        field: {
-            input: {
-                base: "w-full text-sm font-normal focus:ring-1 focus:outline-none ",
-                    colors: {
-                    gray: "bg-(--dark-blue-800) text-(--cool-gray-500) border-(--ch-cool-gray) focus:border-(--ch-lighter-blue) focus:ring-(--ch-lighter-blue)"
-                }
+    field: {
+        input: {
+            base: "w-full text-sm font-normal focus:ring-1 focus:outline-none ",
+            colors: {
+                gray: "bg-(--dark-blue-800) text-(--cool-gray-500) border-(--ch-cool-gray) focus:border-(--ch-lighter-blue) focus:ring-(--ch-lighter-blue)"
             }
         }
     }
+}
 const FilteringPanel = ({
     // Global
     currentPage = 1,
     pageSize = 10,
     totalItems = 0,
-    onPageChange = number => {},
+    onPageChange = number => { },
     customButton = null,
 
     // Manager
     showSearch = false,
     searchValue = '',
-    onSearchChange = () => {},
+    onSearchChange = () => { },
     searchPlaceholder = 'Search',
     showFilter = false,
-    onFilterClick = () => {},
+    onFilterClick = () => { },
 
     // Admin
     showSettings = false,
-    onSettingsClick = () => {},
+    onSettingsClick = () => { },
+    activeTabLabel = null,
+    onClearFilters = null,
 }) => {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
@@ -61,9 +63,9 @@ const FilteringPanel = ({
     return (
         <>
             <div
-            className="flex w-[95%] max-w-365 h-17.25 items-center justify-between bg-(--dark-blue-800) px-4 py-3 text-(--cool-gray-500) shadow-md border-b border--(--ch-cool-gray) rounded-t-md">
+                className="flex w-[95%] max-w-365 h-17.25 items-center justify-between bg-(--dark-blue-800) px-4 py-3 text-(--cool-gray-500) shadow-md border-b border--(--ch-cool-gray) rounded-t-md">
 
-            {/*Settings Icon & Search Bar */}
+                {/*Settings Icon & Search Bar */}
                 <div className={"flex items-center gap-3 flex-1 max-w-xl shrink-0"}>
                     {showSettings && (
                         <button
@@ -134,8 +136,27 @@ const FilteringPanel = ({
                         </>
                     )}
                 </div>
+
             </div>
-</>
+            {(activeTabLabel || onClearFilters) && (
+                <div className="flex w-[95%] max-w-365 h-12 items-center bg-(--dark-blue-800) px-4 text-xs border-b border-r border-l border-(--ch-cool-gray) select-none justify-between">
+                    {activeTabLabel && (
+                        <div className="flex items-center gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
+                            <span className="text-(--ch-cool-gray)">Current Table:</span>
+                            <span className="font-semibold capitalize text-white">{activeTabLabel}</span>
+                        </div>
+                    )}
+                    {onClearFilters && (
+                        <div className="flex gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colors">
+                            <button className='hover:cursor-pointer' onClick={onClearFilters}>
+                                Clear All Filters
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </>
     );
 };
 
