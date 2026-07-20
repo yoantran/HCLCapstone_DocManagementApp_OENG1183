@@ -19,6 +19,9 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +38,7 @@ public class DocumentService {
     private final SimpMessagingTemplate messagingTemplate;
     private final DocumentMapper documentMapper;
     private final SupabaseStorageService supabaseStorageService;
+    private final ClamAvScannerService clamAvScannerService;
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
@@ -84,12 +88,53 @@ public class DocumentService {
         // ── Deduplicate filename for this user ──────────────────
         String finalName = resolveUniqueFileName(baseName, ext, UUID.fromString(String.valueOf(uploader.getId())));
 
+        // ── Validation Pipeline ──
+        byte[] fileData;
+        try (InputStream rawStream = file.getInputStream();
+             BufferedInputStream bis = new BufferedInputStream(rawStream)) {
+
+            bis.mark(8192);
+            byte[] header = new byte[4];
+            int bytesRead = bis.read(header);
+
+            if (!ext.equals("PDF") && !ext.equals("DOCX") && !ext.equals("CSV")) {
+                throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
+            }
+
+            if (ext.equals("PDF")) {
+                if (bytesRead < 4 || header[0] != 0x25 || header[1] != 0x50 || header[2] != 0x44 || header[3] != 0x46) {
+                    throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
+                }
+            } else if (ext.equals("DOCX")) {
+                if (bytesRead < 4 || header[0] != 0x50 || header[1] != 0x4B || header[2] != 0x03 || header[3] != 0x04) {
+                    throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
+                }
+            }
+
+            bis.reset();
+
+            boolean isSafe = clamAvScannerService.scanStream(bis);
+            if (!isSafe) {
+                throw new AppException("Malware virus variant threat vector flagged within upload stream", HttpStatus.UNPROCESSABLE_ENTITY);
+            }
+
+        } catch (IOException e) {
+            throw new AppException("Failed to process file stream: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        try {
+            fileData = file.getBytes();
+        } catch (IOException e) {
+            throw new AppException("Failed to read file bytes: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
-        String storagePath = supabaseStorageService.uploadFile(BUCKET, file);
+        String storagePath = UUID.randomUUID() + "_" + originalName;
+        String uploadedPath = supabaseStorageService.uploadFile(BUCKET, fileData, storagePath, file.getContentType());
 
         Document doc = Document.builder()
                 .name(finalName)
-                .documentLink(storagePath)
+                .documentLink(uploadedPath)
                 .type(DocumentTypeEnum.valueOf(type.toUpperCase()))
                 .format(DocumentFormatEnum.valueOf(ext))
                 .byteSize(file.getSize())
