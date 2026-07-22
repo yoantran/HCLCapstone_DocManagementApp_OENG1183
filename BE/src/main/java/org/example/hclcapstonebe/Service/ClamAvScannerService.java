@@ -89,7 +89,7 @@ public class ClamAvScannerService {
 
                 return new ScanResult(
                         ScanStatus.INFECTED,
-                        "Malware detected (" + signature + "). Document quarantined."
+                        "Malware detected: " + signature + ".\nDocument quarantined."
                 );
             } else {
                 log.warn("ClamAV scan: Unrecognized signature or anomaly detected. Verdict: {}", response);
@@ -103,7 +103,7 @@ public class ClamAvScannerService {
             log.error("ClamAV scanning failed due to connection/IO error: {}", e.getMessage(), e);
             return new ScanResult(
                     ScanStatus.ERROR,
-                    "Malware scan failed due to a scanner connection error."
+                    "Malware scan failed."
             );
         }
     }
