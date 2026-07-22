@@ -8,6 +8,7 @@ import org.example.hclcapstonebe.Entities.User;
 
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
+import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.example.hclcapstonebe.Exception.AppException;
 import org.example.hclcapstonebe.Mapper.DocumentMapper;
 import org.example.hclcapstonebe.Repository.DocumentRepository;
@@ -24,7 +25,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -49,7 +49,7 @@ public class DocumentService {
         User uploader = getUserByEmail(currentUserEmail);
         Document doc = buildAndSaveDocument(file, type, uploader);
         sendNotificationToManager(doc, uploader);
-        return toResponseWithSignedUrl(doc);
+        return toDocumentResponse(doc);
     }
 
     public List<DocumentResponse> uploadMany(List<MultipartFile> files, String type,
@@ -68,7 +68,7 @@ public class DocumentService {
         return files.stream().map(file -> {
             Document doc = buildAndSaveDocument(file, type, uploader);
             sendNotificationToManager(doc, uploader);
-            return toResponseWithSignedUrl(doc);
+            return toDocumentResponse(doc);
         }).collect(Collectors.toList());
     }
 
@@ -89,6 +89,8 @@ public class DocumentService {
         String finalName = resolveUniqueFileName(baseName, ext, UUID.fromString(String.valueOf(uploader.getId())));
 
         // ── Validation Pipeline ──
+        ClamAvScannerService.ScanResult scanResult;
+        LocalDateTime scannedAt;
         byte[] fileData;
         try (InputStream rawStream = file.getInputStream();
              BufferedInputStream bis = new BufferedInputStream(rawStream)) {
@@ -113,10 +115,8 @@ public class DocumentService {
 
             bis.reset();
 
-            boolean isSafe = clamAvScannerService.scanStream(bis);
-            if (!isSafe) {
-                throw new AppException("Malware virus variant threat vector flagged within upload stream", HttpStatus.UNPROCESSABLE_ENTITY);
-            }
+            scanResult = clamAvScannerService.scanStream(bis);
+            scannedAt = LocalDateTime.now();
 
         } catch (IOException e) {
             throw new AppException("Failed to process file stream: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
@@ -141,6 +141,9 @@ public class DocumentService {
                 .uploadedDateTime(LocalDateTime.now())
                 .uploader(uploader)
                 .department(uploader.getDepartment())
+                .scanStatus(scanResult.status())
+                .scanMessage(scanResult.message())
+                .scannedAt(scannedAt)
                 .build();
 
         return documentRepository.save(doc);
@@ -182,7 +185,7 @@ public class DocumentService {
         User user = getUserByEmail(currentUserEmail);
         return documentRepository.findByUploaderIdAndIsDeletedFalse(user.getId())
                 .stream()
-                .map(this::toResponseWithSignedUrl)
+                .map(this::toDocumentResponse)
                 .collect(Collectors.toList());
     }
 
@@ -196,7 +199,7 @@ public class DocumentService {
 
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
-        return toResponseWithSignedUrl(doc);
+        return toDocumentResponse(doc);
     }
 
     // ─── VIEW: BOSS ONLY (department docs) ────────────────
@@ -206,7 +209,7 @@ public class DocumentService {
         return documentRepository
                 .findByDepartmentIdAndIsDeletedFalse(boss.getDepartment().getId())
                 .stream()
-                .map(this::toResponseWithSignedUrl)
+                .map(this::toDocumentResponse)
                 .collect(Collectors.toList());
     }
 
@@ -220,7 +223,7 @@ public class DocumentService {
 
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
-        return toResponseWithSignedUrl(doc);
+        return toDocumentResponse(doc);
     }
 
     // ─── DELETE: BOSS ONLY ────────────────────────────────
@@ -281,12 +284,26 @@ public class DocumentService {
      * The signed URL lets the FE read the file directly from Supabase for
      * SIGNED_URL_TTL seconds.
      */
-    private DocumentResponse toResponseWithSignedUrl(Document doc) {
+    private DocumentResponse toDocumentResponse(Document doc) {
         DocumentResponse response = documentMapper.toResponse(doc);
-        String signedUrl = supabaseStorageService.generateSignedUrl(
-                BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL);
-        response.setSignedUrl(signedUrl); // add this field to your DocumentResponse DTO
+        response.setScanStatus(doc.getScanStatus());
+
+        boolean accessible = isAccessible(doc);
+        response.setAccessible(accessible);
+
+        // only expose signed URL for accessible documents
+        if (accessible) {
+            String signedUrl = supabaseStorageService.generateSignedUrl(
+                    BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL
+            );
+            response.setSignedUrl(signedUrl);
+        }
         return response;
+    }
+
+    private boolean isAccessible(Document doc) {
+        return doc.getScanStatus() == null
+                || doc.getScanStatus() == ScanStatus.CLEAN;
     }
 
     private User getUserByEmail(String email) {

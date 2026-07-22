@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
+import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
@@ -52,4 +53,12 @@ public class Document {
     private boolean isDeleted = false;
 
     private LocalDateTime deletedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "scan_status")
+    private ScanStatus scanStatus;
+
+    private String scanMessage;
+
+    private LocalDateTime scannedAt;
 }

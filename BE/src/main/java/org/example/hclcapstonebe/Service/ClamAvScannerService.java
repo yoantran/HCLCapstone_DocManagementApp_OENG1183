@@ -1,6 +1,7 @@
 package org.example.hclcapstonebe.Service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -10,10 +11,17 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
 public class ClamAvScannerService {
+    public record ScanResult(ScanStatus status, String message) {
+        public boolean isClean() {
+            return status == ScanStatus.CLEAN;
+        }
+    }
 
     @Value("${clamav.host}")
     private String host;
@@ -27,7 +35,7 @@ public class ClamAvScannerService {
      * @param inputStream the data stream to scan
      * @return true if the stream is clean ("STREAM OK"), false if infected ("FOUND") or if scan failed
      */
-    public boolean scanStream(InputStream inputStream) {
+    public ScanResult scanStream(InputStream inputStream) {
         log.info("Initiating ClamAV scan on host: {}, port: {}", host, port);
 
         try (Socket socket = new Socket(host, port);
@@ -70,18 +78,33 @@ public class ClamAvScannerService {
             log.info("ClamAV response received: {}", response);
 
             if (response.contains("OK")) {
-                return true;
+                return new ScanResult(ScanStatus.CLEAN, "No malware detected.");
             } else if (response.contains("FOUND")) {
                 log.warn("ClamAV scan: Threat found. Verdict: {}", response);
-                return false;
+                String signature = "Unknown malware";
+                Matcher matcher = Pattern.compile(":\\s*(.+?)\\s+FOUND").matcher(response);
+                if (matcher.find()) {
+                    signature = matcher.group(1);
+                }
+
+                return new ScanResult(
+                        ScanStatus.INFECTED,
+                        "Malware detected (" + signature + "). Document quarantined."
+                );
             } else {
                 log.warn("ClamAV scan: Unrecognized signature or anomaly detected. Verdict: {}", response);
-                return false;
+                return new ScanResult(
+                        ScanStatus.ERROR,
+                        "Malware scan returned an unrecognized response."
+                );
             }
 
         } catch (IOException e) {
             log.error("ClamAV scanning failed due to connection/IO error: {}", e.getMessage(), e);
-            return false;
+            return new ScanResult(
+                    ScanStatus.ERROR,
+                    "Malware scan failed due to a scanner connection error."
+            );
         }
     }
 }
