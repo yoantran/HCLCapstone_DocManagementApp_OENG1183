@@ -5,6 +5,6 @@ import lombok.Data;
 import java.util.UUID;
 
 @Data
-public class AssignDepartmentRequest {
+public class ReassignUserRequest {
     private UUID departmentId;  // only field — assign or reassign department
 }

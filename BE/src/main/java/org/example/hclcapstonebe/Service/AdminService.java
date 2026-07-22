@@ -1,8 +1,5 @@
 package org.example.hclcapstonebe.Service;
-import org.example.hclcapstonebe.DTO.Request.AssignDepartmentRequest;
-import org.example.hclcapstonebe.DTO.Request.CreateDepartmentRequest;
-import org.example.hclcapstonebe.DTO.Request.CreateUserRequest;
-import org.example.hclcapstonebe.DTO.Request.UpdateDepartmentRequest;
+import org.example.hclcapstonebe.DTO.Request.*;
 import org.example.hclcapstonebe.DTO.Response.DepartmentResponse;
 import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Entities.Department;
@@ -14,10 +11,14 @@ import org.example.hclcapstonebe.Mapper.UserMapper;
 import org.example.hclcapstonebe.Repository.DepartmentRepository;
 import org.example.hclcapstonebe.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.crossstore.ChangeSetPersister;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.example.hclcapstonebe.Exception.BadRequestException;
+import org.example.hclcapstonebe.Exception.ConflictException;
+import org.example.hclcapstonebe.Exception.NotFoundException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -68,7 +69,33 @@ public class AdminService {
         return userMapper.toResponse(user);
     }
     @Transactional
-    public UserProfileResponse assignDepartmentToUser(UUID userId, AssignDepartmentRequest req) {
+    public UserProfileResponse reassignUser(UUID userId, ReassignUserRequest req) {
+
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
+
+        boolean removing = req.getDepartmentId() == null ;
+
+        // A manager cannot be moved or orphaned by this endpoint — demote first.
+        if (user.getRole() == RoleEnum.MANAGER) {
+            throw new BadRequestException(
+                    "User is a MANAGER of a department. Demote them via PATCH /admin/users/{id}/role "
+                            + "before reassigning, or replace the manager via PUT /admin/departments/{id}.");
+        }
+
+        if (removing) {
+            user.setDepartment(null);
+        } else {
+            Department dept = departmentRepository.findById(UUID.fromString(String.valueOf(req.getDepartmentId())))
+                    .orElseThrow(() -> new NotFoundException("Department not found"));
+            user.setDepartment(dept);
+        }
+
+        return userMapper.toResponse(userRepository.save(user));
+
+    }
+    @Transactional
+    public UserProfileResponse assignDepartmentToUser(UUID userId, ReassignUserRequest req) {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
 
@@ -89,6 +116,76 @@ public class AdminService {
         }
 
         return userMapper.toResponse(userRepository.save(user));
+    }
+
+
+
+    @Transactional
+    public UserProfileResponse changeRole(UUID userId, ChangeRoleRequest req) {
+
+        User user = userRepository.findByIdAndIsDeletedFalse(userId)
+                .orElseThrow(() -> new NotFoundException("User not found: " + userId));
+
+        if (user.getRole() == req.getRole()) {
+            throw new BadRequestException("User already has role " + req.getRole());
+        }
+
+        return req.getRole() == RoleEnum.MANAGER
+                ? promote(user, req.getDepartmentId())
+                : demote(user);
+    }
+
+    private UserProfileResponse promote(User user, String requestedDeptId) {
+
+        Department dept;
+
+        if (user.getDepartment() != null) {
+            dept = user.getDepartment();
+            // Guard against a silent no-op if FE sends a conflicting department.
+            if (requestedDeptId != null && !requestedDeptId.isBlank()
+                    && !dept.getId().toString().equals(requestedDeptId)) {
+                throw new BadRequestException(
+                        "User already belongs to department " + dept.getId()
+                                + ". Reassign them first if you want them to manage a different one.");
+            }
+        } else {
+            if (requestedDeptId == null || requestedDeptId.isBlank()) {
+                throw new BadRequestException(
+                        "User has no department. departmentId is required to promote.");
+            }
+            dept = departmentRepository.findById(UUID.fromString(requestedDeptId))
+                    .orElseThrow(() -> new NotFoundException("Department not found"));
+        }
+
+        // Displace the incumbent: demote to STAFF, keep them in the department.
+        User incumbent = dept.getManager();
+        if (incumbent != null && !incumbent.getId().equals(user.getId())) {
+            incumbent.setRole(RoleEnum.STAFF);
+            userRepository.save(incumbent);
+        }
+
+        user.setDepartment(dept);
+        user.setRole(RoleEnum.MANAGER);
+        userRepository.save(user);
+        dept.setManager(user);
+        departmentRepository.save(dept);
+        return userMapper.toResponse(user);
+    }
+
+    private UserProfileResponse demote(User user) {
+
+        Department dept = user.getDepartment();
+
+        // Detach from the department's manager slot, but stay in the department as STAFF.
+        if (dept != null && dept.getManager() != null
+                && dept.getManager().getId().equals(user.getId())) {
+            dept.setManager(null);
+            departmentRepository.save(dept);
+        }
+
+        user.setRole(RoleEnum.STAFF);
+        userRepository.save(user);
+        return userMapper.toResponse(user);
     }
     @Transactional
     public void deleteUser(UUID userId) {
@@ -163,8 +260,6 @@ public class AdminService {
 
         return departmentMapper.toResponse(saved);
     }
-
-
     @Transactional
     public DepartmentResponse updateDepartment(UUID deptId, UpdateDepartmentRequest req) {
         Department dept = departmentRepository.findById(deptId)
@@ -182,25 +277,22 @@ public class AdminService {
         if (isRemovemanager) {
             User oldmanager = dept.getManager();
             if (oldmanager != null) {
-                // Old manager's department → null
-                oldmanager.setDepartment(null);
+                // Demote to STAFF — stays in the department
+                oldmanager.setRole(RoleEnum.STAFF);
                 userRepository.save(oldmanager);
             }
-            // Department's manager → null
             dept.setManager(null);
             departmentRepository.save(dept);
 
-            // ── Assign or replace manager ─────────────────────────
+            // ── Assign or replace manager (auto-promotes STAFF) ─────────────
         } else if (req.getManagerId() != null && !req.getManagerId().isBlank()) {
             User newmanager = userRepository.findByIdAndIsDeletedFalse(UUID.fromString(req.getManagerId()))
                     .orElseThrow(() -> new AppException("New manager not found", HttpStatus.NOT_FOUND));
 
-            if (newmanager.getRole() != RoleEnum.MANAGER) {
-                throw new AppException("Assigned user is not a manager", HttpStatus.BAD_REQUEST);
-            }
-
-            // 1 user can only be manager of 1 department
-            if (newmanager.getDepartment() != null
+            // A MANAGER of another department must be demoted there first.
+            // A STAFF from another department is fine — they get moved and promoted.
+            if (newmanager.getRole() == RoleEnum.MANAGER
+                    && newmanager.getDepartment() != null
                     && !newmanager.getDepartment().getId().equals(deptId)) {
                 throw new AppException(
                         "This user is already manager of: " + newmanager.getDepartment().getName(),
@@ -208,30 +300,30 @@ public class AdminService {
                 );
             }
 
-            // Step 1: Old manager's department → null
+            // Step 1: Demote the incumbent — stays in the department as STAFF
             User oldmanager = dept.getManager();
             if (oldmanager != null && !oldmanager.getId().equals(newmanager.getId())) {
-                oldmanager.setDepartment(null);
+                oldmanager.setRole(RoleEnum.STAFF);
                 userRepository.save(oldmanager);
             }
 
             // Step 2: Clear dept manager temporarily (handles circular FK)
             dept.setManager(null);
-            departmentRepository.save(dept);
+            departmentRepository.saveAndFlush(dept);
 
-            // Step 3: Assign new manager to department
+            // Step 3: Promote + assign the new manager
+            newmanager.setDepartment(dept);
+            newmanager.setRole(RoleEnum.MANAGER);
+            userRepository.saveAndFlush(newmanager);
+
+            // Step 4: Point the department at the new manager
             dept.setManager(newmanager);
             departmentRepository.save(dept);
-
-            // Step 4: Assign department to new manager
-            newmanager.setDepartment(dept);
-            userRepository.save(newmanager);
         }
         // else: managerId is null → not sent → keep manager unchanged
 
         return departmentMapper.toResponse(departmentRepository.save(dept));
     }
-
     @Transactional
     public void deleteDepartment(UUID deptId) {
         Department dept = departmentRepository.findById(deptId)
