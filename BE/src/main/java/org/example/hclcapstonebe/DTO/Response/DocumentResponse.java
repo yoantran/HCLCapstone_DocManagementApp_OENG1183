@@ -2,6 +2,8 @@ package org.example.hclcapstonebe.DTO.Response;
 
 
 import lombok.Data;
+import org.example.hclcapstonebe.Enums.ScanStatus;
+
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -9,9 +11,11 @@ import java.util.UUID;
 public class DocumentResponse {
     private String id;
     private String name;
-    private String signedUrl; //The FE will use this URL to render/download the file directly from Supabase.
-            //It expires after 1 hour (3600 seconds). The FE should re-fetch if expired.
-    //FE should not received bucket documentLink
+    private ScanStatus scanStatus;
+    private String scanMessage;
+    private LocalDateTime scannedAt;
+    private boolean isAccessible;
+    private String signedUrl;
     private String type;
     private String format;
     private Long byteSize;

@@ -57,7 +57,18 @@ import org.springframework.web.multipart.MultipartFile;
                     supabaseStorageService.deleteFile(IMAGE_BUCKET, user.getAvatarImageUrl());
                 }
                 // 2. Upload new avatar
-                String newAvatarPath = supabaseStorageService.uploadFile(IMAGE_BUCKET, avatarFile);
+                String originalName = avatarFile.getOriginalFilename() != null
+                        ? avatarFile.getOriginalFilename()
+                        : "avatar";
+                String storagePath = java.util.UUID.randomUUID() + "_" + originalName;
+                byte[] bytes;
+                try {
+                    bytes = avatarFile.getBytes();
+                } catch (java.io.IOException e) {
+                    throw new AppException("Failed to read file bytes: " + e.getMessage(),
+                            HttpStatus.INTERNAL_SERVER_ERROR);
+                }
+                String newAvatarPath = supabaseStorageService.uploadFile(IMAGE_BUCKET, bytes, storagePath, avatarFile.getContentType());
                 // 3. Save path
                 user.setAvatarImageUrl(newAvatarPath);
             }

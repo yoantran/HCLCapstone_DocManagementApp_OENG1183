@@ -35,8 +35,11 @@ public class DocumentController {
                 Triggers a WebSocket notification to the department manager.
                 A signed URL (valid for 1 hour) is returned to view the document.
                 
-                Allowed formats: PDF, DOCX, CSV
-                Max file size: 10MB
+                Security & Validation Pipeline:
+                - Allowed formats: PDF, DOCX, CSV (Max file size: 10MB)
+                - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
+                - ClamAV Virus/Malware Scanning: Scans the uploaded file stream prior to storage
+                - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
                 """
     )
     @ApiResponses({
@@ -62,9 +65,10 @@ public class DocumentController {
             """)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed) or invalid document type, or file exceeds 10MB"),
+            @ApiResponse(responseCode = "400", description = "Invalid file format/extension, invalid document type, file exceeds 10MB, or invalid structural file signature match detected (magic bytes mismatch)"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions"),
+            @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
     })
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
     public ResponseEntity<DocumentResponse> uploadOne(
@@ -91,9 +95,11 @@ public class DocumentController {
                 All files in the batch must share the same document type.
                 A signed URL (valid for 1 hour) is returned per document.
                 
-                Allowed formats: PDF, DOCX, CSV
-                Max file size per file: 10MB
-                Max files per request: 10
+                Security & Validation Pipeline (per file):
+                - Allowed formats: PDF, DOCX, CSV (Max file size per file: 10MB, Max batch limit: 10 files)
+                - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
+                - ClamAV Virus/Malware Scanning: Scans each uploaded file stream prior to storage
+                - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
                 """
     )
     @ApiResponses({
@@ -121,9 +127,10 @@ public class DocumentController {
             """)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed), invalid document type, file exceeds 10MB, or more than 10 files in one request"),
+            @ApiResponse(responseCode = "400", description = "Invalid file format/extension, invalid document type, file exceeds 10MB, batch exceeds 10 files, or invalid structural file signature match detected (magic bytes mismatch)"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions"),
+            @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
     })
     @PostMapping(value = "/upload/batch", consumes = "multipart/form-data")
     public ResponseEntity<List<DocumentResponse>> uploadMany(

@@ -8,6 +8,7 @@ import org.example.hclcapstonebe.Entities.User;
 
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
+import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.example.hclcapstonebe.Exception.AppException;
 import org.example.hclcapstonebe.Mapper.DocumentMapper;
 import org.example.hclcapstonebe.Repository.DocumentRepository;
@@ -19,9 +20,11 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.BufferedInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -35,6 +38,7 @@ public class DocumentService {
     private final SimpMessagingTemplate messagingTemplate;
     private final DocumentMapper documentMapper;
     private final SupabaseStorageService supabaseStorageService;
+    private final ClamAvScannerService clamAvScannerService;
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
@@ -45,7 +49,7 @@ public class DocumentService {
         User uploader = getUserByEmail(currentUserEmail);
         Document doc = buildAndSaveDocument(file, type, uploader);
         sendNotificationToManager(doc, uploader);
-        return toResponseWithSignedUrl(doc);
+        return toDocumentResponse(doc);
     }
 
     public List<DocumentResponse> uploadMany(List<MultipartFile> files, String type,
@@ -64,7 +68,7 @@ public class DocumentService {
         return files.stream().map(file -> {
             Document doc = buildAndSaveDocument(file, type, uploader);
             sendNotificationToManager(doc, uploader);
-            return toResponseWithSignedUrl(doc);
+            return toDocumentResponse(doc);
         }).collect(Collectors.toList());
     }
 
@@ -84,18 +88,62 @@ public class DocumentService {
         // ── Deduplicate filename for this user ──────────────────
         String finalName = resolveUniqueFileName(baseName, ext, UUID.fromString(String.valueOf(uploader.getId())));
 
+        // ── Validation Pipeline ──
+        ClamAvScannerService.ScanResult scanResult;
+        LocalDateTime scannedAt;
+        byte[] fileData;
+        try (InputStream rawStream = file.getInputStream();
+             BufferedInputStream bis = new BufferedInputStream(rawStream)) {
+
+            bis.mark(8192);
+            byte[] header = new byte[4];
+            int bytesRead = bis.read(header);
+
+            if (!ext.equals("PDF") && !ext.equals("DOCX") && !ext.equals("CSV")) {
+                throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
+            }
+
+            if (ext.equals("PDF")) {
+                if (bytesRead < 4 || header[0] != 0x25 || header[1] != 0x50 || header[2] != 0x44 || header[3] != 0x46) {
+                    throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
+                }
+            } else if (ext.equals("DOCX")) {
+                if (bytesRead < 4 || header[0] != 0x50 || header[1] != 0x4B || header[2] != 0x03 || header[3] != 0x04) {
+                    throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
+                }
+            }
+
+            bis.reset();
+
+            scanResult = clamAvScannerService.scanStream(bis);
+            scannedAt = LocalDateTime.now();
+
+        } catch (IOException e) {
+            throw new AppException("Failed to process file stream: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        try {
+            fileData = file.getBytes();
+        } catch (IOException e) {
+            throw new AppException("Failed to read file bytes: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
-        String storagePath = supabaseStorageService.uploadFile(BUCKET, file);
+        String storagePath = UUID.randomUUID() + "_" + originalName;
+        String uploadedPath = supabaseStorageService.uploadFile(BUCKET, fileData, storagePath, file.getContentType());
 
         Document doc = Document.builder()
                 .name(finalName)
-                .documentLink(storagePath)
+                .documentLink(uploadedPath)
                 .type(DocumentTypeEnum.valueOf(type.toUpperCase()))
                 .format(DocumentFormatEnum.valueOf(ext))
                 .byteSize(file.getSize())
                 .uploadedDateTime(LocalDateTime.now())
                 .uploader(uploader)
                 .department(uploader.getDepartment())
+                .scanStatus(scanResult.status())
+                .scanMessage(scanResult.message())
+                .scannedAt(scannedAt)
                 .build();
 
         return documentRepository.save(doc);
@@ -137,7 +185,7 @@ public class DocumentService {
         User user = getUserByEmail(currentUserEmail);
         return documentRepository.findByUploaderIdAndIsDeletedFalse(user.getId())
                 .stream()
-                .map(this::toResponseWithSignedUrl)
+                .map(this::toDocumentResponse)
                 .collect(Collectors.toList());
     }
 
@@ -151,7 +199,7 @@ public class DocumentService {
 
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
-        return toResponseWithSignedUrl(doc);
+        return toDocumentResponse(doc);
     }
 
     // ─── VIEW: BOSS ONLY (department docs) ────────────────
@@ -161,7 +209,7 @@ public class DocumentService {
         return documentRepository
                 .findByDepartmentIdAndIsDeletedFalse(boss.getDepartment().getId())
                 .stream()
-                .map(this::toResponseWithSignedUrl)
+                .map(this::toDocumentResponse)
                 .collect(Collectors.toList());
     }
 
@@ -175,7 +223,7 @@ public class DocumentService {
 
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
-        return toResponseWithSignedUrl(doc);
+        return toDocumentResponse(doc);
     }
 
     // ─── DELETE: BOSS ONLY ────────────────────────────────
@@ -236,12 +284,26 @@ public class DocumentService {
      * The signed URL lets the FE read the file directly from Supabase for
      * SIGNED_URL_TTL seconds.
      */
-    private DocumentResponse toResponseWithSignedUrl(Document doc) {
+    private DocumentResponse toDocumentResponse(Document doc) {
         DocumentResponse response = documentMapper.toResponse(doc);
-        String signedUrl = supabaseStorageService.generateSignedUrl(
-                BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL);
-        response.setSignedUrl(signedUrl); // add this field to your DocumentResponse DTO
+        response.setScanStatus(doc.getScanStatus());
+
+        boolean accessible = isAccessible(doc);
+        response.setAccessible(accessible);
+
+        // only expose signed URL for accessible documents
+        if (accessible) {
+            String signedUrl = supabaseStorageService.generateSignedUrl(
+                    BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL
+            );
+            response.setSignedUrl(signedUrl);
+        }
         return response;
+    }
+
+    private boolean isAccessible(Document doc) {
+        return doc.getScanStatus() == null
+                || doc.getScanStatus() == ScanStatus.CLEAN;
     }
 
     private User getUserByEmail(String email) {
