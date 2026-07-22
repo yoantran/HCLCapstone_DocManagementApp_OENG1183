@@ -1,7 +1,11 @@
-import { Hourglass } from 'flowbite-react-icons/outline';
+import { Hourglass, ClockArrow, ShieldCheck, Close, ExclamationCircle } from 'flowbite-react-icons/outline';
 // Define the central dictionary map
 const iconMap = {
     'hour-glass': Hourglass,
+    'clock-arrow': ClockArrow,
+    'shield-check': ShieldCheck,
+    'exit-sign': Close,
+    'warning-sign': ExclamationCircle,
 };
 
 // Unified Icon Wrapper Component
