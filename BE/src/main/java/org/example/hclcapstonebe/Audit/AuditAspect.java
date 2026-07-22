@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.example.hclcapstonebe.Repository.UserRepository;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 public class AuditAspect {
 
     private final AuditLogStore store;
+    private final UserRepository userRepository;
 
     @Around("within(org.example.hclcapstonebe.Controller..*)")
     public Object audit(ProceedingJoinPoint pjp) throws Throwable {
@@ -74,9 +76,11 @@ public class AuditAspect {
      * class holding the UUID, cast and pull it here instead.
      */
     private String resolveUserId(Authentication auth) {
-        Object principal = auth.getPrincipal();
-        // e.g. if (principal instanceof CustomUserDetails cud) return cud.getId().toString();
-        return principal instanceof String s ? s : auth.getName();
+        String email = auth.getName();
+
+        return userRepository.findByEmailAndIsDeletedFalse(email)
+                .map(user -> user.getId().toString())
+                .orElse(email);
     }
 
     private int statusOf(Object result) {
