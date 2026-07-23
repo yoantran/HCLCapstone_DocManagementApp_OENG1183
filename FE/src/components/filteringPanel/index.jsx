@@ -37,6 +37,9 @@ const FilteringPanel = ({
     onSettingsClick = () => { },
     activeTabLabel = null,
     onClearFilters = null,
+
+    onRefresh,
+    isRefreshing,
 }) => {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
@@ -147,6 +150,24 @@ const FilteringPanel = ({
                             <span className="font-semibold capitalize text-white">{activeTabLabel}</span>
                         </div>
                     )}
+                    {onRefresh && (
+                        <button
+                            type="button"
+                            onClick={onRefresh}
+                            disabled={isRefreshing}
+                            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                        >
+                            <svg
+                                className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                        </button>
+                    )}
                     {onClearFilters && (
                         <div className="flex gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colors">
                             <button className='hover:cursor-pointer' onClick={onClearFilters}>
@@ -154,6 +175,7 @@ const FilteringPanel = ({
                             </button>
                         </div>
                     )}
+
                 </div>
             )}
         </>
