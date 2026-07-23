@@ -200,3 +200,23 @@ export const adminManagementColumns = (
         }
     ]
 });
+
+export const auditLogColumns = () => [
+    {
+        key: "timestamp",
+        label: "Timestamp",
+        accessor: 'timestamp',
+    },
+    {key: "userId", label:"User",
+        accessor: "userId",
+    },
+    {key: "email", label: "Email", accessor: 'email' },
+    {key: "role", label: "Role", accessor: 'role' },
+    {key: "action", label: "Action", accessor: 'action' },
+    {
+        key: "durationMs",
+        label: "Execution (ms)",
+        accessor: "durationMs",
+    },
+    {key: "clientIp", label: "Client Ip", accessor: 'clientIp' },
+]
