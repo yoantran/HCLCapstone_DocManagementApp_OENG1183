@@ -10,6 +10,7 @@ import Documents from "./Documents.jsx";
 import ViewDocument from "./ViewDocument.jsx";
 import AdminManagement from "./AdminManagement.jsx";
 import Profile from "./Profile.jsx";
+import AuditLog from "./AuditLog.jsx";
 
 /**
  * RootRedirect handles users typing the base URL exactly ("/") without a userId.
