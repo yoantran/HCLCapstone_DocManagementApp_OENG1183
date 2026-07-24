@@ -29,19 +29,14 @@ public class SupabaseStorageService {
     /**
      * Uploads a file to the given Supabase bucket.
      *
-     * @param bucket   "documents" or "images"
-     * @param file     the multipart file from the request
-     * @return         the storage path inside the bucket  (e.g. "abc123_report.pdf")
-     *                 Store this path in DB; use it later to generate signed URLs.
+     * @param bucket      "documents" or "images"
+     * @param bytes       the file content bytes
+     * @param storagePath the storage path inside the bucket (e.g. "abc123_report.pdf")
+     * @param contentType the MIME content type of the file
+     * @return            the storage path inside the bucket (e.g. "abc123_report.pdf")
+     *                    Store this path in DB; use it later to generate signed URLs.
      */
-    public String uploadFile(String bucket, MultipartFile file) {
-        String originalName = file.getOriginalFilename() != null
-                ? file.getOriginalFilename()
-                : "unnamed";
-
-        // Unique path so files never collide
-        String storagePath = UUID.randomUUID() + "_" + originalName;
-
+    public String uploadFile(String bucket, byte[] bytes, String storagePath, String contentType) {
         String uploadUrl = supabaseUrl
                 + "/storage/v1/object/"
                 + bucket + "/"
@@ -49,17 +44,7 @@ public class SupabaseStorageService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + serviceRoleKey);
-        headers.setContentType(MediaType.parseMediaType(
-                file.getContentType() != null ? file.getContentType() : "application/octet-stream"
-        ));
-
-        byte[] bytes;
-        try {
-            bytes = file.getBytes();
-        } catch (IOException e) {
-            throw new AppException("Failed to read file bytes: " + e.getMessage(),
-                    HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+        headers.setContentType(MediaType.parseMediaType(contentType));
 
         HttpEntity<byte[]> entity = new HttpEntity<>(bytes, headers);
 

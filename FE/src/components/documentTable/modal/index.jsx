@@ -5,10 +5,12 @@ import {
     ModalBody,
     Button,
     Card,
+    Alert
 } from "flowbite-react";
 import { DownloadButton } from "./DownloadButton";
 import { DeleteAction } from "../../action/DeleteAction.jsx";
 import { formatDate, formatSize } from '../../../utils/formatFields';
+import { getScanStatusInfo } from '../../../utils/scanHelper.js';
 
 export const DocumentModal = ({
     document,
@@ -24,6 +26,7 @@ export const DocumentModal = ({
     }
 
     if (!document) return null;
+    const scanInfo = getScanStatusInfo(document);
 
     return (
         <Modal
@@ -39,7 +42,7 @@ export const DocumentModal = ({
             </ModalHeader>
 
             <ModalBody className="flex justify-center bg-(--dark-blue-700) wrap-break-word">
-                <Card className="w-4/5 bg-(--dark-blue-700) text-white">
+                <Card className="w-4/5 h-full bg-(--dark-blue-700) text-white">
                     <h5 className="text-2xl font-bold tracking-tight">
                         {document.name || "<Unknown>"}
                     </h5>
@@ -62,17 +65,20 @@ export const DocumentModal = ({
 
                     <hr />
 
-                    <p>
-                        <strong>0 MALWARE DETECTED:</strong>
+                    <div>
+                        <strong>{scanInfo.title}</strong>
                         <br />
-                        Date of Scan: None
+                        Date of Scan: {scanInfo.date}
                         <br />
                         File Size: {formatSize(document.byteSize) || 0}
                         <br />
-                        Status: Normal
+                        Status: {scanInfo.status}
                         <br />
-                        Description: None
-                    </p>
+                        Description:
+                        <Alert color={scanInfo.color} className="mt-2">
+                            <span className="font-medium whitespace-pre-line">{scanInfo.description}</span>
+                        </Alert>
+                    </div>
 
                     <hr />
                     <div
@@ -86,6 +92,7 @@ export const DocumentModal = ({
                             />
                             <Button
                                 onClick={handleViewDocument}
+                                disabled={!document.signedUrl}
                                 className="w-full mt-4 cursor-pointer border border-(--lighter-blue-300) hover:bg-(--dark-blue-700)"
                             >
                                 View Document

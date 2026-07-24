@@ -15,7 +15,8 @@ public interface DocumentMapper {
     @Mapping(source = "byteSize",        target = "byteSize")        // ← add this
     @Mapping(source = "type",            target = "type",   qualifiedByName = "enumToString")
     @Mapping(source = "format",          target = "format", qualifiedByName = "enumToString")
-    @Mapping(target = "signedUrl",       ignore = true)              // ← add this too, set manually in service
+    @Mapping(target = "signedUrl",       ignore = true)
+    @Mapping(target = "accessible",    ignore = true)
     DocumentResponse toResponse(Document document);
 
     @Named("enumToString")
