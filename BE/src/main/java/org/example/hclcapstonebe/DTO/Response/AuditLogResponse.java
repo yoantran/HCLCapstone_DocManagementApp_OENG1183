@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 public class AuditLogResponse {
     private LocalDateTime timestamp;
     private String userId;
+    private String name;
     private String email;
     private String role;
     private String method;
