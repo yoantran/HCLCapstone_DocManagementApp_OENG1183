@@ -1,4 +1,4 @@
-import {Datepicker, TextInput} from "flowbite-react";
+import { Datepicker, TextInput } from "flowbite-react";
 import { CustomSearchIcon } from "./icon/CustomSearchIcon.jsx";
 import { CustomSettingIcon } from "./icon/CustomSettingIcon.jsx";
 import { LeftArrowIcon } from "./icon/LeftArrowIcon.jsx";
@@ -42,8 +42,10 @@ const FilteringPanel = ({
     isRefreshing,
 
     // datepicker
+    onApplyDate,
     selectedDate,
     onDateChange,
+    showRefresh = true,
 }) => {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
@@ -155,14 +157,10 @@ const FilteringPanel = ({
                         </div>
                     )}
                     {onDateChange && (
+                        <div className="flex columns-2">
                             <Datepicker
-                                // value={selectedDate ? new Date(selectedDate) : null}
-                                value={
-                                    selectedDate && !isNaN(new Date(selectedDate).getTime())
-                                        ? new Date(selectedDate + "T00:00:00")
-                                        : null
-                                }
-                                onSelectedDateChange={(date) => {
+                                value={selectedDate ? new Date(selectedDate) : null}
+                                onChange={(date) => {
                                     if (!date || isNaN(date.getTime())) {
                                         onDateChange("");
                                         return;
@@ -179,13 +177,19 @@ const FilteringPanel = ({
                                 labelClearButton="Clear"
                                 className="flex items-center gap-1.5 bg-(--lighter-blue-700) px-2 py-0.5 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colors text-xs text-slate-200"
                             />
+                            <button type="button"
+                                onClick={onApplyDate}
+                                className="text-center font-medium cursor-pointer bg-(--lighter-blue-700) px-2.5 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colors">
+                                Apply
+                            </button>
+                        </div>
                     )}
-                    {onRefresh && (
+                    {showRefresh && onRefresh && (
                         <button
                             type="button"
                             onClick={onRefresh}
                             disabled={isRefreshing}
-                            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
+                            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white disabled:opacity-50 transition-colors cursor-pointer"
                         >
                             <svg
                                 className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}

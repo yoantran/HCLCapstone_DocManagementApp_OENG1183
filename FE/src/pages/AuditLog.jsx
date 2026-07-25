@@ -1,18 +1,27 @@
 import FilteringPanel from "../components/filteringPanel/index.jsx";
-import {CustomTable} from "../components/customTable/index.jsx";
-import {useCallback, useEffect, useMemo, useState} from "react";
-import {getRequest} from "../api/apiHelpers.js";
-import {auditLogColumns} from "../components/customTable/columns.jsx";
+import { CustomTable } from "../components/customTable/index.jsx";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getRequest } from "../api/apiHelpers.js";
+import { auditLogColumns } from "../components/customTable/columns.jsx";
 import SortTable from "../components/filteringPanel/SortTable.jsx";
+import { LogDetailsModal } from "../components/documentTable/modal/LogDetailsModal.jsx";
 
 export default function AuditLog() {
     const [logs, setLogs] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [openModal, setOpenModal] = useState(false);
+    const [selectedLog, setSelectedLog] = useState(null);
 
     const [searchTerm, setSearchTerm] = useState("")
     const [sortOrder, setSortOrder] = useState("date-desc")
 
     const [selectedDate, setSelectedDate] = useState("")
+    const [draftDate, setDraftDate] = useState("")
+
+    const todayString = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
+
+    const isViewingToday =
+        !selectedDate || selectedDate === todayString;
 
     const [showFilterMenu, setShowFilterMenu] = useState(false);
 
@@ -20,16 +29,27 @@ export default function AuditLog() {
 
     const PAGE_SIZE = 10;
 
+    const handleRowClick = (log) => {
+        setSelectedLog(log);
+        setOpenModal(true)
+    };
+
+    const handleCloseModal = () => {
+        setSelectedLog(null)
+        setOpenModal(false)
+    }
+
     const fetchLogs = useCallback(async () => {
         setIsLoading(true);
         try {
-            const params = {}
+            const params = {};
             if (selectedDate) {
-                    params.date = selectedDate.split("T")[0];
+                params.date = selectedDate;
             }
+
             console.log("param sent to api", params);
             const response = await getRequest({
-                url:  '/admin/audit-logs',
+                url: '/admin/audit-logs',
                 params: params
             });
             setLogs(Array.isArray(response) ? response : []);
@@ -49,7 +69,6 @@ export default function AuditLog() {
         setSearchTerm("");
         setSortOrder("date-desc");
         setCurrentPage(1);
-        setSelectedDate("")
     };
 
     const filteredLogs = useMemo(() => {
@@ -118,11 +137,13 @@ export default function AuditLog() {
             ...log,
             id: log.id || log.timestamp || index,
             displayTimestamp: log.timestamp
-                ? new Date(log.timestamp).toLocaleString('vi-VN', { hour12: false })
+                ? new Date(log.timestamp).toLocaleDateString('vi-VN') + ', ' + new Date(log.timestamp).toLocaleTimeString('vi-VN', { hour12: false })
                 : 'N/A',
-            displayUserId: log.userId ? `${log.userId.slice(0, 3)}...` : 'N/A',
+            displayUserId: log.userId
+                ? log.userId.length <= 10 ? log.userId : `${log.userId.slice(0, 10)}...`
+                : 'N/A',
             displayRole: log.role ? log.role.replace('ROLE_', '') : 'N/A',
-            displayAction: log.action ? log.action.split('.').pop() : 'N/A',
+            displayAction: log.action ? log.action : 'N/A',
             displayIp: log.clientIp === "0:0:0:0:0:0:0:1" ? "127.0.0.1" : log.clientIp
         }));
     }, [paginatedLogs]);
@@ -152,11 +173,14 @@ export default function AuditLog() {
 
                     showSettings={false}
 
-                    selectedDate={selectedDate}
-                    onDateChange={(date) => {
-                        setSelectedDate(date);
+                    selectedDate={draftDate}
+                    onDateChange={setDraftDate}
+                    onApplyDate={() => {
+                        setSelectedDate(draftDate);
                         setCurrentPage(1);
                     }}
+
+                    showRefresh={isViewingToday}
                 />
             </div>
             <div className="">
@@ -176,8 +200,15 @@ export default function AuditLog() {
                     data={formattedLogs}
                     columns={auditLogColumns()}
                     isLoading={isLoading}
+                    onRowClick={handleRowClick}
                 />
             </div>
+
+            <LogDetailsModal
+                log={selectedLog}
+                show={openModal}
+                onClose={handleCloseModal}
+            />
         </>
     );
 }

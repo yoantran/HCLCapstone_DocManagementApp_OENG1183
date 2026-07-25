@@ -207,16 +207,35 @@ export const auditLogColumns = () => [
         label: "Timestamp",
         accessor: 'displayTimestamp',
     },
-    {key: "userId", label:"User",
+    {
+        key: "userId",
+        label: "User",
         accessor: "displayUserId",
     },
-    {key: "email", label: "Email", accessor: 'email' },
-    {key: "role", label: "Role", accessor: 'displayRole' },
-    {key: "action", label: "Action", accessor: 'displayAction' },
     {
-        key: "durationMs",
-        label: "Execution (ms)",
-        accessor: "durationMs",
+        key: "email",
+        label: "Email",
+        accessor: 'email'
     },
-    {key: "clientIp", label: "Client Ip", accessor: 'displayIp' },
+    {
+        key: "role",
+        label: "Role",
+        accessor: 'displayRole'
+    },
+    {
+        key: "method",
+        label: "Method",
+        accessor: 'method'
+    },
+    {
+        key: "status",
+        label: "Status",
+        accessor: "status",
+    },
+    {
+        key: "action",
+        label: "Action",
+        accessor: 'displayAction',
+        className: 'text-left break-words',
+    },
 ]
