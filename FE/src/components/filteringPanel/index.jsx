@@ -1,4 +1,4 @@
-import { TextInput } from "flowbite-react";
+import {Datepicker, TextInput} from "flowbite-react";
 import { CustomSearchIcon } from "./icon/CustomSearchIcon.jsx";
 import { CustomSettingIcon } from "./icon/CustomSettingIcon.jsx";
 import { LeftArrowIcon } from "./icon/LeftArrowIcon.jsx";
@@ -40,6 +40,10 @@ const FilteringPanel = ({
 
     onRefresh,
     isRefreshing,
+
+    // datepicker
+    selectedDate,
+    onDateChange,
 }) => {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
@@ -149,6 +153,32 @@ const FilteringPanel = ({
                             <span className="text-(--ch-cool-gray)">Current Table:</span>
                             <span className="font-semibold capitalize text-white">{activeTabLabel}</span>
                         </div>
+                    )}
+                    {onDateChange && (
+                            <Datepicker
+                                // value={selectedDate ? new Date(selectedDate) : null}
+                                value={
+                                    selectedDate && !isNaN(new Date(selectedDate).getTime())
+                                        ? new Date(selectedDate + "T00:00:00")
+                                        : null
+                                }
+                                onSelectedDateChange={(date) => {
+                                    if (!date || isNaN(date.getTime())) {
+                                        onDateChange("");
+                                        return;
+                                    }
+                                    const year = date.getFullYear();
+                                    const month = String(date.getMonth() + 1).padStart(2, "0");
+                                    const day = String(date.getDate()).padStart(2, "0");
+
+                                    onDateChange(`${year}-${month}-${day}`);
+                                }}
+                                autoHide={false}
+                                placeholder="Select date..."
+                                labelTodayButton="Today"
+                                labelClearButton="Clear"
+                                className="flex items-center gap-1.5 bg-(--lighter-blue-700) px-2 py-0.5 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colors text-xs text-slate-200"
+                            />
                     )}
                     {onRefresh && (
                         <button

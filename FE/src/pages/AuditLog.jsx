@@ -12,6 +12,8 @@ export default function AuditLog() {
     const [searchTerm, setSearchTerm] = useState("")
     const [sortOrder, setSortOrder] = useState("date-desc")
 
+    const [selectedDate, setSelectedDate] = useState("")
+
     const [showFilterMenu, setShowFilterMenu] = useState(false);
 
     const [currentPage, setCurrentPage] = useState(1);
@@ -21,16 +23,22 @@ export default function AuditLog() {
     const fetchLogs = useCallback(async () => {
         setIsLoading(true);
         try {
+            const params = {}
+            if (selectedDate) {
+                    params.date = selectedDate.split("T")[0];
+            }
+            console.log("param sent to api", params);
             const response = await getRequest({
                 url:  '/admin/audit-logs',
+                params: params
             });
-            setLogs(response);
+            setLogs(Array.isArray(response) ? response : []);
         } catch (error) {
             console.error("Error fetching audit logs:", error);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedDate]);
 
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -41,6 +49,7 @@ export default function AuditLog() {
         setSearchTerm("");
         setSortOrder("date-desc");
         setCurrentPage(1);
+        setSelectedDate("")
     };
 
     const filteredLogs = useMemo(() => {
@@ -105,8 +114,9 @@ export default function AuditLog() {
     };
 
     const formattedLogs = useMemo(() => {
-        return paginatedLogs.map((log) => ({
+        return paginatedLogs.map((log, index) => ({
             ...log,
+            id: log.id || log.timestamp || index,
             displayTimestamp: log.timestamp
                 ? new Date(log.timestamp).toLocaleString('vi-VN', { hour12: false })
                 : 'N/A',
@@ -141,6 +151,12 @@ export default function AuditLog() {
                     isRefreshing={isLoading}
 
                     showSettings={false}
+
+                    selectedDate={selectedDate}
+                    onDateChange={(date) => {
+                        setSelectedDate(date);
+                        setCurrentPage(1);
+                    }}
                 />
             </div>
             <div className="">
@@ -159,6 +175,7 @@ export default function AuditLog() {
                 <CustomTable
                     data={formattedLogs}
                     columns={auditLogColumns()}
+                    isLoading={isLoading}
                 />
             </div>
         </>
