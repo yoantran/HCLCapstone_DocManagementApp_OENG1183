@@ -36,6 +36,8 @@ export default function AdminManagement() {
     const [showFilterMenu, setShowFilterMenu] = useState(false);
     const [currentSort, setCurrentSort] = useState('date-desc');
 
+    const [isLoading, setIsLoading] = useState(true)
+
     // Fetch data whenever the active tab switches
     useEffect(() => {
         // Fetch Users
@@ -46,7 +48,8 @@ export default function AdminManagement() {
                     : (response?.data || response?.users || []);
                 setUsersData(cleanUsers);
             })
-            .catch((error) => console.error("Error fetching users:", error));
+            .catch((error) => console.error("Error fetching users:", error))
+        .finally(() => setIsLoading(false));
 
         // Fetch Departments
         getRequest({ url: "/admin/departments" })
@@ -56,7 +59,8 @@ export default function AdminManagement() {
                     : (response?.data || response?.departments || []);
                 setDepartmentsData(cleanDepts);
             })
-            .catch((error) => console.error("Error fetching departments:", error));
+            .catch((error) => console.error("Error fetching departments:", error))
+            .finally(() => setIsLoading(false));
     }, []);
 
     const handleDeleteSuccess = (deletedId) => {
@@ -185,6 +189,7 @@ export default function AdminManagement() {
                         data={displayedData}
                         columns={currentColumns}
                         onDeleteSuccess={handleDeleteSuccess}
+                        isLoading={isLoading}
                     />
                 </div>
 

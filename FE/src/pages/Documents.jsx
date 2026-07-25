@@ -23,6 +23,8 @@ export default function Documents() {
     const [showFilterMenu, setShowFilterMenu] = useState(false);
     const [currentSort, setCurrentSort] = useState('date-desc');
 
+    const [isLoading, setIsLoading] = useState(true)
+
     const handleRowClick = (document) => {
         setSelectedDocument(document);
         setOpenModal(true)
@@ -52,7 +54,8 @@ export default function Documents() {
                 );
                 setDocuments(sorted);
             })
-            .catch((error) => console.error("Error fetching documents:", error));
+            .catch((error) => console.error("Error fetching documents:", error))
+        .finally(() => setIsLoading(false));
     }, []);
 
     // get column pattern based on role
@@ -152,6 +155,7 @@ export default function Documents() {
                 columns={columns}
                 onRowClick={handleRowClick}
                 onDeleteSuccess={handleDeleteSuccess}
+                isLoading={isLoading}
             />
 
             <DocumentModal
