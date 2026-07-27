@@ -157,7 +157,7 @@ const FilteringPanel = ({
                         </div>
                     )}
                     {onDateChange && (
-                        <div className="flex columns-2">
+                        <div className="flex gap-2 items-cemter">
                             <Datepicker
                                 value={selectedDate ? new Date(selectedDate) : null}
                                 onChange={(date) => {
@@ -175,11 +175,19 @@ const FilteringPanel = ({
                                 placeholder="Select date..."
                                 labelTodayButton="Today"
                                 labelClearButton="Clear"
-                                className="flex items-center gap-1.5 bg-(--lighter-blue-700) px-2 py-0.5 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colors text-xs text-slate-200"
+                                theme={{
+                                    field: {
+                                        input: {
+                                            base: "w-30 h-1 bg-(--lighter-blue-700) border border-(--cool-gray-500)/30 text-xs text-slate-200 rounded px-2.5 py-1 hover:bg-(--lighter-blue-600) transition-colors focus:ring-0 focus:border-(--cool-gray-500)/30 h-auto leading-normal self-center"
+                                        }
+                                    }
+                                }}
                             />
+                            <span className="w-[1px] h-4 bg-(--cool-gray-500)/40 self-center" />
                             <button type="button"
                                 onClick={onApplyDate}
-                                className="text-center font-medium cursor-pointer bg-(--lighter-blue-700) px-2.5 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colors">
+                                className="flex gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colorsv self-center"
+                            >
                                 Apply
                             </button>
                         </div>
@@ -189,7 +197,7 @@ const FilteringPanel = ({
                             type="button"
                             onClick={onRefresh}
                             disabled={isRefreshing}
-                            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white disabled:opacity-50 transition-colors cursor-pointer"
+                            className="text-center font-medium cursor-pointer hover:text-white transition-colors whitespace-nowrap"
                         >
                             <svg
                                 className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
