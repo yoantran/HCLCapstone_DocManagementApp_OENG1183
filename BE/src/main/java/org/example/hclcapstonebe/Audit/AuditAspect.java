@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.example.hclcapstonebe.Entities.User;
 import org.example.hclcapstonebe.Repository.UserRepository;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -45,6 +46,7 @@ public class AuditAspect {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
 
         String userId = "anonymous";
+        String name = "anonymous";
         String email = "anonymous";
         String role = "NONE";
 
@@ -53,12 +55,15 @@ public class AuditAspect {
             email = auth.getName();
             role = auth.getAuthorities().stream()
                     .findFirst().map(Object::toString).orElse("NONE");
-            userId = resolveUserId(auth);
+            User user = userRepository.findByEmailAndIsDeletedFalse(email).get();
+            userId = user.getId().toString();
+            name = user.getName();
         }
 
         store.add(AuditEntry.builder()
                 .timestamp(LocalDateTime.now())
                 .userId(userId)
+                .name(name)
                 .email(email)
                 .role(role)
                 .method(req != null ? req.getMethod() : "N/A")
@@ -69,18 +74,6 @@ public class AuditAspect {
                 .clientIp(req != null ? clientIp(req) : "N/A")
                 .error(error)
                 .build());
-    }
-
-    /**
-     * Adapt to your UserDetails implementation. If your principal is a custom
-     * class holding the UUID, cast and pull it here instead.
-     */
-    private String resolveUserId(Authentication auth) {
-        String email = auth.getName();
-
-        return userRepository.findByEmailAndIsDeletedFalse(email)
-                .map(user -> user.getId().toString())
-                .orElse(email);
     }
 
     private int statusOf(Object result) {

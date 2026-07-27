@@ -16,7 +16,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -71,14 +71,14 @@ public class AdminAuditLogController {
             @Parameter(description = "Filter by user UUID") @RequestParam(required = false) String userId,
             @Parameter(description = "Filter by HTTP method", example = "DELETE") @RequestParam(required = false) String method,
             @Parameter(description = "Substring match on path", example = "/admin/users") @RequestParam(required = false) String path,
-            @Parameter(description = "ISO datetime lower bound", example = "2026-07-22T00:00:00")
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime since,
+            @Parameter(description = "ISO date", example = "2026-07-22")
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(defaultValue = "100") int limit) {
 
-        List<AuditLogResponse> body = store.query(userId, method, path, since, Math.min(limit, 1000))
+        List<AuditLogResponse> body = store.query(userId, method, path, date, Math.min(limit, 1000))
                 .stream()
                 .map(e -> new AuditLogResponse(
-                        e.getTimestamp(), e.getUserId(), e.getEmail(), e.getRole(),
+                        e.getTimestamp(), e.getUserId(), e.getName(), e.getEmail(), e.getRole(),
                         e.getMethod(), e.getPath(), e.getAction(), e.getStatus(),
                         e.getDurationMs(), e.getClientIp(), e.getError()))
                 .toList();

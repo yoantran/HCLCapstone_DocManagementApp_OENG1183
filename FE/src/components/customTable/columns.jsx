@@ -200,3 +200,42 @@ export const adminManagementColumns = (
         }
     ]
 });
+
+export const auditLogColumns = () => [
+    {
+        key: "timestamp",
+        label: "Timestamp",
+        accessor: 'displayTimestamp',
+    },
+    {
+        key: "userId",
+        label: "User",
+        accessor: "displayUserId",
+    },
+    {
+        key: "email",
+        label: "Email",
+        accessor: 'email'
+    },
+    {
+        key: "role",
+        label: "Role",
+        accessor: 'displayRole'
+    },
+    {
+        key: "method",
+        label: "Method",
+        accessor: 'method'
+    },
+    {
+        key: "status",
+        label: "Status",
+        accessor: "status",
+    },
+    {
+        key: "action",
+        label: "Action",
+        accessor: 'displayAction',
+        className: 'text-left break-words',
+    },
+]

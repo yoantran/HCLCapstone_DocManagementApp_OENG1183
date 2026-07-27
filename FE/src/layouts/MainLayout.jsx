@@ -62,14 +62,22 @@ export default function MainLayout() {
                                 </NavbarLink>
                             </>
                         )}
-                        {/* 2. Admin */}
+                        {/* Admin */}
                         {isAdminOnly && (
-                            <NavbarLink
-                                as={Link}
-                                to={`/${userId}/admin/management`}
-                            >
-                                Users & Departments Management
-                            </NavbarLink>
+                            <>
+                                <NavbarLink
+                                    as={Link}
+                                    to={`/${userId}/admin/management`}
+                                >
+                                    Users & Departments Management
+                                </NavbarLink>
+                                <NavbarLink
+                                    as={Link}
+                                    to={`/${userId}/admin/audit-log`}
+                                >
+                                    Audit Logs
+                                </NavbarLink>
+                            </>
                         )}
                     </NavbarCollapse>
                 </div>

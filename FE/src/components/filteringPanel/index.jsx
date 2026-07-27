@@ -1,4 +1,4 @@
-import { TextInput } from "flowbite-react";
+import { Datepicker, TextInput } from "flowbite-react";
 import { CustomSearchIcon } from "./icon/CustomSearchIcon.jsx";
 import { CustomSettingIcon } from "./icon/CustomSettingIcon.jsx";
 import { LeftArrowIcon } from "./icon/LeftArrowIcon.jsx";
@@ -37,6 +37,15 @@ const FilteringPanel = ({
     onSettingsClick = () => { },
     activeTabLabel = null,
     onClearFilters = null,
+
+    onRefresh,
+    isRefreshing,
+
+    // datepicker
+    onApplyDate,
+    selectedDate,
+    onDateChange,
+    showRefresh = true,
 }) => {
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
@@ -147,6 +156,60 @@ const FilteringPanel = ({
                             <span className="font-semibold capitalize text-white">{activeTabLabel}</span>
                         </div>
                     )}
+                    {onDateChange && (
+                        <div className="flex gap-2 items-cemter">
+                            <Datepicker
+                                value={selectedDate ? new Date(selectedDate) : null}
+                                onChange={(date) => {
+                                    if (!date || isNaN(date.getTime())) {
+                                        onDateChange("");
+                                        return;
+                                    }
+                                    const year = date.getFullYear();
+                                    const month = String(date.getMonth() + 1).padStart(2, "0");
+                                    const day = String(date.getDate()).padStart(2, "0");
+
+                                    onDateChange(`${year}-${month}-${day}`);
+                                }}
+                                autoHide={false}
+                                placeholder="Select date..."
+                                labelTodayButton="Today"
+                                labelClearButton="Clear"
+                                theme={{
+                                    field: {
+                                        input: {
+                                            base: "w-30 h-1 bg-(--lighter-blue-700) border border-(--cool-gray-500)/30 text-xs text-slate-200 rounded px-2.5 py-1 hover:bg-(--lighter-blue-600) transition-colors focus:ring-0 focus:border-(--cool-gray-500)/30 h-auto leading-normal self-center"
+                                        }
+                                    }
+                                }}
+                            />
+                            <span className="w-[1px] h-4 bg-(--cool-gray-500)/40 self-center" />
+                            <button type="button"
+                                onClick={onApplyDate}
+                                className="flex gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colorsv self-center"
+                            >
+                                Apply
+                            </button>
+                        </div>
+                    )}
+                    {showRefresh && onRefresh && (
+                        <button
+                            type="button"
+                            onClick={onRefresh}
+                            disabled={isRefreshing}
+                            className="text-center font-medium cursor-pointer hover:text-white transition-colors whitespace-nowrap"
+                        >
+                            <svg
+                                className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                        </button>
+                    )}
                     {onClearFilters && (
                         <div className="flex gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colors">
                             <button className='hover:cursor-pointer' onClick={onClearFilters}>
@@ -154,6 +217,7 @@ const FilteringPanel = ({
                             </button>
                         </div>
                     )}
+
                 </div>
             )}
         </>
