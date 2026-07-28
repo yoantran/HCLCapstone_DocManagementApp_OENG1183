@@ -7,8 +7,13 @@ DATE_RE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
 SALARY_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+\b")
 
 LABEL_PATTERNS = {
-    "name": re.compile(r"H[oọ]?\s*(?:và)?\s*t[eê]n\s*:\s*(.+)"),
-    "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:\s*(.+)"),
+    # [ \t]* (not \s*) right before the capture group — \s also matches
+    # newlines, which let a blank field's label swallow the next unrelated
+    # line as its "value" (e.g. a blank "Địa chỉ:" grabbing a page title on
+    # the following line). Same-line whitespace only, so a genuinely blank
+    # field correctly fails to match instead of bleeding into the next line.
+    "name": re.compile(r"H[oọ]?\s*(?:và)?\s*t[eê]n\s*:[ \t]*(.+)"),
+    "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:[ \t]*(.+)"),
 }
 
 
