@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import {useCallback, useEffect, useState} from "react";
 import { getRequest } from "../api/apiHelpers.js";
 import { CustomTable } from "../components/customTable/index.jsx";
 import { adminManagementColumns } from "../components/customTable/columns.jsx";
@@ -19,15 +19,6 @@ export default function AdminManagement() {
     const [editingUser, setEditingUser] = useState(null);
     const [editingDept, setEditingDept] = useState(null);
 
-    const handleUserUpdate = (updatedUser) => {
-        setUsersData(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-    };
-
-    const handleDeptUpdate = (updatedDept) => {
-        setDepartmentsData(prev => prev.map(d => d.id === updatedDept.id ? updatedDept : d));
-    };
-
-
     // filteringPanel
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -38,30 +29,57 @@ export default function AdminManagement() {
 
     const [isLoading, setIsLoading] = useState(true)
 
-    // Fetch data whenever the active tab switches
-    useEffect(() => {
-        // Fetch Users
-        getRequest({ url: "/admin/users" })
-            .then((response) => {
-                const cleanUsers = Array.isArray(response)
-                    ? response
-                    : (response?.data || response?.users || []);
-                setUsersData(cleanUsers);
-            })
-            .catch((error) => console.error("Error fetching users:", error))
-        .finally(() => setIsLoading(false));
+    const fetchAllData = useCallback(() => {
+        setIsLoading(true);
+        Promise.all([
+            getRequest({ url: "/admin/users" }),
+            getRequest({ url: "/admin/departments" })
+        ])
+            .then(([usersRes, deptsRes]) => {
+                const cleanUsers = Array.isArray(usersRes)
+                    ? usersRes
+                    : (usersRes?.data || usersRes?.users || []);
+                const cleanDepts = Array.isArray(deptsRes)
+                    ? deptsRes
+                    : (deptsRes?.data || deptsRes?.departments || []);
 
-        // Fetch Departments
-        getRequest({ url: "/admin/departments" })
-            .then((response) => {
-                const cleanDepts = Array.isArray(response)
-                    ? response
-                    : (response?.data || response?.departments || []);
+                setUsersData(cleanUsers);
                 setDepartmentsData(cleanDepts);
             })
-            .catch((error) => console.error("Error fetching departments:", error))
+            .catch((error) => console.error("Error fetching management data:", error))
             .finally(() => setIsLoading(false));
     }, []);
+
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        fetchAllData();
+    }, [fetchAllData]);
+
+    const handleUserUpdate = (updatedUser) => {
+        if (!updatedUser || !updatedUser.id) {
+            fetchAllData();
+            return;
+        }
+        setUsersData((prev) =>
+            prev.map((u) => (u?.id === updatedUser.id ? updatedUser : u))
+        );
+        getRequest({ url: "/admin/departments" })
+            .then((res) => setDepartmentsData(Array.isArray(res) ? res : res?.departments || []))
+            .catch(console.error);
+    };
+
+    const handleDeptUpdate = (updatedDept) => {
+        if (!updatedDept || !updatedDept.id) {
+            fetchAllData();
+            return;
+        }
+        setDepartmentsData((prev) =>
+            prev.map((d) => (d?.id === updatedDept.id ? updatedDept : d))
+        );
+        getRequest({ url: "/admin/users" })
+            .then((res) => setUsersData(Array.isArray(res) ? res : res?.users || []))
+            .catch(console.error);
+    };
 
     const handleDeleteSuccess = (deletedId) => {
         if (activeTab === 'users') {
@@ -83,12 +101,14 @@ export default function AdminManagement() {
     const currentColumns = allColumns[activeTab.toUpperCase()] ?? [];
     const currentData = activeTab === 'users' ? usersData : departmentsData;
 
-    const filteredData = currentData.filter((item) => {
-        if (!searchTerm) return true;
-        return Object.values(item).some((val) =>
-            String(val).toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    });
+    const filteredData = (currentData || [])
+        .filter(Boolean)
+        .filter((item) => {
+            if (!searchTerm) return true;
+            return Object.values(item).some((val) =>
+                String(val ?? '').toLowerCase().includes(searchTerm.toLowerCase())
+            );
+        });
 
     const sortedData = [...filteredData].sort((a, b) => {
         if (currentSort === 'id-asc') {

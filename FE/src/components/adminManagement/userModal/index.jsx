@@ -23,6 +23,7 @@ export const UserModal = (
     const handleAdminSave = async (formData) => {
         setSaving(true);
         try {
+            const submittedRole = formData.get("role") || user.role;
             const submittedDeptValue = formData.get("departmentId") || formData.get("department");
 
             const matchedDept = departments.find(dept => {
@@ -32,20 +33,54 @@ export const UserModal = (
                 return nameToCompare === submittedDeptValue || String(idToCompare) === String(submittedDeptValue);
             })
 
-            const finalDeptId = matchedDept?.id || submittedDeptValue;
+            // Resolve raw ID or "" if unassigned/none
+            const rawDeptId = matchedDept?.id || submittedDeptValue || "";
+            const finalDeptId = (rawDeptId === "none" || rawDeptId === "null") ? "" : rawDeptId;
 
-            const cleanPayload = {
-                departmentId: finalDeptId,
-                staffId: user.id
-            };
+            const initialDeptId = user.departmentId || user.department?.id || "";
+            const isDeptChanged = finalDeptId !== initialDeptId;
+            const isRoleChanged = submittedRole !== user.role;
 
-            const updated = await patchRequest({
-                url: `/admin/users/${user.id}`,
-                data: cleanPayload
-            });
+            let updatedUser = null;
 
+
+            if (user.role === "MANAGER" && !isRoleChanged && isDeptChanged) {
+                pushError("Managers cannot be moved between departments directly. Demote them to Staff first or reassign the department manager.");
+                setSaving(false);
+                return;
+            }
+
+            // role Change (STAFF <-> MANAGER)
+            if (isRoleChanged) {
+                const rolePayload = {
+                    role: submittedRole
+                };
+                if (submittedRole === "MANAGER") {
+                    const targetDeptId = finalDeptId || initialDeptId;
+                    if (!targetDeptId) {
+                        pushError("A department must be selected when promoting a user to Manager.");
+                        setSaving(false);
+                        return;
+                    }
+                    rolePayload.departmentId = targetDeptId;
+                }
+                updatedUser = await patchRequest({
+                    url: `/admin/users/${user.id}/role`,
+                    data: rolePayload
+                });
+            }
+
+            // Reassign department for staff
+            if (!isRoleChanged && isDeptChanged) {
+                updatedUser = await patchRequest({
+                    url: `/admin/users/${user.id}/department`,
+                    data: {
+                        departmentId: finalDeptId
+                    }
+                });
+            }
             pushSuccess("User's records updated successfully.");
-            onUpdateSuccess?.(updated);
+            onUpdateSuccess?.(updatedUser);
             onClose();
         } catch (error) {
             pushError(error.message || "Something went wrong.");

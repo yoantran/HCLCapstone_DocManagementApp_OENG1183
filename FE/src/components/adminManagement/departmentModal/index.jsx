@@ -3,7 +3,7 @@ import {Button, Card, Label, Modal, ModalBody, ModalHeader, Select} from "flowbi
 import {CustomTextInput} from "../../textInput/index.jsx";
 import {useEffect, useState} from "react";
 import {pushError, pushSuccess} from "../../toast/index.jsx";
-import {putRequest} from "../../../api/apiHelpers.js";
+import {patchRequest, putRequest} from "../../../api/apiHelpers.js";
 
 export const DepartmentModal = ({
                                     show,
@@ -17,18 +17,19 @@ export const DepartmentModal = ({
     const [managerId, setManagerId] = useState("");
     const [saving, setSaving] = useState(false);
 
+    const currentManagerObj = users.find(u => u.name === department?.managerName);
+    const initialManagerId = department?.managerId || currentManagerObj?.id || "";
+
     useEffect(() => {
         if (department) {
             // eslint-disable-next-line react-hooks/set-state-in-effect
             setDepName(department.name || "");
-            const currentManager = users.find(u => u.name === department.managerName);
-            setManagerId(department.managerId || currentManager?.id || "");
+            setManagerId(initialManagerId);
         }
-    }, [department, users]);
+    }, [department, initialManagerId]);
 
     if (!department) return null;
 
-    // TODO: Can Staff be promoted to Manager?
     const handleSave = async (e) => {
         e.preventDefault();
         if (!depName.trim()) {
@@ -38,27 +39,35 @@ export const DepartmentModal = ({
 
         setSaving(true);
         try {
-            const jsonPayload = {};
-
             if (depName.trim() !== (department.name || "")) {
-                jsonPayload.name = depName.trim();
+                await putRequest({
+                    url: `/admin/departments/${department.id}`,
+                    data: { name: depName.trim() }
+                });
             }
 
+            // manager assignment, demotion, promotion
             if (managerId !== initialManagerId) {
                 if (managerId === "") {
-                    jsonPayload.managerId = "";
+                    // DEMOTE
+                    await patchRequest({
+                        url: `/admin/users/${initialManagerId}/role`,
+                        data: { role: "STAFF" }
+                    });
                 } else {
-                    jsonPayload.managerId = managerId;
+                    // PROMOTE
+                    await patchRequest({
+                        url: `/admin/users/${managerId}/role`,
+                        data: {
+                            role: "MANAGER",
+                            departmentId: department.id
+                        }
+                    });
                 }
             }
-
-            const updatedDep = await putRequest({
-                url: `/admin/departments/${department.id}`,
-                data: jsonPayload
-            });
-
             pushSuccess("Department updated successfully.");
-            onUpdateSuccess?.(updatedDep);
+            // onUpdateSuccess?.(updatedDep);
+            onUpdateSuccess?.();
             onClose();
         } catch (err) {
             pushError(err.message || "Failed to update department records.");
@@ -66,9 +75,6 @@ export const DepartmentModal = ({
             setSaving(false);
         }
     };
-
-    const currentManagerObj = users.find(u => u.name === department.managerName);
-    const initialManagerId = department.managerId || currentManagerObj?.id || "";
 
     const hasChanges =
         depName.trim() !== (department.name || "") ||
