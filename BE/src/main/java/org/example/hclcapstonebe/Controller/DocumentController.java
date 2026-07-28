@@ -36,7 +36,7 @@ public class DocumentController {
                 A signed URL (valid for 1 hour) is returned to view the document.
                 
                 Security & Validation Pipeline:
-                - Allowed formats: PDF, DOCX, CSV (Max file size: 10MB)
+                - Allowed formats: PDF, DOCX, CSV, PNG, JPEG, JPG (Max file size: 10MB)
                 - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
                 - ClamAV Virus/Malware Scanning: Scans the uploaded file stream prior to storage
                 - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
@@ -72,7 +72,7 @@ public class DocumentController {
     })
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
     public ResponseEntity<DocumentResponse> uploadOne(
-            @Parameter(description = "The document file to upload. Allowed formats: PDF, DOCX, CSV. Max size: 10MB")
+            @Parameter(description = "The document file to upload. Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG. Max size: 10MB")
             @RequestParam("file") MultipartFile file,
             @Parameter(
                     description = "Document type",
@@ -96,7 +96,7 @@ public class DocumentController {
                 A signed URL (valid for 1 hour) is returned per document.
                 
                 Security & Validation Pipeline (per file):
-                - Allowed formats: PDF, DOCX, CSV (Max file size per file: 10MB, Max batch limit: 10 files)
+                - Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG (Max file size per file: 10MB, Max batch limit: 10 files)
                 - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
                 - ClamAV Virus/Malware Scanning: Scans each uploaded file stream prior to storage
                 - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
@@ -134,7 +134,7 @@ public class DocumentController {
     })
     @PostMapping(value = "/upload/batch", consumes = "multipart/form-data")
     public ResponseEntity<List<DocumentResponse>> uploadMany(
-            @Parameter(description = "List of document files to upload. Allowed formats: PDF, DOCX, CSV. Max size per file: 10MB")
+            @Parameter(description = "List of document files to upload. Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG. Max size per file: 10MB")
             @RequestParam("files") List<MultipartFile> files,
             @Parameter(
                     description = "Document type applied to all files in the batch",
