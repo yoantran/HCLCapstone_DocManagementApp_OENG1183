@@ -10,6 +10,7 @@ import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
 import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.example.hclcapstonebe.Exception.AppException;
+import org.example.hclcapstonebe.Exception.InvalidFileSignatureException;
 import org.example.hclcapstonebe.Mapper.DocumentMapper;
 import org.example.hclcapstonebe.Repository.DocumentRepository;
 import org.example.hclcapstonebe.Repository.NotificationRepository;
@@ -25,6 +26,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -42,6 +45,15 @@ public class DocumentService {
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
+
+
+    private static final Map<DocumentFormatEnum, byte[]> FILE_SIGNATURES = Map.of(
+            DocumentFormatEnum.PDF,  new byte[]{0x25, 0x50, 0x44, 0x46},
+            DocumentFormatEnum.DOCX, new byte[]{0x50, 0x4B, 0x03, 0x04},
+            DocumentFormatEnum.PNG,  new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47},
+            DocumentFormatEnum.JPG,  new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF},
+            DocumentFormatEnum.JPEG, new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}
+    );
 
     // ─── UPLOAD ───────────────────────────────────────────
 
@@ -92,26 +104,18 @@ public class DocumentService {
         ClamAvScannerService.ScanResult scanResult;
         LocalDateTime scannedAt;
         byte[] fileData;
-        try (InputStream rawStream = file.getInputStream();
-             BufferedInputStream bis = new BufferedInputStream(rawStream)) {
+        DocumentFormatEnum format;
 
+        try (InputStream rawStream = file.getInputStream();
+             BufferedInputStream bis = new BufferedInputStream(rawStream)
+        ) {
             bis.mark(8192);
+
             byte[] header = new byte[4];
             int bytesRead = bis.read(header);
 
-            if (!ext.equals("PDF") && !ext.equals("DOCX") && !ext.equals("CSV")) {
-                throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
-            }
-
-            if (ext.equals("PDF")) {
-                if (bytesRead < 4 || header[0] != 0x25 || header[1] != 0x50 || header[2] != 0x44 || header[3] != 0x46) {
-                    throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
-                }
-            } else if (ext.equals("DOCX")) {
-                if (bytesRead < 4 || header[0] != 0x50 || header[1] != 0x4B || header[2] != 0x03 || header[3] != 0x04) {
-                    throw new AppException("Invalid structural file signature match detected", HttpStatus.BAD_REQUEST);
-                }
-            }
+            format = parseDocumentFormat(ext);
+            validateFileSignature(format, header, bytesRead);
 
             bis.reset();
 
@@ -119,7 +123,10 @@ public class DocumentService {
             scannedAt = LocalDateTime.now();
 
         } catch (IOException e) {
-            throw new AppException("Failed to process file stream: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+            throw new AppException(
+                    "Failed to process file stream: " + e.getMessage(),
+                    HttpStatus.INTERNAL_SERVER_ERROR
+            );
         }
 
         try {
@@ -314,5 +321,42 @@ public class DocumentService {
     private Document getDocumentOrThrow(String docId) {
         return documentRepository.findByIdAndIsDeletedFalse(UUID.fromString(docId))
                 .orElseThrow(() -> new AppException("Document not found", HttpStatus.NOT_FOUND));
+    }
+
+    private DocumentFormatEnum parseDocumentFormat(String ext) {
+        try {
+            return DocumentFormatEnum.valueOf(ext.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new AppException(
+                    "Unsupported document format",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    private void validateFileSignature(DocumentFormatEnum format, byte[] header, int bytesRead) {
+        // CSV has no reliable binary signature.
+        if (format == DocumentFormatEnum.CSV) {
+            return;
+        }
+
+        byte[] expected = FILE_SIGNATURES.get(format);
+
+        if (expected == null) {
+            throw new AppException(
+                    "Unsupported document format",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (bytesRead < expected.length) {
+            throw new InvalidFileSignatureException();
+        }
+
+        for (int i = 0; i < expected.length; i++) {
+            if (header[i] != expected[i]) {
+                throw new InvalidFileSignatureException();
+            }
+        }
     }
 }

@@ -2,5 +2,5 @@ package org.example.hclcapstonebe.Enums;
 
 
 public enum DocumentFormatEnum {
-    PDF, DOCX, CSV
+    PDF, DOCX, CSV, PNG, JPEG, JPG
 }
