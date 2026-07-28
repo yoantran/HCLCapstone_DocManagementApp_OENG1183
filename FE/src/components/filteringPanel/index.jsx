@@ -50,8 +50,8 @@ const FilteringPanel = ({
     const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
     const today = new Date();
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(today.getDate() - 30);
+    const oneYearAgo = new Date(today);
+    oneYearAgo.setFullYear(today.getFullYear() - 1);
 
     useEffect(() => {
         if (currentPage > totalPages) {
@@ -163,7 +163,7 @@ const FilteringPanel = ({
                     {onDateChange && (
                         <div className="flex gap-2 items-cemter">
                             <Datepicker
-                                minDate={thirtyDaysAgo}
+                                minDate={oneYearAgo}
                                 maxDate={today}
                                 value={selectedDate ? new Date(selectedDate) : null}
                                 onChange={(date) => {
