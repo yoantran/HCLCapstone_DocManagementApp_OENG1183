@@ -6,15 +6,50 @@ TAX_CODE_RE = re.compile(r"\b\d{10}(?:-\d{3})?\b")
 DATE_RE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
 SALARY_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+\b")
 
+# ponytail: labor contracts use several different real conventions for
+# identifying the employee ("Họ tên", "BÊN B") — this list grows as new
+# contract templates surface, it's not a closed set. Deliberately NOT
+# matching "Người lao động" ("employee") as a bare label — that phrase
+# recurs constantly in contract body prose (section headers, sentences),
+# so it fires on body text and returns the label itself as a nonsense
+# "value" instead of the real one. A wrong value is worse than a missing
+# one; "BÊN B" is a rare, structural marker so doesn't have this problem.
+# Company/employer names (BÊN A, Người sử dụng lao động) are deliberately
+# not captured here either — not the PII this field targets.
 LABEL_PATTERNS = {
     # [ \t]* (not \s*) right before the capture group — \s also matches
     # newlines, which let a blank field's label swallow the next unrelated
     # line as its "value" (e.g. a blank "Địa chỉ:" grabbing a page title on
     # the following line). Same-line whitespace only, so a genuinely blank
     # field correctly fails to match instead of bleeding into the next line.
-    "name": re.compile(r"H[oọ]?\s*(?:và)?\s*t[eê]n\s*:[ \t]*(.+)"),
-    "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:[ \t]*(.+)"),
+    "name": re.compile(
+        r"(?:H[oọ]?\s*(?:và)?\s*t[eê]n|BÊN\s*B)\s*:[ \t]*(.+)",
+        re.IGNORECASE,
+    ),
+    "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:[ \t]*(.+)", re.IGNORECASE),
 }
+
+# a captured value that *starts* with placeholder/filler characters (dots,
+# ellipsis, dashes) means the field is blank — whatever follows on the same
+# line (a parenthetical note, the next field's label) is unrelated adjacent
+# text, not the real value. Simpler and more robust than trying to detect
+# where legitimate content ends.
+_STARTS_WITH_FILLER_RE = re.compile(r"^[.…_\-]")
+
+# unfilled contract templates often follow a label directly with the role
+# descriptor itself ("Bên B : Người lao động" = "Party B: [is] the
+# employee"), not an actual name — only a filled contract replaces this with
+# a real name. Treat these known generic-role phrases as blank too.
+_GENERIC_ROLE_VALUES = {"người lao động", "người sử dụng lao động", "nlđ", "nsdlđ"}
+
+
+def _clean_label_value(value: str) -> str | None:
+    value = value.strip()
+    if not value or _STARTS_WITH_FILLER_RE.match(value):
+        return None
+    if value.lower() in _GENERIC_ROLE_VALUES:
+        return None
+    return value
 
 
 def extract_regex_fields(text: str) -> dict:
@@ -35,7 +70,7 @@ def extract_label_anchored(text: str) -> dict:
     result = {}
     for field, pattern in LABEL_PATTERNS.items():
         match = pattern.search(text)
-        result[field] = match.group(1).strip() if match else None
+        result[field] = _clean_label_value(match.group(1)) if match else None
     return result
 
 
