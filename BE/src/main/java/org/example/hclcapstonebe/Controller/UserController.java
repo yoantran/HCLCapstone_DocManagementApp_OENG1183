@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.DTO.Request.UpdateProfileRequest;
 import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Service.UserService;
@@ -61,6 +62,7 @@ public class UserController {
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @GetMapping("/me")
+    @AuditAction("Viewed own profile")
     public ResponseEntity<UserProfileResponse> getMyProfile(
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(userService.getProfile(userDetails.getUsername()));
@@ -108,6 +110,7 @@ public class UserController {
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @PutMapping(value = "/me", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @AuditAction("Updated own profile")
     public ResponseEntity<UserProfileResponse> updateMyProfile(
             @Parameter(description = "Updated name (optional)")
             @RequestParam(value = "name", required = false) String name,

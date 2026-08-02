@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.DTO.Request.*;
 import org.example.hclcapstonebe.DTO.Response.DepartmentResponse;
 import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
@@ -89,6 +90,7 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "Email already in use")
     })
     @PostMapping("/users")
+    @AuditAction("Created user '{email}'")
     public ResponseEntity<UserProfileResponse> createUser(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "User creation payload. `departmentId` is optional.",
@@ -149,9 +151,10 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "User or department not found")
     })
     @PatchMapping("/users/{id}/department")
+    @AuditAction("Updated department assignment for user '{userId}'")
     public ResponseEntity<UserProfileResponse> reassignUserDepartment(
             @Parameter(description = "UUID of the user", example = "user-uuid-123")
-            @PathVariable UUID id,
+            @PathVariable("id") UUID userId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     content = @Content(examples = {
                             @ExampleObject(name = "Assign to department",
@@ -161,8 +164,9 @@ public class AdminController {
                     })
             )
             @RequestBody ReassignUserRequest req) {
-        return ResponseEntity.ok(adminService.reassignUser(id, req));
+        return ResponseEntity.ok(adminService.reassignUser(userId, req));
     }
+
     @Operation(
             summary = "Soft delete a user",
             description = """
@@ -181,13 +185,15 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @DeleteMapping("/users/{id}")
+    @AuditAction("Deleted user '{userId}'")
     public ResponseEntity<Void> deleteUser(
             @Parameter(description = "UUID of the user to delete", example = "550e8400-e29b-41d4-a716-446655440000")
-            @PathVariable String id) {
-        adminService.deleteUser(UUID.fromString(id));
+            @PathVariable("id") String userId) {
+        adminService.deleteUser(UUID.fromString(userId));
         return ResponseEntity.noContent().build();
     }
     @GetMapping("/users")
+    @AuditAction("Viewed all users")
     public ResponseEntity<List<UserProfileResponse>> getAllUsers() {
         return ResponseEntity.ok(adminService.getAllUsers());
     }
@@ -222,10 +228,11 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @GetMapping("/users/{id}")
+    @AuditAction("Viewed user '{userId}'")
     public ResponseEntity<UserProfileResponse> getUserById(
             @Parameter(description = "UUID of the user", example = "550e8400-e29b-41d4-a716-446655440000")
-            @PathVariable String id) {
-        return ResponseEntity.ok(adminService.getUserById(UUID.fromString(id)));
+            @PathVariable("id") String userId) {
+        return ResponseEntity.ok(adminService.getUserById(UUID.fromString(userId)));
     }
 
     // ─── DEPARTMENTS ──────────────────────────────────────
@@ -284,6 +291,7 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "User is already manager of another department")
     })
     @PostMapping("/departments")
+    @AuditAction("Created department '{req.name}'")
     public ResponseEntity<DepartmentResponse> createDepartment(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "Department creation payload. `managerId` is optional.",
@@ -313,6 +321,7 @@ public class AdminController {
             @Valid @RequestBody CreateDepartmentRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createDepartment(req));
     }
+
     @Operation(
             summary = "Update a department",
             description = """
@@ -361,9 +370,10 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "User is already manager of another department")
     })
     @PutMapping("/departments/{id}")
+    @AuditAction("Updated department '{departmentId}'")
     public ResponseEntity<DepartmentResponse> updateDepartment(
             @Parameter(description = "UUID of the department to update", example = "dept-uuid-123")
-            @PathVariable UUID id,
+            @PathVariable("id") UUID departmentId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "All fields optional. Only sent fields are updated.",
                     content = @Content(
@@ -388,7 +398,7 @@ public class AdminController {
                     )
             )
             @RequestBody UpdateDepartmentRequest req) {
-        return ResponseEntity.ok(adminService.updateDepartment(id, req));
+        return ResponseEntity.ok(adminService.updateDepartment(departmentId, req));
     }
 
     @Operation(
@@ -406,10 +416,11 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "Department not found")
     })
     @DeleteMapping("/departments/{id}")
+    @AuditAction("Deleted department '{departmentId}'")
     public ResponseEntity<Void> deleteDepartment(
             @Parameter(description = "UUID of the department to delete", example = "dept-uuid-123")
-            @PathVariable String id) {
-        adminService.deleteDepartment(UUID.fromString(id));
+            @PathVariable("id") String departmentId) {
+        adminService.deleteDepartment(UUID.fromString(departmentId));
         return ResponseEntity.noContent().build();
     }
 
@@ -447,6 +458,7 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only")
     })
     @GetMapping("/departments")
+    @AuditAction("Viewed all departments")
     public ResponseEntity<List<DepartmentResponse>> getAllDepartments() {
         return ResponseEntity.ok(adminService.getAllDepartments());
     }
@@ -477,11 +489,13 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "Department not found")
     })
     @GetMapping("/departments/{id}")
+    @AuditAction("Viewed department '{departmentId}'")
     public ResponseEntity<DepartmentResponse> getDepartmentById(
             @Parameter(description = "UUID of the department", example = "dept-uuid-123")
-            @PathVariable UUID id) {
-        return ResponseEntity.ok(adminService.getDepartmentById(id));
+            @PathVariable("id") UUID departmentId) {
+        return ResponseEntity.ok(adminService.getDepartmentById(departmentId));
     }
+
     @Operation(
             summary = "Promote or demote a user",
             description = """
@@ -531,9 +545,10 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "User already manages another department")
     })
     @PatchMapping("/users/{id}/role")
+    @AuditAction("Changed role of user '{userId}'")
     public ResponseEntity<UserProfileResponse> changeUserRole(
             @Parameter(description = "UUID of the user", example = "user-uuid-123")
-            @PathVariable UUID id,
+            @PathVariable("id") UUID userId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
                     content = @Content(examples = {
@@ -546,6 +561,6 @@ public class AdminController {
                     })
             )
             @Valid @RequestBody ChangeRoleRequest req) {
-        return ResponseEntity.ok(adminService.changeRole(id, req));
+        return ResponseEntity.ok(adminService.changeRole(userId, req));
     }
 }

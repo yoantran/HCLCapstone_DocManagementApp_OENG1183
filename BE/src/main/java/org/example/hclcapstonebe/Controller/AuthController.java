@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.DTO.Request.LoginRequest;
 import org.example.hclcapstonebe.DTO.Response.AuthResponse;
 import org.example.hclcapstonebe.Service.AuthService;
@@ -45,6 +46,7 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Invalid email or password")
     })
     @PostMapping("/login")
+    @AuditAction("Logged in")
     public ResponseEntity<AuthResponse> login(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "Login credentials",
@@ -71,6 +73,7 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Unauthorized — token missing or invalid")
     })
     @PostMapping("/logout")
+    @AuditAction("Logged out")
     public ResponseEntity<String> logout() {
         authService.logout();
         return ResponseEntity.ok("Logged out successfully");

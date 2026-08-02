@@ -1,4 +1,5 @@
 import { useParams } from "react-router-dom";
+import { useAuth } from '../context/AuthContext';
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PublicViewer } from "../components/documentProcess/view"
@@ -24,19 +25,21 @@ function DocumentBlocked({ document }) {
 }
 
 export default function ViewDocument() {
+    const { user } = useAuth();
+    const isManager = user.role?.toUpperCase() === 'MANAGER';
+
     const { documentId } = useParams();
     const [document, setDocument] = useState(null);
     const navigate = useNavigate();
 
     useEffect(() => {
-        getRequest({ url: `/documents/mine/${documentId}` })
-            .then((response) => {
-                // console.log("Fetched document:", response);
-                setDocument(response);
-            })
-            .catch((error) => {
-                console.error("Error fetching document:", error);
-            });
+        const url = isManager
+            ? `/documents/department/${documentId}`
+            : `/documents/mine/${documentId}`;
+
+        getRequest({ url })
+            .then((response) => setDocument(response))
+            .catch((error) => console.error("Error fetching document:", error));
     }, [documentId]);
 
     if (!document) return null;

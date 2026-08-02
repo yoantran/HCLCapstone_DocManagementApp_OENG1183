@@ -73,9 +73,6 @@ export const NotificationBell = ({ userId, userEmail }) => {
 
     // route to `/documents` & push read noti request
     const handleNotificationClick = async (noti) => {
-
-        navigate(`/${userId}/documents`, { state: { highlightDocumentId: noti.triggeredDocumentId } });
-
         if (noti.hasRead) return;
 
         // update state using 'hasRead'
@@ -91,6 +88,8 @@ export const NotificationBell = ({ userId, userEmail }) => {
         } catch (error) {
             console.error(`Failed to update read status for notification ${noti.id}:`, error);
         }
+
+        navigate(`/${userId}/documents`, { state: { highlightDocumentId: noti.triggeredDocumentId } });
     };
 
     return (
