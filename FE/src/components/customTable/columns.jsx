@@ -225,17 +225,19 @@ export const auditLogColumns = () => [
     {
         key: "method",
         label: "Method",
-        accessor: 'method'
+        accessor: 'method',
+        className: 'max-w-2',
     },
     {
         key: "status",
         label: "Status",
         accessor: "status",
+        className: 'max-w-2',
     },
     {
         key: "action",
         label: "Action",
         accessor: 'displayAction',
-        className: 'text-left break-words',
+        className: 'text-left break-words min-w-2xs',
     },
 ]

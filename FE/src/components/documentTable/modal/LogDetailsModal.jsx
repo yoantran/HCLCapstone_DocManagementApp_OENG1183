@@ -16,7 +16,7 @@ export const LogDetailsModal = ({ log, show, onClose, position = "center" }) => 
 
     const displayIp = log.clientIp === "0:0:0:0:0:0:0:1" ? "127.0.0.1" : (log.clientIp ?? 'N/A');
 
-    const displayAction = log.action ? log.action.split('.').pop() : 'N/A';
+    const displayAction = log.action ? log.action : 'N/A';
 
     const statusColor = log.status >= 500 ? 'failure'
         : log.status >= 400 ? 'warning'
@@ -40,7 +40,7 @@ export const LogDetailsModal = ({ log, show, onClose, position = "center" }) => 
                 {/* action banner */}
                 <div className="px-5 py-4 border-b border-(--cool-gray-500)/30 ">
                     <div className="flex justify-between gap-2 mb-1">
-                        <span className="flex font-mono font-bold text-white">ACTION: {displayAction}</span>
+                        <div className="flex font-mono font-bold text-white">ACTION:<br />{displayAction}</div>
                         <div className="flex gap-2 font-bold">
                             <Badge color={methodColor} className="flex">{log.method ?? 'N/A'}</Badge>
                             <Badge color={statusColor} className="flex">{log.status ?? 'N/A'}</Badge>
