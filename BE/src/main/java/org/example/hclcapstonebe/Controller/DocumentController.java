@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
 import org.example.hclcapstonebe.Service.DocumentService;
 import org.springframework.http.*;
@@ -71,6 +72,7 @@ public class DocumentController {
             @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
     })
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
+    @AuditAction("Uploaded document '{file}'")
     public ResponseEntity<DocumentResponse> uploadOne(
             @Parameter(description = "The document file to upload. Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG. Max size: 10MB")
             @RequestParam("file") MultipartFile file,
@@ -133,6 +135,7 @@ public class DocumentController {
             @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
     })
     @PostMapping(value = "/upload/batch", consumes = "multipart/form-data")
+    @AuditAction("Uploaded multiple documents")
     public ResponseEntity<List<DocumentResponse>> uploadMany(
             @Parameter(description = "List of document files to upload. Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG. Max size per file: 10MB")
             @RequestParam("files") List<MultipartFile> files,
@@ -181,6 +184,7 @@ public class DocumentController {
             @ApiResponse(responseCode = "401", description = "Unauthorized")
     })
     @GetMapping("/mine")
+    @AuditAction("Viewed own documents")
     public ResponseEntity<List<DocumentResponse>> getMyDocuments(
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(documentService.getMyDocuments(userDetails.getUsername()));
@@ -196,11 +200,12 @@ public class DocumentController {
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @GetMapping("/mine/{id}")
+    @AuditAction("Viewed document '{documentId}'")
     public ResponseEntity<DocumentResponse> getMyDocumentById(
             @Parameter(description = "UUID of the document", example = "doc-uuid-001")
-            @PathVariable String id,
+            @PathVariable("id") String documentId,
             @AuthenticationPrincipal UserDetails userDetails) {
-        return ResponseEntity.ok(documentService.getMyDocumentById(id, userDetails.getUsername()));
+        return ResponseEntity.ok(documentService.getMyDocumentById(documentId, userDetails.getUsername()));
     }
 
     @Operation(
@@ -213,6 +218,7 @@ public class DocumentController {
             @ApiResponse(responseCode = "403", description = "Forbidden — manager only")
     })
     @GetMapping("/department")
+    @AuditAction("Viewed department documents")
     public ResponseEntity<List<DocumentResponse>> getDepartmentDocuments(
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(documentService.getDepartmentDocuments(userDetails.getUsername()));
@@ -228,11 +234,12 @@ public class DocumentController {
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @GetMapping("/department/{id}")
+    @AuditAction("Viewed document '{documentId}'")
     public ResponseEntity<DocumentResponse> getDepartmentDocumentById(
             @Parameter(description = "UUID of the document", example = "doc-uuid-001")
-            @PathVariable String id,
+            @PathVariable("id") String documentId,
             @AuthenticationPrincipal UserDetails userDetails) {
-        return ResponseEntity.ok(documentService.getDepartmentDocumentById(id, userDetails.getUsername()));
+        return ResponseEntity.ok(documentService.getDepartmentDocumentById(documentId, userDetails.getUsername()));
     }
 
     @Operation(
@@ -245,11 +252,12 @@ public class DocumentController {
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @DeleteMapping("/{id}")
+    @AuditAction("Deleted document '{documentId}'")
     public ResponseEntity<Void> deleteDocument(
             @Parameter(description = "UUID of the document to delete", example = "doc-uuid-001")
-            @PathVariable String id,
+            @PathVariable("id") String documentId,
             @AuthenticationPrincipal UserDetails userDetails) {
-        documentService.deleteDocument(id, userDetails.getUsername());
+        documentService.deleteDocument(documentId, userDetails.getUsername());
         return ResponseEntity.noContent().build();
     }
 }

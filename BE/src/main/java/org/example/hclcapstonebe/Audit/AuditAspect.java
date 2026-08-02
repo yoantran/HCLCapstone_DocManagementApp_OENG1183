@@ -5,15 +5,23 @@ import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.reflect.MethodSignature;
 import org.example.hclcapstonebe.Entities.User;
+import org.example.hclcapstonebe.Repository.DepartmentRepository;
+import org.example.hclcapstonebe.Repository.DocumentRepository;
 import org.example.hclcapstonebe.Repository.UserRepository;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Aspect
 @Component
@@ -22,14 +30,27 @@ public class AuditAspect {
 
     private final AuditLogStore store;
     private final UserRepository userRepository;
+    private final DocumentRepository documentRepository;
+    private final DepartmentRepository departmentRepository;
 
     @Around("within(org.example.hclcapstonebe.Controller..*)")
     public Object audit(ProceedingJoinPoint pjp) throws Throwable {
         long start = System.currentTimeMillis();
         HttpServletRequest req = currentRequest();
 
-        String action = pjp.getSignature().getDeclaringType().getSimpleName()
-                + "." + pjp.getSignature().getName();
+        MethodSignature signature = (MethodSignature) pjp.getSignature();
+        Method method = signature.getMethod();
+
+        AuditAction annotation = method.getAnnotation(AuditAction.class);
+
+        String action;
+
+        if (annotation != null) {
+            action = buildAction(annotation.value(), method, pjp.getArgs());
+        } else {
+            action = signature.getDeclaringType().getSimpleName()
+                    + "." + signature.getName();
+        }
 
         try {
             Object result = pjp.proceed();
@@ -93,5 +114,87 @@ public class AuditAspect {
     private HttpServletRequest currentRequest() {
         var attrs = RequestContextHolder.getRequestAttributes();
         return (attrs instanceof ServletRequestAttributes sra) ? sra.getRequest() : null;
+    }
+
+    // Helpers
+    private String buildAction(String template, Method method, Object[] args) {
+        String action = template;
+        Parameter[] parameters = method.getParameters();
+
+        for (int i = 0; i < parameters.length; i++) {
+            Object arg = args[i];
+
+            // handle placeholders like {id}, {userId}, ...
+            String placeholder = "{" + parameters[i].getName() + "}";
+            if (action.contains(placeholder)) {
+                action = action.replace(
+                        placeholder,
+                        formatArgument(parameters[i].getName(), arg)
+                );
+            }
+            // handle placeholders like {req.name}
+            if (arg != null &&
+                    arg.getClass().getPackageName().startsWith("org.example.hclcapstonebe.DTO")) {
+
+                for (Field field : arg.getClass().getDeclaredFields()) {
+                    try {
+                        field.setAccessible(true);
+                        String nestedPlaceholder =
+                                "{" + parameters[i].getName() + "." + field.getName() + "}";
+
+                        if (action.contains(nestedPlaceholder)) {
+                            Object value = field.get(arg);
+                            action = action.replace(
+                                    nestedPlaceholder,
+                                    value == null ? "null" : value.toString()
+                            );
+                        }
+                    } catch (IllegalAccessException ignored) {}
+                }
+            }
+        }
+        return action;
+    }
+
+    private String formatArgument(String parameterName, Object arg) {
+        switch (arg) {
+            case null -> {
+                return "null";
+            }
+            case MultipartFile file -> {
+                return file.getOriginalFilename();
+            }
+            case UUID uuid -> {
+                return resolveEntityName(parameterName, uuid);
+            }
+            case String id -> {
+                try {
+                    return resolveEntityName(parameterName, UUID.fromString(id));
+                } catch (IllegalArgumentException ignored) {
+                    return id;
+                }
+            }
+            default -> {}
+        }
+        return String.valueOf(arg);
+    }
+
+    private String resolveEntityName(String parameterName, UUID uuid) {
+        return switch (parameterName) {
+            case "documentId" ->
+                    documentRepository.findById(uuid)
+                            .map(doc -> "%s [%s]".formatted(doc.getName(), doc.getId()))
+                            .orElse(uuid.toString());
+            case "userId" ->
+                    userRepository.findById(uuid)
+                            .map(user -> "%s [%s]".formatted(user.getName(), user.getId()))
+                            .orElse(uuid.toString());
+            case "departmentId" ->
+                    departmentRepository.findById(uuid)
+                            .map(dept -> "%s [%s]".formatted(dept.getName(), dept.getId()))
+                            .orElse(uuid.toString());
+
+            default -> uuid.toString();
+        };
     }
 }

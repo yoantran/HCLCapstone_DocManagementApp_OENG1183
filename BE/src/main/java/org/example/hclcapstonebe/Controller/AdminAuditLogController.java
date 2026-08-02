@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.Audit.AuditLogStore;
 import org.example.hclcapstonebe.DTO.Response.AuditLogResponse;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -67,6 +68,7 @@ public class AdminAuditLogController {
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only")
     })
     @GetMapping
+    @AuditAction("Viewed audit logs")
     public ResponseEntity<List<AuditLogResponse>> getLogs(
             @Parameter(description = "Filter by user UUID") @RequestParam(required = false) String userId,
             @Parameter(description = "Filter by HTTP method", example = "DELETE") @RequestParam(required = false) String method,
@@ -88,6 +90,7 @@ public class AdminAuditLogController {
 
     @Operation(summary = "Buffer stats", description = "How many entries are currently held.")
     @GetMapping("/stats")
+    @AuditAction("Viewed audit log statistics")
     public ResponseEntity<Map<String, Object>> stats() {
         return ResponseEntity.ok(Map.of("entries", store.size(), "capacity", 1000));
     }
@@ -95,6 +98,7 @@ public class AdminAuditLogController {
     @Operation(summary = "Clear the buffer")
     @ApiResponses(@ApiResponse(responseCode = "204", description = "Cleared"))
     @DeleteMapping
+    @AuditAction("Cleared audit logs")
     public ResponseEntity<Void> clear() {
         store.clear();
         return ResponseEntity.noContent().build();
