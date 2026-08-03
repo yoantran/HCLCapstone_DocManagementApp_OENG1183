@@ -1,6 +1,6 @@
 import { TableHeader } from "./TableHeader.jsx"
 import { CustomTableRow } from "./CustomTableRow.jsx"
-import {Table, TableBody, TableCell, TableRow} from "flowbite-react";
+import {Spinner, Table, TableBody, TableCell, TableRow} from "flowbite-react";
 
 export const CustomTable = ({ columns, data, onRowClick, onDeleteSuccess, isLoading }) => {
     // log data for debugging
@@ -16,7 +16,12 @@ export const CustomTable = ({ columns, data, onRowClick, onDeleteSuccess, isLoad
                 {isLoading ? (
                     <TableRow>
                         <TableCell colSpan={columns.length} className="text-center py-8 text-slate-400">
-                            Loading data...
+                            <div className="flex flex-col items-center justify-center gap-3">
+                                <Spinner size="lg" color="info" aria-label="Loading data..." />
+                                <span>
+                                    Loading data...
+                                </span>
+                            </div>
                         </TableCell>
                     </TableRow>
                 ) : safeData.length === 0 ? (
