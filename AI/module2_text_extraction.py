@@ -48,11 +48,12 @@ def extract_fields(path: str) -> dict:
 
 
 if __name__ == "__main__":
+    import glob
+
     with open("module2_text_selfcheck_output.txt", "w", encoding="utf-8") as out:
-        for name in (
-            "samples/Bảng cân đối kế toán năm của doanh nghiệp hoạt động liên tục.docx",
-            "samples/[Base.vn] MẪU BẢNG CÂN ĐỐI KẾ TOÁN THEO THÔNG TƯ 200 - Mẫu BCĐKT.pdf",
-        ):
+        samples = glob.glob("samples/balance_sheet/*.docx") + glob.glob("samples/balance_sheet/*.pdf")
+        samples += glob.glob("samples/contract/*.docx")
+        for name in samples:
             result = extract_fields(name)
             out.write(f"--- {name} ---\n")
             for field, value in result["fields"].items():

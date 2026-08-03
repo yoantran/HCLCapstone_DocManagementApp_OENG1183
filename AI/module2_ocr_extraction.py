@@ -62,7 +62,7 @@ if __name__ == "__main__":
     from module1_opencv import enhance
 
     with open("module2_selfcheck_output.txt", "w", encoding="utf-8") as out:
-        for path in ("sample_payslip.png", "sample_payslip_degraded.jpg"):
+        for path in ("samples/pay_slip/image-94-600x414.png", "samples/pay_slip/mau-phieu-luong-02.png"):
             img = cv2.imread(path)
             assert img is not None, f"could not load {path}"
             enhanced = enhance(img)["image"]
