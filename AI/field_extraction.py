@@ -4,7 +4,11 @@ CCCD_RE = re.compile(r"\b\d{12}\b")
 PHONE_RE = re.compile(r"(?:\+84|0)(?:3|5|7|8|9)\d{8}\b")
 TAX_CODE_RE = re.compile(r"\b\d{10}(?:-\d{3})?\b")
 DATE_RE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
-SALARY_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+\b")
+# Vietnamese locale properly uses "." as the thousands separator (not ","),
+# but real payslip templates found in the wild use either -- e.g. a real
+# sample used "5.000.000" while another used "5,964,265" for the same kind
+# of figure. Match both rather than assuming one convention.
+SALARY_RE = re.compile(r"\b\d{1,3}(?:[,.]\d{3})+\b")
 
 # ponytail: labor contracts use several different real conventions for
 # identifying the employee ("Họ tên", "BÊN B") — this list grows as new
@@ -36,6 +40,12 @@ LABEL_PATTERNS = {
 # where legitimate content ends.
 _STARTS_WITH_FILLER_RE = re.compile(r"^[.…_\-]")
 
+# some real templates use bracket-enclosed placeholder tokens instead of
+# dots/ellipsis -- e.g. "Họ và tên: [member_name]" from a mail-merge-style
+# template. If the whole captured value is exactly one bracketed token,
+# it's a placeholder, not real data.
+_BRACKET_PLACEHOLDER_RE = re.compile(r"^\[[^\[\]]*\]$")
+
 # unfilled contract templates often follow a label directly with the role
 # descriptor itself ("Bên B : Người lao động" = "Party B: [is] the
 # employee"), not an actual name — only a filled contract replaces this with
@@ -46,6 +56,8 @@ _GENERIC_ROLE_VALUES = {"người lao động", "người sử dụng lao độn
 def _clean_label_value(value: str) -> str | None:
     value = value.strip()
     if not value or _STARTS_WITH_FILLER_RE.match(value):
+        return None
+    if _BRACKET_PLACEHOLDER_RE.match(value):
         return None
     if value.lower() in _GENERIC_ROLE_VALUES:
         return None
