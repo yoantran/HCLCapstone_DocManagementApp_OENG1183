@@ -1,4 +1,4 @@
-import { Modal, ModalBody} from "flowbite-react";
+import {Modal, ModalBody, Spinner} from "flowbite-react";
 import {CustomButton} from "../button/index.jsx";
 
 
@@ -10,13 +10,14 @@ export const PopUpModal = ({
                                description = "This cannot be undone.",
                                confirmText = "Yes",
                                cancelText = "No",
-                               size = "xl"
+                               size = "xl",
+                               isLoading = false,
                            }) => {
     return (
         <Modal
             show={isOpen}
             size={size}
-            onClose={onClose}
+            onClose={isLoading ? undefined : onClose}
             popup
             className="bg-slate-900/50 backdrop-blur-sm"
         >
@@ -38,6 +39,7 @@ export const PopUpModal = ({
                         <CustomButton
                             color="red"
                             onClick={onClose}
+                            disabled={isLoading}
                             className="px-8 py-1 text-base min-w-25 rounded-xl"
                         >
                             {cancelText}
@@ -46,9 +48,17 @@ export const PopUpModal = ({
                         <CustomButton
                             color="green"
                             onClick={onConfirm}
+                            disabled={isLoading}
                             className="px-8 py-1 text-base min-w-25 rounded-xl"
                         >
-                            {confirmText}
+                            {isLoading ? (
+                                <span className="flex items-center justify-center gap-3">
+                                    <Spinner size="sm" light={true} />
+                                    <span> Loading...</span>
+                                </span>
+                            ) : (
+                                confirmText
+                            )}
                         </CustomButton>
 
                     </div>

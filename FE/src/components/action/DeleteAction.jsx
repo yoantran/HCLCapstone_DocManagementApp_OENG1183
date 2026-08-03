@@ -16,6 +16,7 @@ export const DeleteAction = ({
                                  onDeleteSuccess,
 }) => {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const targetItem = row || document;
     const itemId = targetItem?.[idKey];
@@ -28,6 +29,7 @@ export const DeleteAction = ({
             pushError("Cannot delete")
         }
 
+        setIsDeleting(true);
         try {
             await deleteRequest({
                 url: `${endpoint}/${itemId}`,
@@ -43,6 +45,7 @@ export const DeleteAction = ({
             );
         } finally {
             setShowDeleteConfirm(false);
+            setIsDeleting(false);
         }
     };
 
@@ -60,6 +63,7 @@ export const DeleteAction = ({
 
             <PopUpModal
                 isOpen={showDeleteConfirm}
+                isLoading={isDeleting}
                 onClose={() => setShowDeleteConfirm(false)}
                 onConfirm={(e) => {
                     e.stopPropagation();
