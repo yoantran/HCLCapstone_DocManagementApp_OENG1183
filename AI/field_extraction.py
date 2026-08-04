@@ -10,16 +10,16 @@ DATE_RE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
 # of figure. Match both rather than assuming one convention.
 SALARY_RE = re.compile(r"\b\d{1,3}(?:[,.]\d{3})+\b")
 
-# ponytail: labor contracts use several different real conventions for
-# identifying the employee ("Họ tên", "BÊN B") — this list grows as new
-# contract templates surface, it's not a closed set. Deliberately NOT
-# matching "Người lao động" ("employee") as a bare label — that phrase
-# recurs constantly in contract body prose (section headers, sentences),
-# so it fires on body text and returns the label itself as a nonsense
-# "value" instead of the real one. A wrong value is worse than a missing
-# one; "BÊN B" is a rare, structural marker so doesn't have this problem.
-# Company/employer names (BÊN A, Người sử dụng lao động) are deliberately
-# not captured here either — not the PII this field targets.
+# ponytail: labor contracts and payslips use several different real
+# conventions for identifying the employee ("Họ tên", "BÊN B", "Tên NV") —
+# this list grows as new templates surface, it's not a closed set.
+# Deliberately NOT matching bare "tên:" (or "Người lao động") as a label —
+# both recur in unrelated contexts ("Tên công ty:" = company name, "Tên
+# đơn vị:" = unit name; "Người lao động" appears constantly in contract body
+# prose) and would fire on the wrong thing, returning a nonsense "value"
+# instead of the real one. A wrong value is worse than a missing one — only
+# add label variants actually observed on a real document, not a maximally
+# generic pattern.
 LABEL_PATTERNS = {
     # [ \t]* (not \s*) right before the capture group — \s also matches
     # newlines, which let a blank field's label swallow the next unrelated
@@ -27,7 +27,7 @@ LABEL_PATTERNS = {
     # the following line). Same-line whitespace only, so a genuinely blank
     # field correctly fails to match instead of bleeding into the next line.
     "name": re.compile(
-        r"(?:H[oọ]?\s*(?:và)?\s*t[eê]n|BÊN\s*B)\s*:[ \t]*(.+)",
+        r"(?:H[oọ]?\s*(?:và)?\s*t[eê]n|BÊN\s*B|T[eê]n\s*NV)\s*:[ \t]*(.+)",
         re.IGNORECASE,
     ),
     "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:[ \t]*(.+)", re.IGNORECASE),
