@@ -162,6 +162,10 @@ export default function AdminManagement() {
                     showFilter={true}
                     onFilterClick={() => setShowFilterMenu(!showFilterMenu)}
 
+                    showRefresh={true}
+                    onRefresh={fetchAllData}
+                    isRefreshing={isLoading}
+
                     activeTabLabel={activeTab === 'users' ? 'Users Management' : 'Departments Management'}
                     onClearFilters={() => {
                         setSearchTerm('');

@@ -203,7 +203,7 @@ const FilteringPanel = ({
                             type="button"
                             onClick={onRefresh}
                             disabled={isRefreshing}
-                            className="text-center font-medium cursor-pointer hover:text-white transition-colors whitespace-nowrap"
+                            className="inline-flex items-center gap-2 text-center font-medium cursor-pointer hover:text-white transition-colors whitespace-nowrap"
                         >
                             <svg
                                 className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
