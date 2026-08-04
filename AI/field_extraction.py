@@ -52,6 +52,19 @@ _BRACKET_PLACEHOLDER_RE = re.compile(r"^\[[^\[\]]*\]$")
 # a real name. Treat these known generic-role phrases as blank too.
 _GENERIC_ROLE_VALUES = {"người lao động", "người sử dụng lao động", "nlđ", "nsdlđ"}
 
+# same label vocabulary as LABEL_PATTERNS, minus the trailing ":[ \t]*(.+)" --
+# for table cells where the whole cell IS just the label with no colon at
+# all, and the real value lives in the adjacent cell (see
+# extract_from_table_rows). This is the dominant miss class flattened-text
+# regex can't reach (measured: 14/16 misses in accuracy_report.txt).
+_BARE_LABEL_RE = {
+    "name": re.compile(
+        r"H[oọ]?\s*(?:và)?\s*t[eê]n|BÊN\s*B|T[eê]n\s*NV|[ÔO]ng\s*/\s*[Bb][àa]",
+        re.IGNORECASE,
+    ),
+    "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]", re.IGNORECASE),
+}
+
 
 def _clean_label_value(value: str) -> str | None:
     value = value.strip()
@@ -102,6 +115,29 @@ def extract_label_anchored(text: str) -> dict:
     return result
 
 
+def extract_from_table_rows(rows: list[list[str]]) -> dict:
+    """Pair a bare label cell with its adjacent value cell. Table rows keep
+    real cell boundaries (from python-docx's own table API or PPStructureV3's
+    table HTML), so this recovers name/address on colon-less label/value
+    layouts the flattened-text regex path never sees."""
+    result: dict[str, str] = {}
+    for row in rows:
+        for i, cell in enumerate(row):
+            cell = cell.strip()
+            if not cell:
+                continue
+            for field, pattern in _BARE_LABEL_RE.items():
+                if result.get(field) or not pattern.search(cell):
+                    continue
+                colon_idx = cell.find(":")
+                candidate = _clean_label_value(cell[colon_idx + 1:]) if colon_idx != -1 else None
+                if candidate is None and i + 1 < len(row):
+                    candidate = _clean_label_value(row[i + 1])
+                if candidate is not None:
+                    result[field] = candidate
+    return result
+
+
 def _ner_fallback(text: str, missing_fields: list[str]) -> dict:
     # ponytail: no reliable pretrained Vietnamese NER model exists (see
     # project_name_extraction_strategy memory) — this tier stays unwired until
@@ -109,9 +145,13 @@ def _ner_fallback(text: str, missing_fields: list[str]) -> dict:
     return {field: None for field in missing_fields}
 
 
-def extract_fields_from_text(text: str) -> dict:
+def extract_fields_from_text(text: str, table_rows: list[list[str]] | None = None) -> dict:
     fields = extract_regex_fields(text)
     fields.update(extract_label_anchored(text))
+    if table_rows:
+        for field, value in extract_from_table_rows(table_rows).items():
+            if not fields.get(field):
+                fields[field] = value
     missing = [f for f in ("name", "address") if not fields.get(f)]
     if missing:
         fields.update(_ner_fallback(text, missing))

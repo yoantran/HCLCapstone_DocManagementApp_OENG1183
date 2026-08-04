@@ -8,12 +8,20 @@ from field_extraction import extract_fields_from_text
 
 
 def extract_text_from_docx(path: str) -> str:
+    text, _ = extract_docx_text_and_tables(path)
+    return text
+
+
+def extract_docx_text_and_tables(path: str) -> tuple[str, list[list[str]]]:
     doc = docx.Document(path)
     parts = [p.text for p in doc.paragraphs if p.text.strip()]
+    table_rows: list[list[str]] = []
     for table in doc.tables:
         for row in table.rows:
-            parts.append(" ".join(cell.text for cell in row.cells))
-    return "\n".join(parts)
+            cells = [cell.text for cell in row.cells]
+            parts.append(" ".join(cells))
+            table_rows.append(cells)
+    return "\n".join(parts), table_rows
 
 
 def extract_text_from_csv(path: str) -> str:
@@ -43,8 +51,13 @@ def extract_text(path: str) -> str:
 
 
 def extract_fields(path: str) -> dict:
-    text = extract_text(path)
-    return {"fields": extract_fields_from_text(text), "text": text}
+    if Path(path).suffix.lower() == ".docx":
+        text, table_rows = extract_docx_text_and_tables(path)
+        fields = extract_fields_from_text(text, table_rows=table_rows)
+    else:
+        text = extract_text(path)
+        fields = extract_fields_from_text(text)
+    return {"fields": fields, "text": text}
 
 
 if __name__ == "__main__":

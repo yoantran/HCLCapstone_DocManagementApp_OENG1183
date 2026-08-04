@@ -1,8 +1,47 @@
+from html.parser import HTMLParser
+
 import cv2
 import numpy as np
 from paddleocr import PPStructureV3
 
 from field_extraction import extract_fields_from_text
+
+
+class _TableRowParser(HTMLParser):
+    """Reads <tr>/<td>/<th> cell text out of PPStructureV3's pred_html,
+    keeping real cell boundaries -- same table-cell-pairing input as the
+    DOCX branch, sourced from OCR's own table-structure output instead of
+    python-docx (see extract_from_table_rows in field_extraction.py)."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self._row: list[str] | None = None
+        self._cell_parts: list[str] | None = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self._row = []
+        elif tag in ("td", "th"):
+            self._cell_parts = []
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self._cell_parts is not None:
+            self._row.append("".join(self._cell_parts).strip())
+            self._cell_parts = None
+        elif tag == "tr" and self._row is not None:
+            self.rows.append(self._row)
+            self._row = None
+
+    def handle_data(self, data):
+        if self._cell_parts is not None:
+            self._cell_parts.append(data)
+
+
+def html_table_to_rows(html: str) -> list[list[str]]:
+    parser = _TableRowParser()
+    parser.feed(html)
+    return parser.rows
 
 # ponytail: PaddlePaddle's oneDNN CPU path throws
 # "ConvertPirAttribute2RuntimeAttribute ... not support" on this machine —
@@ -54,7 +93,8 @@ def lines_to_text(lines: list[dict]) -> str:
 def extract_fields(image, lang: str = "vi") -> dict:
     doc = ocr_document(image, lang=lang)
     text = lines_to_text(doc["lines"])
-    fields = extract_fields_from_text(text)
+    table_rows = [row for html in doc["tables"] for row in html_table_to_rows(html)]
+    fields = extract_fields_from_text(text, table_rows=table_rows or None)
     return {"fields": fields, "line_boxes": doc["lines"], "tables": doc["tables"], "text": text}
 
 
