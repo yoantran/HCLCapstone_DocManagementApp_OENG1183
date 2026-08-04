@@ -10,6 +10,8 @@ import {
 import { customNavbarTheme } from "../components/navbar/index.jsx";
 import UserDropdown from "../components/userDropdown/index.jsx";
 import { NotificationBell } from '../components/navbar/NotificationBell.jsx';
+import {BsGithub, BsGlobe} from "react-icons/bs";
+import Footer from "../components/footer/index.jsx";
 
 export default function MainLayout() {
     const { user, logout } = useAuth();
@@ -109,6 +111,9 @@ export default function MainLayout() {
             <main className="flex-1 p-8">
                 <Outlet />
             </main>
+            <div className="p-8 pt-0">
+                <Footer className="bg-transparent border-0 rounded-none px-0 " />
+            </div>
         </div>
     );
 }
