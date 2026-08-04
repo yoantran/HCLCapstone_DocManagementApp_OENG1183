@@ -1,10 +1,11 @@
-import { Datepicker, TextInput } from "flowbite-react";
+import { TextInput } from "flowbite-react";
 import { CustomSearchIcon } from "./icon/CustomSearchIcon.jsx";
 import { CustomSettingIcon } from "./icon/CustomSettingIcon.jsx";
 import { LeftArrowIcon } from "./icon/LeftArrowIcon.jsx";
 import { RightArrowIcon } from "./icon/RightArrowIcon.jsx";
 import { CustomFilterIcon } from "./icon/CustomFilterIcon.jsx";
 import { useEffect } from "react";
+import {CustomDatePicker} from "../customDatePicker/index.jsx";
 
 const searchInputTheme = {
     field: {
@@ -161,8 +162,8 @@ const FilteringPanel = ({
                         </div>
                     )}
                     {onDateChange && (
-                        <div className="flex gap-2 items-cemter">
-                            <Datepicker
+                        <div className="flex gap-2 items-cemter h-7">
+                            <CustomDatePicker
                                 minDate={oneYearAgo}
                                 maxDate={today}
                                 value={selectedDate ? new Date(selectedDate) : null}
@@ -181,15 +182,8 @@ const FilteringPanel = ({
                                 placeholder="Select date..."
                                 labelTodayButton="Today"
                                 labelClearButton="Clear"
-                                theme={{
-                                    field: {
-                                        input: {
-                                            base: "w-30 h-1 bg-(--lighter-blue-700) border border-(--cool-gray-500)/30 text-xs text-slate-200 rounded px-2.5 py-1 hover:bg-(--lighter-blue-600) transition-colors focus:ring-0 focus:border-(--cool-gray-500)/30 h-auto leading-normal self-center"
-                                        }
-                                    }
-                                }}
                             />
-                            <span className="w-[1px] h-4 bg-(--cool-gray-500)/40 self-center" />
+                            <span className="w-px h-4 bg-(--cool-gray-500)/40 self-center" />
                             <button type="button"
                                 onClick={onApplyDate}
                                 className="flex gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30 hover:bg-(--lighter-blue-600) transition-colorsv self-center"
