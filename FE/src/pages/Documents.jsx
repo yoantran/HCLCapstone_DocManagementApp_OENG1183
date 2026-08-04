@@ -1,5 +1,5 @@
 import { useAuth } from '../context/AuthContext';
-import { useEffect, useState } from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import { columnsByRole } from '../components/customTable/columns.jsx';
 import { CustomTable } from '../components/customTable/index.jsx';
 import { DocumentModal } from '../components/documentTable/modal';
@@ -43,8 +43,8 @@ export default function Documents() {
         setSelectedDocument(null);
         setOpenModal(false);
     };
-
-    useEffect(() => {
+    const fetchDocuments = useCallback(() => {
+        setIsLoading(true);
         const url = isManager ? "/documents/department" : "/documents/mine";
 
         getRequest({ url })
@@ -55,8 +55,13 @@ export default function Documents() {
                 setDocuments(sorted);
             })
             .catch((error) => console.error("Error fetching documents:", error))
-        .finally(() => setIsLoading(false));
-    }, []);
+            .finally(() => setIsLoading(false));
+    }, [isManager]);
+
+    useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        fetchDocuments()
+    }, [fetchDocuments]);
 
     // get column pattern based on role
     const columns = columnsByRole[user.role?.toUpperCase()] ?? [];
@@ -118,6 +123,10 @@ export default function Documents() {
 
                 showFilter={true}
                 onFilterClick={() => setShowFilterMenu(!showFilterMenu)}
+
+                showRefresh={true}
+                onRefresh={fetchDocuments}
+                isRefreshing={isLoading}
 
                 activeTabLabel={activeTab === 'mine' ? 'My Documents' : 'Department Documents'}
                 onClearFilters={() => {
