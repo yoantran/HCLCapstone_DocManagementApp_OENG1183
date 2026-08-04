@@ -27,7 +27,7 @@ LABEL_PATTERNS = {
     # the following line). Same-line whitespace only, so a genuinely blank
     # field correctly fails to match instead of bleeding into the next line.
     "name": re.compile(
-        r"(?:H[oọ]?\s*(?:và)?\s*t[eê]n|BÊN\s*B|T[eê]n\s*NV)\s*:[ \t]*(.+)",
+        r"(?:H[oọ]?\s*(?:và)?\s*t[eê]n|BÊN\s*B|T[eê]n\s*NV|[ÔO]ng\s*/\s*[Bb][àa])\s*:[ \t]*(.+)",
         re.IGNORECASE,
     ),
     "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:[ \t]*(.+)", re.IGNORECASE),
@@ -61,6 +61,12 @@ def _clean_label_value(value: str) -> str | None:
         return None
     if value.lower() in _GENERIC_ROLE_VALUES:
         return None
+    # a colon anywhere in the captured value means we've bled into another
+    # label's text (e.g. a merged/duplicated table cell producing "ÔNG/BÀ:
+    # Quốc tịch: Quốc tịch:") -- a real name/address never contains one, so
+    # this is a safe, reliable "not real data" signal.
+    if ":" in value:
+        return None
     return value
 
 
@@ -79,10 +85,20 @@ def extract_regex_fields(text: str) -> dict:
 
 
 def extract_label_anchored(text: str) -> dict:
+    # try every match for a field's pattern, not just the first -- a single
+    # .search() stops at the first regex hit even if it's a known-blank
+    # value (e.g. a "Bên B: Người lao động" section header matches before a
+    # real "Ông/bà: <name>" line later in the same document), silently
+    # missing the real value that comes after it.
     result = {}
     for field, pattern in LABEL_PATTERNS.items():
-        match = pattern.search(text)
-        result[field] = _clean_label_value(match.group(1)) if match else None
+        value = None
+        for match in pattern.finditer(text):
+            cleaned = _clean_label_value(match.group(1))
+            if cleaned is not None:
+                value = cleaned
+                break
+        result[field] = value
     return result
 
 
