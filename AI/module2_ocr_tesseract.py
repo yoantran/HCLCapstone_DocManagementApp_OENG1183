@@ -34,7 +34,13 @@ import pytesseract
 from PIL import Image
 from pytesseract import Output
 
-from field_extraction import _BARE_LABEL_RE, _clean_label_value, extract_fields_from_text
+from field_extraction import (
+    _BARE_LABEL_RE,
+    _BOILERPLATE_RE,
+    _clean_label_value,
+    extract_fields_from_text,
+    restore_name_diacritics,
+)
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 os.environ["TESSDATA_PREFIX"] = os.path.expanduser("~/.tessdata")
@@ -86,6 +92,10 @@ def _group_lines(data: dict) -> list[dict]:
 
 def _looks_like_label(text: str) -> bool:
     return any(p.search(text) for p in _BARE_LABEL_RE.values())
+
+
+def _is_bad_candidate(text: str) -> bool:
+    return _looks_like_label(text) or bool(_BOILERPLATE_RE.search(text))
 
 
 def extract_by_proximity(lines: list[dict]) -> dict:
@@ -160,5 +170,6 @@ def extract_fields(image, lang: str = "vie") -> dict:
         for f in missing:
             if proximity_fields.get(f):
                 fields[f] = proximity_fields[f]
+        fields["name"] = restore_name_diacritics(fields.get("name"))
 
     return {"fields": fields, "text": text}

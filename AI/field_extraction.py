@@ -1,4 +1,5 @@
 import re
+import unicodedata
 
 CCCD_RE = re.compile(r"\b\d{12}\b")
 PHONE_RE = re.compile(r"(?:\+84|0)(?:3|5|7|8|9)\d{8}\b")
@@ -52,6 +53,37 @@ _BRACKET_PLACEHOLDER_RE = re.compile(r"^\[[^\[\]]*\]$")
 # a real name. Treat these known generic-role phrases as blank too.
 _GENERIC_ROLE_VALUES = {"người lao động", "người sử dụng lao động", "nlđ", "nsdlđ"}
 
+# Vietnamese legal/administrative boilerplate ("Ban hành kèm theo Thông tư
+# số .../2021...", "Mẫu số 01/BTC") sitting physically close to a real field
+# on the source document -- when OCR merges two visually-adjacent lines
+# (real value + nearby footer citation) into one captured value, or a
+# proximity search's nearest candidate line turns out to be this footer
+# text, a real value never contains this vocabulary. Reject rather than try
+# to salvage a partial value, since the merge typically also lost the real
+# value's own tail (e.g. district/city dropped, not just glued together).
+_BOILERPLATE_RE = re.compile(
+    r"ban\s*hành|th[oô]ng\s*t[uư]\s*s[oố]|m[aẫ]u\s*s[oố]|ngh[iị]\s*đ[iị]nh|ph[uụ]\s*l[uụ]c",
+    re.IGNORECASE,
+)
+
+# "Nguyễn Văn A" / "Nguyễn Văn B" / "Nguyễn Thị A" etc -- the standard
+# Vietnamese legal-template placeholder name (equivalent to "John Doe"), a
+# single trailing capital letter instead of a real given name. A real given
+# name is never a single letter. Matched against the diacritic-stripped form
+# -- hand-enumerating every accented variant of "Nguyễn"/"Văn"/"Thị" (ễ vs ê
+# vs e, ă vs a, etc) is fragile and easy to miss a real one.
+_PLACEHOLDER_NAME_STRIPPED_RE = re.compile(r"^(?:nguyen\s+)?(?:van|thi)\s+[a-z]$", re.IGNORECASE)
+
+
+def _is_shouty_title(value: str) -> bool:
+    # Vietnamese official-document titles/headers are conventionally
+    # rendered in full caps ("BẢNG THANH TOÁN TIỀN LƯƠNG...", "PHIẾU
+    # LƯƠNG", "HỢP ĐỒNG LAO ĐỘNG") -- a real name/address value never is.
+    # A cheap, general reject for whichever specific title text a proximity
+    # search happens to land on, rather than blacklisting each one by name.
+    letters = [c for c in value if c.isalpha()]
+    return len(letters) > 6 and all(c.isupper() for c in letters)
+
 # same label vocabulary as LABEL_PATTERNS, minus the trailing ":[ \t]*(.+)" --
 # for table cells where the whole cell IS just the label with no colon at
 # all, and the real value lives in the adjacent cell (see
@@ -73,6 +105,12 @@ def _clean_label_value(value: str) -> str | None:
     if _BRACKET_PLACEHOLDER_RE.match(value):
         return None
     if value.lower() in _GENERIC_ROLE_VALUES:
+        return None
+    if _PLACEHOLDER_NAME_STRIPPED_RE.match(_strip_diacritics(value)):
+        return None
+    if _BOILERPLATE_RE.search(value):
+        return None
+    if _is_shouty_title(value):
         return None
     # a colon anywhere in the captured value means we've bled into another
     # label's text (e.g. a merged/duplicated table cell producing "ÔNG/BÀ:
@@ -138,6 +176,41 @@ def extract_from_table_rows(rows: list[list[str]]) -> dict:
     return result
 
 
+# the ~30 most common Vietnamese surnames cover the vast majority of real
+# names (a genuinely closed, well-known set) -- given names are open-ended
+# and far riskier to "correct" this way (a wrong correction on a rare-but-
+# real given name is worse than leaving an OCR-garbled one alone), so this
+# stays scoped to surnames only.
+_VN_SURNAMES = [
+    "Nguyễn", "Trần", "Lê", "Phạm", "Hoàng", "Huỳnh", "Phan", "Vũ", "Võ",
+    "Đặng", "Bùi", "Đỗ", "Hồ", "Ngô", "Dương", "Lý", "Đinh", "Đoàn",
+    "Vương", "Trương", "Mai", "Đào", "Lương", "Tô", "Tăng", "Chu", "Cao",
+    "Trịnh", "Đàm", "Kiều", "Lâm",
+]
+
+
+def _strip_diacritics(s: str) -> str:
+    # Đ/đ don't decompose via NFD (they're their own codepoints, not a
+    # base letter + combining mark) -- map explicitly before stripping.
+    s = s.replace("Đ", "D").replace("đ", "d")
+    s = unicodedata.normalize("NFD", s)
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+_SURNAME_LOOKUP = {_strip_diacritics(s).lower(): s for s in _VN_SURNAMES}
+
+
+def restore_name_diacritics(name: str | None) -> str | None:
+    """OCR frequently drops diacritics on an otherwise-correctly-positioned
+    name (e.g. "Duong Vu" for "Dương Vũ") -- restore them token-by-token
+    where a word's diacritic-stripped form matches a known surname exactly."""
+    if not name:
+        return name
+    words = name.split()
+    restored = [_SURNAME_LOOKUP.get(_strip_diacritics(w).lower(), w) for w in words]
+    return " ".join(restored)
+
+
 def _ner_fallback(text: str, missing_fields: list[str]) -> dict:
     # ponytail: no reliable pretrained Vietnamese NER model exists (see
     # project_name_extraction_strategy memory) — this tier stays unwired until
@@ -155,4 +228,5 @@ def extract_fields_from_text(text: str, table_rows: list[list[str]] | None = Non
     missing = [f for f in ("name", "address") if not fields.get(f)]
     if missing:
         fields.update(_ner_fallback(text, missing))
+    fields["name"] = restore_name_diacritics(fields.get("name"))
     return fields
