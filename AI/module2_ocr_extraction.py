@@ -1,3 +1,10 @@
+# NOTE: superseded as the production image-path engine by module2_ocr_tesseract.py
+# (58.8% vs 23.8% on the 38-doc accuracy benchmark -- see issue #116). Kept as
+# a reference implementation: real PPStructureV3 table-structure detection,
+# which no PaddleOCR/PaddleX model pairs with usable Vietnamese diacritic
+# recognition (checked 3 lineages, all near-zero coverage, see issue #116).
+# A future FastAPI endpoint should import from module2_ocr_tesseract, not here.
+
 from html.parser import HTMLParser
 
 import cv2
