@@ -1,0 +1,12 @@
+Documents scored: 38
+
+Per-field accuracy (correct / total ground-truth values):
+  name    :  23 /  23  (100.0%)
+  address :  24 /  24  (100.0%)
+  cccd    :   1 /   1  (100.0%)
+  phone   :  24 /  24  (100.0%)
+  salary  :   8 /   8  (100.0%)
+
+Overall: 80 / 80  (100.0%)
+
+Misses (0):
