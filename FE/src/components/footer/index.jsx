@@ -19,15 +19,15 @@ export default function Footer({ className = "" }) {
                 >
                     <BsGithub className="w-4 h-4" />
                 </a>
-                <a
-                    href="https://example.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="hover:text-(--ch-cool-gray) transition-colors"
-                    aria-label="Website"
-                >
-                    <BsGlobe className="w-4 h-4" />
-                </a>
+                {/*<a*/}
+                {/*    href="https://example.com"*/}
+                {/*    target="_blank"*/}
+                {/*    rel="noopener noreferrer"*/}
+                {/*    className="hover:text-(--ch-cool-gray) transition-colors"*/}
+                {/*    aria-label="Website"*/}
+                {/*>*/}
+                {/*    <BsGlobe className="w-4 h-4" />*/}
+                {/*</a>*/}
             </div>
         </footer>
     );
