@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.DTO.Response.NotificationResponse;
 import org.example.hclcapstonebe.Service.NotificationService;
 import org.springframework.http.ResponseEntity;
@@ -65,6 +66,7 @@ public class NotificationController {
             @ApiResponse(responseCode = "403", description = "Forbidden — manager only")
     })
     @GetMapping
+    @AuditAction("Viewed notifications")
     public ResponseEntity<List<NotificationResponse>> getMyNotifications(
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(notificationService.getMyNotifications(userDetails.getUsername()));
@@ -97,6 +99,7 @@ public class NotificationController {
             @ApiResponse(responseCode = "404", description = "Notification not found")
     })
     @PatchMapping("/{id}/read")
+    @AuditAction("Marked notification '{id}' as read")
     public ResponseEntity<NotificationResponse> markAsRead(
             @Parameter(description = "UUID of the notification to mark as read", example = "notif-uuid-001")
             @PathVariable UUID id,

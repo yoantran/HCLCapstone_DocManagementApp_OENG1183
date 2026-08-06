@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import {Spinner} from "flowbite-react";
 
 /**
  * @param {string[]} allowedRoles - e.g. ['staff', 'manager'] or ['admin']
@@ -8,7 +9,13 @@ import { useAuth } from '../context/AuthContext';
 export default function ProtectedRoute({ allowedRoles = [] }) {
   const { user, loading } = useAuth();
 
-  if (loading) return null; // or a spinner — avoids flash-redirect on refresh
+  if (loading) {
+    return (
+        <div className="flex h-screen w-screen items-center justify-center">
+          <Spinner size="xl" color="info" aria-label="Loading" />
+        </div>
+        )
+  }
 
   if (!user) return <Navigate to="/login" replace />;
 

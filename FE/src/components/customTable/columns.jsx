@@ -1,6 +1,9 @@
 import { StatusCell } from '../documentTable/cells/StatusCell.jsx';
 import { DeleteAction } from '../action/DeleteAction.jsx';
 import { formatDate } from '../../utils/formatFields.js';
+import { ManageAction } from "../action/ManageAction.jsx";
+import { UserModal } from "../adminManagement/userModal/index.jsx";
+import { DepartmentModal } from "../adminManagement/departmentModal/index.jsx";
 
 const deleteButtonStyle = 'border-2 border-red-500 text-red-500 bg-(--code-bg) hover:bg-red-500 hover:text-white'
 
@@ -46,6 +49,7 @@ export const columnsByRole = {
             key: 'name',
             label: 'Name',
             accessor: 'name',
+            className: 'text-left min-w-44 sm:max-w-52 break-words',
         },
         {
             key: 'format',
@@ -129,7 +133,9 @@ export const columnsByRole = {
     ],
 };
 
-export const adminManagementColumns = {
+export const adminManagementColumns = (
+    depsList, usersList, refreshUsers, refreshDeps
+) => ({
     USERS: [
         // { key: 'id', label: 'ID', accessor: 'id' },
         { key: 'name', label: 'User', accessor: 'name' },
@@ -140,17 +146,25 @@ export const adminManagementColumns = {
         {
             key: 'action',
             label: 'Action',
-            Cell: ({ row, document, onDeleteSuccess }) => {
-                const item = row || document;
-                return(
-                    <DeleteAction
-                        row={item}
-                        itemName={item?.user}
-                        endpoint="/admin/users"
-                        entityLabel="User"
-                        className={deleteButtonStyle}
-                        onDeleteSuccess={onDeleteSuccess}
-                    />
+            Cell: ({ row, onDeleteSuccess }) => {
+                const item = row;
+                return (
+                    <div className="flex items-center justify-center gap-2">
+                        <ManageAction
+                            row={item}
+                            ModalComponent={UserModal}
+                            modalProps={{ departments: depsList }}
+                            onSuccess={refreshUsers}
+                        />
+                        <DeleteAction
+                            row={item}
+                            itemName={item?.name}
+                            endpoint="/admin/users"
+                            entityLabel="User"
+                            className={deleteButtonStyle}
+                            onDeleteSuccess={onDeleteSuccess}
+                        />
+                    </div>
                 )
             }
         }
@@ -165,16 +179,65 @@ export const adminManagementColumns = {
             Cell: ({ row, document, onDeleteSuccess }) => {
                 const item = row || document;
                 return (
-                    <DeleteAction
-                        row={item}
-                        itemName={item?.name}
-                        endpoint="/admin/departments"
-                        entityLabel="Department"
-                        className={deleteButtonStyle}
-                        onDeleteSuccess={onDeleteSuccess}
-                    />
+                    <div className="flex items-center justify-center gap-2">
+                        <ManageAction
+                            row={item}
+                            ModalComponent={DepartmentModal}
+                            modalProps={{ users: usersList }}
+                            onSuccess={refreshDeps}
+                        />
+                        <DeleteAction
+                            row={item}
+                            itemName={item?.name}
+                            endpoint="/admin/departments"
+                            entityLabel="Department"
+                            className={deleteButtonStyle}
+                            onDeleteSuccess={onDeleteSuccess}
+                        />
+                    </div>
                 )
             }
         }
     ]
-};
+});
+
+export const auditLogColumns = () => [
+    {
+        key: "timestamp",
+        label: "Timestamp",
+        accessor: 'displayTimestamp',
+    },
+    {
+        key: "userId",
+        label: "User",
+        accessor: "displayUserId",
+    },
+    {
+        key: "email",
+        label: "Email",
+        accessor: 'email'
+    },
+    {
+        key: "role",
+        label: "Role",
+        accessor: 'displayRole'
+    },
+    {
+        key: "method",
+        label: "Method",
+        accessor: 'method',
+        className: 'max-w-2',
+    },
+    {
+        key: "status",
+        label: "Status",
+        accessor: "status",
+        className: 'max-w-2',
+    },
+    {
+        key: "action",
+        label: "Action",
+        accessor: 'displayAction',
+        className: 'text-left break-words min-w-2xs',
+    },
+]

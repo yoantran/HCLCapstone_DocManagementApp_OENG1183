@@ -152,6 +152,9 @@
     filter: invert(1) brightness(2);
   }
 }
+/*input {*/
+/*  height: 10px !important;
+/*}*/
 
 body {
   margin: 0;

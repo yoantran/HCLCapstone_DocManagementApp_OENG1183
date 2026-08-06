@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
 import org.example.hclcapstonebe.Service.DocumentService;
 import org.springframework.http.*;
@@ -35,8 +36,11 @@ public class DocumentController {
                 Triggers a WebSocket notification to the department manager.
                 A signed URL (valid for 1 hour) is returned to view the document.
                 
-                Allowed formats: PDF, DOCX, CSV
-                Max file size: 10MB
+                Security & Validation Pipeline:
+                - Allowed formats: PDF, DOCX, CSV, PNG, JPEG, JPG (Max file size: 10MB)
+                - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
+                - ClamAV Virus/Malware Scanning: Scans the uploaded file stream prior to storage
+                - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
                 """
     )
     @ApiResponses({
@@ -62,13 +66,15 @@ public class DocumentController {
             """)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed) or invalid document type, or file exceeds 10MB"),
+            @ApiResponse(responseCode = "400", description = "Invalid file format/extension, invalid document type, file exceeds 10MB, or invalid structural file signature match detected (magic bytes mismatch)"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions"),
+            @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
     })
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
+    @AuditAction("Uploaded document '{file}'")
     public ResponseEntity<DocumentResponse> uploadOne(
-            @Parameter(description = "The document file to upload. Allowed formats: PDF, DOCX, CSV. Max size: 10MB")
+            @Parameter(description = "The document file to upload. Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG. Max size: 10MB")
             @RequestParam("file") MultipartFile file,
             @Parameter(
                     description = "Document type",
@@ -91,9 +97,11 @@ public class DocumentController {
                 All files in the batch must share the same document type.
                 A signed URL (valid for 1 hour) is returned per document.
                 
-                Allowed formats: PDF, DOCX, CSV
-                Max file size per file: 10MB
-                Max files per request: 10
+                Security & Validation Pipeline (per file):
+                - Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG (Max file size per file: 10MB, Max batch limit: 10 files)
+                - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
+                - ClamAV Virus/Malware Scanning: Scans each uploaded file stream prior to storage
+                - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
                 """
     )
     @ApiResponses({
@@ -121,13 +129,15 @@ public class DocumentController {
             """)
                     )
             ),
-            @ApiResponse(responseCode = "400", description = "Invalid file format (only PDF, DOCX, CSV allowed), invalid document type, file exceeds 10MB, or more than 10 files in one request"),
+            @ApiResponse(responseCode = "400", description = "Invalid file format/extension, invalid document type, file exceeds 10MB, batch exceeds 10 files, or invalid structural file signature match detected (magic bytes mismatch)"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions"),
+            @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
     })
     @PostMapping(value = "/upload/batch", consumes = "multipart/form-data")
+    @AuditAction("Uploaded multiple documents")
     public ResponseEntity<List<DocumentResponse>> uploadMany(
-            @Parameter(description = "List of document files to upload. Allowed formats: PDF, DOCX, CSV. Max size per file: 10MB")
+            @Parameter(description = "List of document files to upload. Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG. Max size per file: 10MB")
             @RequestParam("files") List<MultipartFile> files,
             @Parameter(
                     description = "Document type applied to all files in the batch",
@@ -174,6 +184,7 @@ public class DocumentController {
             @ApiResponse(responseCode = "401", description = "Unauthorized")
     })
     @GetMapping("/mine")
+    @AuditAction("Viewed own documents")
     public ResponseEntity<List<DocumentResponse>> getMyDocuments(
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(documentService.getMyDocuments(userDetails.getUsername()));
@@ -189,11 +200,12 @@ public class DocumentController {
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @GetMapping("/mine/{id}")
+    @AuditAction("Viewed document '{documentId}'")
     public ResponseEntity<DocumentResponse> getMyDocumentById(
             @Parameter(description = "UUID of the document", example = "doc-uuid-001")
-            @PathVariable String id,
+            @PathVariable("id") String documentId,
             @AuthenticationPrincipal UserDetails userDetails) {
-        return ResponseEntity.ok(documentService.getMyDocumentById(id, userDetails.getUsername()));
+        return ResponseEntity.ok(documentService.getMyDocumentById(documentId, userDetails.getUsername()));
     }
 
     @Operation(
@@ -206,6 +218,7 @@ public class DocumentController {
             @ApiResponse(responseCode = "403", description = "Forbidden — manager only")
     })
     @GetMapping("/department")
+    @AuditAction("Viewed department documents")
     public ResponseEntity<List<DocumentResponse>> getDepartmentDocuments(
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(documentService.getDepartmentDocuments(userDetails.getUsername()));
@@ -221,11 +234,12 @@ public class DocumentController {
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @GetMapping("/department/{id}")
+    @AuditAction("Viewed document '{documentId}'")
     public ResponseEntity<DocumentResponse> getDepartmentDocumentById(
             @Parameter(description = "UUID of the document", example = "doc-uuid-001")
-            @PathVariable String id,
+            @PathVariable("id") String documentId,
             @AuthenticationPrincipal UserDetails userDetails) {
-        return ResponseEntity.ok(documentService.getDepartmentDocumentById(id, userDetails.getUsername()));
+        return ResponseEntity.ok(documentService.getDepartmentDocumentById(documentId, userDetails.getUsername()));
     }
 
     @Operation(
@@ -238,11 +252,12 @@ public class DocumentController {
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @DeleteMapping("/{id}")
+    @AuditAction("Deleted document '{documentId}'")
     public ResponseEntity<Void> deleteDocument(
             @Parameter(description = "UUID of the document to delete", example = "doc-uuid-001")
-            @PathVariable String id,
+            @PathVariable("id") String documentId,
             @AuthenticationPrincipal UserDetails userDetails) {
-        documentService.deleteDocument(id, userDetails.getUsername());
+        documentService.deleteDocument(documentId, userDetails.getUsername());
         return ResponseEntity.noContent().build();
     }
 }

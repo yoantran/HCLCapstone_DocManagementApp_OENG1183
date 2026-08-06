@@ -1,0 +1,159 @@
+import {CustomButton} from "../../button/index.jsx";
+import {Button, Card, Label, Modal, ModalBody, ModalHeader, Select} from "flowbite-react";
+import {CustomTextInput} from "../../textInput/index.jsx";
+import {useEffect, useState} from "react";
+import {pushError, pushSuccess} from "../../toast/index.jsx";
+import {patchRequest, putRequest} from "../../../api/apiHelpers.js";
+
+export const DepartmentModal = ({
+                                    show,
+                                    onClose,
+                                    department,
+                                    users = [],
+                                    onUpdateSuccess,
+                                    position = "center"
+                                }) => {
+    const [depName, setDepName] = useState("");
+    const [managerId, setManagerId] = useState("");
+    const [saving, setSaving] = useState(false);
+
+    const currentManagerObj = users.find(u => u.name === department?.managerName);
+    const initialManagerId = department?.managerId || currentManagerObj?.id || "";
+
+    useEffect(() => {
+        if (department) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            setDepName(department.name || "");
+            setManagerId(initialManagerId);
+        }
+    }, [department, initialManagerId]);
+
+    if (!department) return null;
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        if (!depName.trim()) {
+            pushError("Department name cannot be empty.");
+            return;
+        }
+
+        setSaving(true);
+        try {
+            if (depName.trim() !== (department.name || "")) {
+                await putRequest({
+                    url: `/admin/departments/${department.id}`,
+                    data: { name: depName.trim() }
+                });
+            }
+
+            // manager assignment, demotion, promotion
+            if (managerId !== initialManagerId) {
+                if (managerId === "") {
+                    // DEMOTE
+                    await patchRequest({
+                        url: `/admin/users/${initialManagerId}/role`,
+                        data: { role: "STAFF" }
+                    });
+                } else {
+                    // PROMOTE
+                    await patchRequest({
+                        url: `/admin/users/${managerId}/role`,
+                        data: {
+                            role: "MANAGER",
+                            departmentId: department.id
+                        }
+                    });
+                }
+            }
+            pushSuccess("Department updated successfully.");
+            // onUpdateSuccess?.(updatedDep);
+            onUpdateSuccess?.();
+            onClose();
+        } catch (err) {
+            pushError(err.message || "Failed to update department records.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const hasChanges =
+        depName.trim() !== (department.name || "") ||
+        managerId !== initialManagerId;
+
+    return (
+        <Modal dismissible show={show} onClose={onClose} position={position}>
+            <ModalHeader className="bg-(--dark-blue-700)">
+                <div className="text-white">Manage Department</div>
+            </ModalHeader>
+
+            <ModalBody className="bg-(--dark-blue-700) text-white flex justify-center">
+                <Card className="w-full max-w-2xl bg-(--dark-blue-700) text-white">
+
+                    <div className="mb-2">
+                        <h5 className="text-2xl font-bold tracking-tight">{department.name || "_error Department"}</h5>
+                        <p className="text-sm text-gray-400">
+                            Department ID: {department.id}
+                        </p>
+                    </div>
+                    <hr className="border-(--dark-blue-300) mb-6" />
+
+                    <form onSubmit={handleSave} className="flex flex-col gap-5 text-left">
+
+                        <div>
+                            <Label className="mb-2 block text-gray-300" htmlFor="dep-name">
+                                Rename Department
+                            </Label>
+                            <CustomTextInput
+                                id="dep-name"
+                                type="text"
+                                value={depName}
+                                onChange={(e) => setDepName(e.target.value)}
+                                placeholder="Enter department name"
+                            />
+                        </div>
+
+                        <div>
+                            <Label className="mb-2 block text-gray-300" htmlFor="dep-manager">
+                                Department Manager
+                            </Label>
+                            <Select
+                                id="dep-manager"
+                                value={managerId}
+                                onChange={(e) => setManagerId(e.target.value)}
+                                className="bg-(--code-bg)"
+                            >
+                                <option value="">Remove Current Manager</option>
+                                {users.map((user) => (
+                                    <option key={user.id} value={user.id}>
+                                        {user.name} ({user.role || "unknown"})
+                                    </option>
+                                ))}
+                            </Select>
+                            <p className="text-xs text-gray-400 mt-1.5">
+                                Setting this to "Remove Current Manager" will unassign current manager.
+                            </p>
+                        </div>
+
+                        <div className="flex justify-end gap-4 mt-4 pt-4 border-t border-(--dark-blue-300)">
+                            <Button
+                                color="alternative"
+                                onClick={onClose}
+                                className="text-white border-white bg-(--dark-blue-700) px-4"
+                            >
+                                Cancel
+                            </Button>
+                            <CustomButton
+                                type="submit"
+                                disabled={saving || !hasChanges}
+                                className="px-6"
+                            >
+                                {saving ? "Saving Changes…" : "Save Changes"}
+                            </CustomButton>
+                        </div>
+
+                    </form>
+                </Card>
+            </ModalBody>
+        </Modal>
+    );
+};

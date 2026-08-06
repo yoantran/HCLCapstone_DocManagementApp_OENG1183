@@ -20,6 +20,7 @@ export const DocumentUpload = () => {
     const [submitAttempted, setSubmitAttempted] = useState(false);
     const [documentType, setDocumentType] = useState("");
     const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const navigate = useNavigate();
 
     const handleAddDocument = () => {
@@ -63,6 +64,7 @@ export const DocumentUpload = () => {
     };
 
     const handleConfirmSubmit = async () => {
+        setIsSubmitting(true);
         try {
             const { url, data } = buildMultipartFormPayload({
                 documentType,
@@ -86,6 +88,8 @@ export const DocumentUpload = () => {
             pushError(message);
             setSubmitError("Failed to submit request.");
             setShowConfirmModal(false);
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -113,6 +117,7 @@ export const DocumentUpload = () => {
                             {cards.length > 1 && (
                                 <button
                                     type="button"
+                                    disabled={isSubmitting}
                                     aria-label="Remove document"
                                     className="absolute right-0 top-1 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 bg-white text-red-500 hover:border-red-400 hover:text-red-700 cursor-pointer"
                                     onClick={() => handleRemoveDocument(card.id)}
@@ -129,11 +134,16 @@ export const DocumentUpload = () => {
                                     isFirst={index === 0}
                                     firstDocumentType={documentType}
                                     onDocumentTypeChange={handleDocumentTypeChange}
+                                    isUploading={isSubmitting}
                                 />
                             </div>
                         </div>
                     ))}
-                    <Button className="cursor-pointer w-full my-5 border text-(--text) hover:bg-gray-200 dark:bg-(--code-bg) bg-(--code-bg) dark:hover:bg-(--accent-bg)" size="sm" onClick={handleAddDocument}>
+                    <Button className="cursor-pointer w-full my-5 border text-(--text) hover:bg-gray-200 dark:bg-(--code-bg) bg-(--code-bg) dark:hover:bg-(--accent-bg)"
+                            size="sm"
+                            onClick={handleAddDocument}
+                            disabled={isSubmitting}
+                    >
                         Add another document
                     </Button>
                 </div>
@@ -144,6 +154,7 @@ export const DocumentUpload = () => {
                         className="cursor-pointer w-full bg-(--light-blue) dark:bg-(--light-blue) dark:hover:bg-(--code-bg) hover:text-(--light-blue) hover:bg-(--code-bg) border border-(--light-blue)"
                         size="sm"
                         onClick={handleSubmit}
+                        disabled={isSubmitting}
                     >
                         Submit
                     </Button>
@@ -152,6 +163,7 @@ export const DocumentUpload = () => {
                         className="cursor-pointer w-full border border-red-700 text-red-700 dark:bg-(--code-bg) bg-(--code-bg) hover:border-red-800 hover:bg-red-800 hover:text-white focus:ring-red-300 dark:border-red-600 dark:text-red-500 dark:hover:border-red-700 dark:hover:bg-red-700 dark:hover:text-white dark:focus:ring-red-800"
                         size="sm"
                         onClick={handleClearAll}
+                        disabled={isSubmitting}
                     >
                         Clear All
                     </Button>
@@ -162,6 +174,7 @@ export const DocumentUpload = () => {
 
             <PopUpModal
                 isOpen={showConfirmModal}
+                isLoading={isSubmitting}
                 onClose={() => setShowConfirmModal(false)}
                 onConfirm={handleConfirmSubmit}
                 title="Submit document request?"

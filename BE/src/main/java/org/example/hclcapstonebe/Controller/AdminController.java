@@ -11,10 +11,8 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.example.hclcapstonebe.DTO.Request.AssignDepartmentRequest;
-import org.example.hclcapstonebe.DTO.Request.CreateDepartmentRequest;
-import org.example.hclcapstonebe.DTO.Request.CreateUserRequest;
-import org.example.hclcapstonebe.DTO.Request.UpdateDepartmentRequest;
+import org.example.hclcapstonebe.Audit.AuditAction;
+import org.example.hclcapstonebe.DTO.Request.*;
 import org.example.hclcapstonebe.DTO.Response.DepartmentResponse;
 import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Service.AdminService;
@@ -92,6 +90,7 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "Email already in use")
     })
     @PostMapping("/users")
+    @AuditAction("Created user '{email}'")
     public ResponseEntity<UserProfileResponse> createUser(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "User creation payload. `departmentId` is optional.",
@@ -131,87 +130,43 @@ public class AdminController {
     }
 
     @Operation(
-            summary = "Assign or reassign a STAFF to a department",
+            summary = "Reassign a user to a different department",
             description = """
-        ADMIN only — assigns or reassigns a STAFF user to a department.
+    Moves a user between departments. **Does not change their role.**
 
-        **Rules:**
-        - Only works for STAFF users — use **Update Department API** to assign a manager
-        - Send `departmentId` with a valid UUID to assign or reassign
-        - Send `departmentId` as `""` or `null` to remove from department
+    **Rules:**
+    - Send `departmentId` with a valid UUID to assign or reassign
+    - Send `departmentId` as `""` or `null` to remove from department
+    - MANAGER users are rejected — demote them first via `PATCH /admin/users/{id}/role`,
+      or hand the department to someone else via `PUT /admin/departments/{id}`
 
-        **To assign a manager to a department:** use `PUT /admin/departments/{id}`
-        """
+    To change someone's role, use `PATCH /admin/users/{id}/role`.
+    """
     )
     @ApiResponses({
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "Department assigned successfully",
-                    content = @Content(
-                            mediaType = "application/json",
-                            examples = {
-                                    @ExampleObject(
-                                            name = "Assigned to department",
-                                            value = """
-                        {
-                            "id": "user-uuid-123",
-                            "email": "john.doe@hcl.com",
-                            "name": "John Doe",
-                            "avatarImageUrl": null,
-                            "phoneNumber": "0901234567",
-                            "departmentId": "dept-uuid-123",
-                            "departmentName": "Engineering",
-                            "roleEnum": "STAFF",
-                            "createdAtDateTime": "2026-04-20T10:00:00"
-                        }
-                    """
-                                    ),
-                                    @ExampleObject(
-                                            name = "Removed from department",
-                                            value = """
-                        {
-                            "id": "user-uuid-123",
-                            "email": "john.doe@hcl.com",
-                            "name": "John Doe",
-                            "avatarImageUrl": null,
-                            "phoneNumber": "0901234567",
-                            "departmentId": null,
-                            "departmentName": null,
-                            "roleEnum": "STAFF",
-                            "createdAtDateTime": "2026-04-20T10:00:00"
-                        }
-                    """
-                                    )
-                            }
-                    )
-            ),
-            @ApiResponse(responseCode = "400", description = "User is a manager — use Update Department API instead"),
+            @ApiResponse(responseCode = "200", description = "User reassigned"),
+            @ApiResponse(responseCode = "400", description = "User is a MANAGER — demote first"),
             @ApiResponse(responseCode = "401", description = "Unauthorized"),
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
             @ApiResponse(responseCode = "404", description = "User or department not found")
     })
-    @PatchMapping("/users/{id}")
-    public ResponseEntity<UserProfileResponse> reassignStaff(
-            @Parameter(description = "UUID of the STAFF user to assign", example = "user-uuid-123")
-            @PathVariable String id,
+    @PatchMapping("/users/{id}/department")
+    @AuditAction("Updated department assignment for user '{userId}'")
+    public ResponseEntity<UserProfileResponse> reassignUserDepartment(
+            @Parameter(description = "UUID of the user", example = "user-uuid-123")
+            @PathVariable("id") UUID userId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    description = "Send `departmentId` to assign. Send empty string or omit to remove from department.",
-                    content = @Content(
-                            examples = {
-                                    @ExampleObject(
-                                            name = "Assign to department",
-                                            value = "{ \"departmentId\": \"dept-uuid-123\" }"
-                                    ),
-                                    @ExampleObject(
-                                            name = "Remove from department",
-                                            value = "{ \"departmentId\": \"\" }"
-                                    )
-                            }
-                    )
+                    content = @Content(examples = {
+                            @ExampleObject(name = "Assign to department",
+                                    value = "{ \"departmentId\": \"dept-uuid-123\" }"),
+                            @ExampleObject(name = "Remove from department",
+                                    value = "{ \"departmentId\": \"\" }")
+                    })
             )
-            @RequestBody AssignDepartmentRequest req) {
-        return ResponseEntity.ok(adminService.assignDepartmentToUser(UUID.fromString(id), req));
+            @RequestBody ReassignUserRequest req) {
+        return ResponseEntity.ok(adminService.reassignUser(userId, req));
     }
+
     @Operation(
             summary = "Soft delete a user",
             description = """
@@ -230,13 +185,15 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @DeleteMapping("/users/{id}")
+    @AuditAction("Deleted user '{userId}'")
     public ResponseEntity<Void> deleteUser(
             @Parameter(description = "UUID of the user to delete", example = "550e8400-e29b-41d4-a716-446655440000")
-            @PathVariable String id) {
-        adminService.deleteUser(UUID.fromString(id));
+            @PathVariable("id") String userId) {
+        adminService.deleteUser(UUID.fromString(userId));
         return ResponseEntity.noContent().build();
     }
     @GetMapping("/users")
+    @AuditAction("Viewed all users")
     public ResponseEntity<List<UserProfileResponse>> getAllUsers() {
         return ResponseEntity.ok(adminService.getAllUsers());
     }
@@ -271,10 +228,11 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     @GetMapping("/users/{id}")
+    @AuditAction("Viewed user '{userId}'")
     public ResponseEntity<UserProfileResponse> getUserById(
             @Parameter(description = "UUID of the user", example = "550e8400-e29b-41d4-a716-446655440000")
-            @PathVariable String id) {
-        return ResponseEntity.ok(adminService.getUserById(UUID.fromString(id)));
+            @PathVariable("id") String userId) {
+        return ResponseEntity.ok(adminService.getUserById(UUID.fromString(userId)));
     }
 
     // ─── DEPARTMENTS ──────────────────────────────────────
@@ -333,6 +291,7 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "User is already manager of another department")
     })
     @PostMapping("/departments")
+    @AuditAction("Created department '{req.name}'")
     public ResponseEntity<DepartmentResponse> createDepartment(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "Department creation payload. `managerId` is optional.",
@@ -362,6 +321,7 @@ public class AdminController {
             @Valid @RequestBody CreateDepartmentRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(adminService.createDepartment(req));
     }
+
     @Operation(
             summary = "Update a department",
             description = """
@@ -410,9 +370,10 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "User is already manager of another department")
     })
     @PutMapping("/departments/{id}")
+    @AuditAction("Updated department '{departmentId}'")
     public ResponseEntity<DepartmentResponse> updateDepartment(
             @Parameter(description = "UUID of the department to update", example = "dept-uuid-123")
-            @PathVariable UUID id,
+            @PathVariable("id") UUID departmentId,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "All fields optional. Only sent fields are updated.",
                     content = @Content(
@@ -437,7 +398,7 @@ public class AdminController {
                     )
             )
             @RequestBody UpdateDepartmentRequest req) {
-        return ResponseEntity.ok(adminService.updateDepartment(id, req));
+        return ResponseEntity.ok(adminService.updateDepartment(departmentId, req));
     }
 
     @Operation(
@@ -455,10 +416,11 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "Department not found")
     })
     @DeleteMapping("/departments/{id}")
+    @AuditAction("Deleted department '{departmentId}'")
     public ResponseEntity<Void> deleteDepartment(
             @Parameter(description = "UUID of the department to delete", example = "dept-uuid-123")
-            @PathVariable String id) {
-        adminService.deleteDepartment(UUID.fromString(id));
+            @PathVariable("id") String departmentId) {
+        adminService.deleteDepartment(UUID.fromString(departmentId));
         return ResponseEntity.noContent().build();
     }
 
@@ -496,6 +458,7 @@ public class AdminController {
             @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only")
     })
     @GetMapping("/departments")
+    @AuditAction("Viewed all departments")
     public ResponseEntity<List<DepartmentResponse>> getAllDepartments() {
         return ResponseEntity.ok(adminService.getAllDepartments());
     }
@@ -526,9 +489,78 @@ public class AdminController {
             @ApiResponse(responseCode = "404", description = "Department not found")
     })
     @GetMapping("/departments/{id}")
+    @AuditAction("Viewed department '{departmentId}'")
     public ResponseEntity<DepartmentResponse> getDepartmentById(
             @Parameter(description = "UUID of the department", example = "dept-uuid-123")
-            @PathVariable UUID id) {
-        return ResponseEntity.ok(adminService.getDepartmentById(id));
+            @PathVariable("id") UUID departmentId) {
+        return ResponseEntity.ok(adminService.getDepartmentById(departmentId));
+    }
+
+    @Operation(
+            summary = "Promote or demote a user",
+            description = """
+    Changes a user's role between STAFF and MANAGER.
+
+    **Promote (STAFF → MANAGER):**
+    - If the user already belongs to a department, they become its manager. `departmentId` optional.
+    - If the user has no department, `departmentId` is **required**.
+    - Any existing manager of that department is demoted to STAFF and **stays in the department**.
+
+    **Demote (MANAGER → STAFF):**
+    - The department's manager slot is set to null.
+    - The user **remains in the department** as STAFF.
+    - `departmentId` is ignored.
+
+    **Effect on documents:** visibility is uploader + current manager of the document's
+    department, resolved at read time. A demoted user immediately loses visibility over
+    the team's documents; the new manager immediately gains it. Documents they uploaded
+    themselves remain theirs.
+    """
+    )
+    @ApiResponses({
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Role changed",
+                    content = @Content(
+                            mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+            {
+                "id": "user-uuid-123",
+                "email": "john.doe@hcl.com",
+                "name": "John Doe",
+                "avatarImageUrl": null,
+                "phoneNumber": "0901234567",
+                "departmentId": "dept-uuid-123",
+                "departmentName": "Engineering",
+                "roleEnum": "MANAGER",
+                "createdAtDateTime": "2026-04-20T10:00:00"
+            }
+        """)
+                    )
+            ),
+            @ApiResponse(responseCode = "400", description = "Already has that role, or departmentId missing on promote"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — ADMIN only"),
+            @ApiResponse(responseCode = "404", description = "User or department not found"),
+            @ApiResponse(responseCode = "409", description = "User already manages another department")
+    })
+    @PatchMapping("/users/{id}/role")
+    @AuditAction("Changed role of user '{userId}'")
+    public ResponseEntity<UserProfileResponse> changeUserRole(
+            @Parameter(description = "UUID of the user", example = "user-uuid-123")
+            @PathVariable("id") UUID userId,
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(examples = {
+                            @ExampleObject(name = "Promote (user already in a department)",
+                                    value = "{ \"role\": \"MANAGER\" }"),
+                            @ExampleObject(name = "Promote (user has no department)",
+                                    value = "{ \"role\": \"MANAGER\", \"departmentId\": \"dept-uuid-123\" }"),
+                            @ExampleObject(name = "Demote",
+                                    value = "{ \"role\": \"STAFF\" }")
+                    })
+            )
+            @Valid @RequestBody ChangeRoleRequest req) {
+        return ResponseEntity.ok(adminService.changeRole(userId, req));
     }
 }

@@ -1,7 +1,7 @@
 import { Button } from "flowbite-react";
 import { toast } from "react-toastify";
 
-export const DownloadButton = ({ file, className }) => {
+export const DownloadButton = ({ file, className, isDownloadAllowed }) => {
     const handleDownload = async () => {
         if (!file?.signedUrl) {
             toast.error("No download link available — please refresh and try again.");
@@ -33,6 +33,7 @@ export const DownloadButton = ({ file, className }) => {
     return (
         <Button
             onClick={handleDownload}
+            disabled={!file.signedUrl}
             className={`cursor-pointer ${className}`}
         >
             Download
