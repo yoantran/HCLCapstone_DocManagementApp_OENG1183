@@ -34,6 +34,21 @@ LABEL_PATTERNS = {
     "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:[ \t]*(.+)", re.IGNORECASE),
 }
 
+# Income for Module 4 (loan-readiness rules engine). CLAUDE.md's thresholds
+# are stated in terms of gross income, but real payslip templates print net
+# take-home ("Thực lĩnh") far more reliably than an explicit gross line --
+# try gross first, fall back to net, and let the caller know which basis
+# was actually used (see extract_income). Deliberately NOT anchoring on
+# "Tổng cộng" for net income -- that label is generic table-total
+# vocabulary shared with balance-sheet documents ("Tổng cộng tài sản"),
+# and field_extraction.py is shared across the payslip/contract/balance-
+# sheet branches, so it's a real false-positive risk. "Thực lĩnh" is
+# payslip-specific vocabulary and safe to anchor on alone.
+INCOME_LABEL_PATTERNS = {
+    "gross": re.compile(r"T[oổ]ng\s*thu\s*nh[aậ]p[^:\n]*:[ \t]*(.+)", re.IGNORECASE),
+    "net": re.compile(r"Th[uự]c\s*l[iĩ]nh[^:\n]*:[ \t]*(.+)", re.IGNORECASE),
+}
+
 # a captured value that *starts* with placeholder/filler characters (dots,
 # ellipsis, dashes) means the field is blank — whatever follows on the same
 # line (a parenthetical note, the next field's label) is unrelated adjacent
@@ -176,6 +191,34 @@ def extract_from_table_rows(rows: list[list[str]]) -> dict:
     return result
 
 
+def parse_vnd_amount(value: str) -> float | None:
+    """Pull the numeric amount out of a captured income value like
+    '30.000.000 VND' or '5,964,265 (1)' -- strips currency suffix/trailing
+    notes and normalizes either '.' or ',' as the thousands separator (see
+    SALARY_RE's comment: real templates use both conventions)."""
+    match = re.search(r"\d{1,3}(?:[.,]\d{3})+|\d+", value)
+    if match is None:
+        return None
+    digits = re.sub(r"[.,]", "", match.group(0))
+    return float(digits)
+
+
+def extract_income(text: str) -> tuple[float | None, str | None]:
+    """Try every gross-income label match first, then every net-income
+    label match -- same finditer-not-first-search approach as
+    extract_label_anchored, so a known-blank label earlier in the document
+    doesn't shadow a real value later on."""
+    for basis in ("gross", "net"):
+        for match in INCOME_LABEL_PATTERNS[basis].finditer(text):
+            cleaned = _clean_label_value(match.group(1))
+            if cleaned is None:
+                continue
+            amount = parse_vnd_amount(cleaned)
+            if amount is not None:
+                return amount, basis
+    return None, None
+
+
 # the ~30 most common Vietnamese surnames cover the vast majority of real
 # names (a genuinely closed, well-known set) -- given names are open-ended
 # and far riskier to "correct" this way (a wrong correction on a rare-but-
@@ -229,4 +272,5 @@ def extract_fields_from_text(text: str, table_rows: list[list[str]] | None = Non
     if missing:
         fields.update(_ner_fallback(text, missing))
     fields["name"] = restore_name_diacritics(fields.get("name"))
+    fields["income"], fields["income_basis"] = extract_income(text)
     return fields
