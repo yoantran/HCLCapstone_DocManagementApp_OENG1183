@@ -4,12 +4,29 @@ import numpy as np
 BLUR_THRESHOLD = 100.0
 CONTRAST_THRESHOLD = 15.0
 MAX_DESKEW_ANGLE = 15.0
+# ponytail: fixed 2x, gated to inputs smaller than this on their short side.
+# Measured (AI spot-check, 2026-08-08) against 3 real low-res payslip photos:
+# 2x recovered most of the reachable salary-digit misses; 3x/4x plateaued and
+# on one sample started misreading upscaling noise as a name where 1x/2x
+# correctly returned None -- a wrong PII value is worse than a miss, so this
+# stays capped at 2x rather than chasing more gain. Synthetic benchmark
+# renders (measure_accuracy_tesseract.py, ~2000px+) are already well above
+# this threshold and never trigger it -- upgrade the factor/threshold only
+# after measuring against more real low-res samples, not synthetic ones.
+UPSCALE_MIN_DIM = 1000
+UPSCALE_FACTOR = 2.0
 
 
 def to_grayscale(img: np.ndarray) -> np.ndarray:
     if len(img.shape) == 2:
         return img
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+
+def upscale_if_small(gray: np.ndarray, min_dim: int = UPSCALE_MIN_DIM, factor: float = UPSCALE_FACTOR) -> np.ndarray:
+    if min(gray.shape[:2]) >= min_dim:
+        return gray
+    return cv2.resize(gray, None, fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC)
 
 
 def denoise(gray: np.ndarray) -> np.ndarray:
@@ -72,6 +89,7 @@ def quality_score(gray: np.ndarray) -> dict:
 
 def enhance(img: np.ndarray) -> dict:
     gray = to_grayscale(img)
+    gray = upscale_if_small(gray)
     denoised = denoise(gray)
     deskewed, angle = deskew(denoised)
     cropped = autocrop(deskewed)
