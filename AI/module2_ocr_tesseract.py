@@ -201,12 +201,13 @@ def extract_by_proximity(lines: list[dict]) -> dict:
 
 
 def extract_fields(image, lang: str = "vie") -> dict:
-    text = ocr_text(image, lang=lang)
+    data = _word_data(image, lang=lang)
+    text, _ = _build_word_reconstruction(data)
     fields = extract_fields_from_text(text)
 
     missing = [f for f in ("name", "address") if not fields.get(f)]
     if missing:
-        lines = _group_lines(_word_data(image, lang=lang))
+        lines = _group_lines(data)
         proximity_fields = extract_by_proximity(lines)
         for f in missing:
             if proximity_fields.get(f):
