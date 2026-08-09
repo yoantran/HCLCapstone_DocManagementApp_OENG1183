@@ -90,6 +90,47 @@ def _group_lines(data: dict) -> list[dict]:
     return sorted(result, key=lambda l: (l["box"][1], l["box"][0]))
 
 
+def _build_word_reconstruction(data: dict) -> tuple[str, list[dict]]:
+    """Joins image_to_data's words into one string in the same reading
+    order _group_lines() already establishes (grouped by block/par/line,
+    lines sorted top-to-bottom/left-to-right, words sorted left-to-right
+    within a line), returning a parallel list recording each word's exact
+    character span in that string -- the offset map find_sensitive_boxes()
+    (module3_redaction.py) uses to locate a regex match's box(es)."""
+    lines: dict[tuple, list[dict]] = {}
+    for i, word in enumerate(data["text"]):
+        word = word.strip()
+        if not word or int(data["conf"][i]) < 0:
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
+        lines.setdefault(key, []).append({"word": word, "box": (x, y, x + w, y + h)})
+
+    ordered_lines = []
+    for words in lines.values():
+        words.sort(key=lambda w: w["box"][0])
+        y1 = min(w["box"][1] for w in words)
+        x1 = min(w["box"][0] for w in words)
+        ordered_lines.append((y1, x1, words))
+    ordered_lines.sort(key=lambda t: (t[0], t[1]))
+
+    text_parts = []
+    word_spans = []
+    pos = 0
+    for _, _, words in ordered_lines:
+        for j, w in enumerate(words):
+            if j > 0:
+                text_parts.append(" ")
+                pos += 1
+            text_parts.append(w["word"])
+            word_spans.append({"word": w["word"], "box": w["box"], "start": pos, "end": pos + len(w["word"])})
+            pos += len(w["word"])
+        text_parts.append("\n")
+        pos += 1
+
+    return "".join(text_parts), word_spans
+
+
 def _looks_like_label(text: str) -> bool:
     return any(p.search(text) for p in _BARE_LABEL_RE.values())
 
