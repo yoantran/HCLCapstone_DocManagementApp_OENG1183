@@ -8,6 +8,7 @@ from field_extraction import (
     LABEL_PATTERNS,
     INCOME_LABEL_PATTERNS,
     _clean_label_value,
+    restore_name_diacritics,
 )
 
 _REGEX_LIST_FIELDS = {
@@ -101,6 +102,118 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
     return spans
 
 
+def _words_overlapping_span(word_spans: list[dict], start: int, end: int) -> list[dict]:
+    return [w for w in word_spans if w["start"] < end and w["end"] > start]
+
+
+def _union_box(words: list[dict]) -> tuple[int, int, int, int]:
+    x1 = min(w["box"][0] for w in words)
+    y1 = min(w["box"][1] for w in words)
+    x2 = max(w["box"][2] for w in words)
+    y2 = max(w["box"][3] for w in words)
+    return x1, y1, x2, y2
+
+
+def _matches_accepted_value(field: str, cleaned: str, fields: dict) -> bool:
+    # fields["name"] is post-restore_name_diacritics(); the reconstruction's
+    # raw cleaned match is not -- comparing them directly would reject
+    # every correct name match. Apply the same transform before comparing.
+    target = fields.get(field)
+    if field == "name":
+        return restore_name_diacritics(cleaned) == target
+    return cleaned == target
+
+
+def _box_pct(box: tuple[int, int, int, int], img_h: int, img_w: int) -> dict:
+    x1, y1, x2, y2 = box
+    return {
+        "x_pct": x1 / img_w,
+        "y_pct": y1 / img_h,
+        "w_pct": (x2 - x1) / img_w,
+        "h_pct": (y2 - y1) / img_h,
+    }
+
+
+def find_sensitive_boxes(image, fields: dict) -> list[dict]:
+    from module2_ocr_tesseract import _word_data, _build_word_reconstruction
+
+    img_h, img_w = image.shape[:2]
+    data = _word_data(image)
+    text, word_spans = _build_word_reconstruction(data)
+    boxes = []
+
+    for field, pattern in _REGEX_LIST_FIELDS.items():
+        accepted = set(fields.get(field) or [])
+        if not accepted:
+            continue
+        for match in pattern.finditer(text):
+            value = match.group(0)
+            if value not in accepted:
+                continue
+            overlapping = _words_overlapping_span(word_spans, match.start(), match.end())
+            if not overlapping:
+                continue
+            boxes.append(
+                {
+                    "field": field,
+                    "value": value,
+                    **_box_pct(_union_box(overlapping), img_h, img_w),
+                    "detection_method": "regex",
+                }
+            )
+
+    for field, pattern in LABEL_PATTERNS.items():
+        if not fields.get(field):
+            continue
+        for match in pattern.finditer(text):
+            result = _cleaned_span(match)
+            if result is None:
+                continue
+            cleaned, start, end = result
+            if not _matches_accepted_value(field, cleaned, fields):
+                continue
+            overlapping = _words_overlapping_span(word_spans, start, end)
+            if not overlapping:
+                break
+            boxes.append(
+                {
+                    "field": field,
+                    "value": cleaned,
+                    **_box_pct(_union_box(overlapping), img_h, img_w),
+                    "detection_method": "regex",
+                }
+            )
+            break
+
+    if fields.get("income") is not None:
+        # income's fields value is a parsed float, not the raw printed
+        # string -- unlike the other label-anchored fields, there's no
+        # string form to cross-check the reconstruction's match against
+        # without changing Module 2's return contract (out of scope).
+        # Accept the first clean match, same limitation find_sensitive_spans
+        # already has for this field.
+        pattern = INCOME_LABEL_PATTERNS.get(fields.get("income_basis"))
+        if pattern is not None:
+            for match in pattern.finditer(text):
+                result = _cleaned_span(match)
+                if result is None:
+                    continue
+                cleaned, start, end = result
+                overlapping = _words_overlapping_span(word_spans, start, end)
+                if overlapping:
+                    boxes.append(
+                        {
+                            "field": "income",
+                            "value": cleaned,
+                            **_box_pct(_union_box(overlapping), img_h, img_w),
+                            "detection_method": "regex",
+                        }
+                    )
+                break
+
+    return boxes
+
+
 if __name__ == "__main__":
     def test_single_occurrence_regex_field():
         text = "MST TNCN: 8396543222\nHọ tên: Nguyễn Văn A"
@@ -168,6 +281,48 @@ if __name__ == "__main__":
         for span in spans:
             assert text[span["start"]:span["end"]] == span["value"]
 
+    from unittest.mock import patch
+    import numpy as np
+
+    _FAKE_IMAGE = np.zeros((100, 400, 3), dtype=np.uint8)  # 400x100 (w x h)
+
+    def _fake_word_data(*args, **kwargs):
+        return {
+            "text": ["Số", "TK:", "0631000449323"],
+            "conf": [90, 88, 95],
+            "block_num": [1, 1, 1],
+            "par_num": [1, 1, 1],
+            "line_num": [1, 1, 1],
+            "left": [10, 40, 90],
+            "top": [20, 20, 20],
+            "width": [25, 25, 120],
+            "height": [15, 15, 15],
+        }
+
+    def test_single_word_box():
+        with patch("module2_ocr_tesseract._word_data", side_effect=_fake_word_data):
+            fields = {"bank_account": "0631000449323"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        bank_boxes = [b for b in boxes if b["field"] == "bank_account"]
+        assert len(bank_boxes) == 1
+        assert bank_boxes[0]["value"] == "0631000449323"
+        assert abs(bank_boxes[0]["x_pct"] - 0.225) < 1e-6
+        assert abs(bank_boxes[0]["y_pct"] - 0.20) < 1e-6
+        assert abs(bank_boxes[0]["w_pct"] - 0.30) < 1e-6
+        assert abs(bank_boxes[0]["h_pct"] - 0.15) < 1e-6
+
+    def test_absent_field_no_box():
+        with patch("module2_ocr_tesseract._word_data", side_effect=_fake_word_data):
+            fields = {"bank_account": None}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        assert [b for b in boxes if b["field"] == "bank_account"] == []
+
+    def test_value_not_in_fields_produces_no_box():
+        with patch("module2_ocr_tesseract._word_data", side_effect=_fake_word_data):
+            fields = {"bank_account": "9999999999999"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        assert [b for b in boxes if b["field"] == "bank_account"] == []
+
     tests = [
         test_single_occurrence_regex_field,
         test_multiple_occurrences_regex_field,
@@ -175,6 +330,9 @@ if __name__ == "__main__":
         test_absent_field_produces_no_span,
         test_income_field_uses_matching_basis_pattern,
         test_all_spans_satisfy_text_slice_invariant,
+        test_single_word_box,
+        test_absent_field_no_box,
+        test_value_not_in_fields_produces_no_box,
     ]
     for test in tests:
         test()
