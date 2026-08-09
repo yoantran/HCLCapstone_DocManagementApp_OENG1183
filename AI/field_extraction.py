@@ -32,6 +32,15 @@ LABEL_PATTERNS = {
         re.IGNORECASE,
     ),
     "address": re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:[ \t]*(.+)", re.IGNORECASE),
+    # VN bank account numbers have no fixed digit count (8-15 digits,
+    # bank-dependent) -- anchoring on the label rather than a digit-count
+    # regex avoids colliding with CCCD (fixed 12 digits) or phone (fixed
+    # VN mobile pattern). "STK" is a common single-token abbreviation of
+    # "Số tài khoản", not just "Số" + "TK" separately.
+    "bank_account": re.compile(
+        r"(?:S[oố]\s*t[àa]i\s*kho[aả]n|S[oố]\s*TK|STK)\s*:[ \t]*(.+)",
+        re.IGNORECASE,
+    ),
 }
 
 # Income for Module 4 (loan-readiness rules engine). CLAUDE.md's thresholds
