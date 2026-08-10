@@ -1,0 +1,16 @@
+# Production dependencies for the /process FastAPI service (main.py's
+# actual import chain: pipeline -> module1_opencv, module2_ocr_tesseract,
+# module2_text_extraction, module3_redaction, module4_loan_rules,
+# file_routing). Deliberately excludes paddleocr/paddlepaddle/paddlex --
+# those are only used by module2_ocr_extraction.py, the superseded
+# PPStructureV3 reference implementation (see its own file header),
+# not imported anywhere in the production path.
+fastapi==0.141.1
+uvicorn==0.52.1
+python-multipart==0.0.32
+opencv-python==5.0.0.93
+numpy==2.3.5
+pytesseract==0.3.13
+pillow==12.3.0
+pypdfium2==5.10.1
+python-docx==1.2.0

@@ -21,6 +21,14 @@ services:
     container_name: TCO-DMS-Clamav
     ports:
       - "3310:3310"
+
+  ai-service:
+    build:
+      context: ./AI
+      dockerfile: Dockerfile
+    container_name: TCO-DMS-AI
+    ports:
+      - "8000:8000"
 #    volumes:
 #      - clamav:/var/lib/clamav
 #    platform: linux/amd64

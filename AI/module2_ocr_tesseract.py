@@ -42,8 +42,25 @@ from field_extraction import (
     restore_name_diacritics,
 )
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-os.environ["TESSDATA_PREFIX"] = os.path.expanduser("~/.tessdata")
+# Local Windows dev installs Tesseract at a fixed path with traineddata
+# staged under ~/.tessdata (not the system default location) -- neither is
+# true in a Linux container, where `apt-get install tesseract-ocr
+# tesseract-ocr-vie` puts the binary on PATH and traineddata in Tesseract's
+# own default tessdata dir already. TESSERACT_CMD/TESSDATA_PREFIX env vars
+# override for any environment; otherwise fall back to the Windows-dev
+# defaults only on Windows, and leave pytesseract's own PATH-based default
+# untouched everywhere else (correct for the container).
+_tesseract_cmd = os.environ.get(
+    "TESSERACT_CMD", r"C:\Program Files\Tesseract-OCR\tesseract.exe" if os.name == "nt" else None
+)
+if _tesseract_cmd:
+    pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd
+
+_tessdata_prefix = os.environ.get(
+    "TESSDATA_PREFIX", os.path.expanduser("~/.tessdata") if os.name == "nt" else None
+)
+if _tessdata_prefix:
+    os.environ["TESSDATA_PREFIX"] = _tessdata_prefix
 
 _TESS_CONFIG = "--oem 1 --psm 6"
 
