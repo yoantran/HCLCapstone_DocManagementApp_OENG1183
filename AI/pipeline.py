@@ -1,0 +1,99 @@
+import os
+import tempfile
+
+import cv2
+import numpy as np
+
+import module1_opencv
+import module2_ocr_tesseract
+import module2_text_extraction
+import module3_redaction
+import module4_loan_rules
+from file_routing import detect_processing_path, render_pdf_first_page
+
+_EMPTY_RESULT = {
+    "processing_path": None,
+    "fields": None,
+    "redaction": None,
+    "loan_readiness": None,
+    "quality": None,
+    "error": None,
+}
+
+
+def _run_ocr_path(filename: str, file_bytes: bytes) -> dict:
+    ext = filename.lower().rsplit(".", 1)[-1]
+    if ext == "pdf":
+        image = render_pdf_first_page(file_bytes)
+    else:
+        image = cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+
+    enhanced = module1_opencv.enhance(image)
+    quality = {
+        "blur_score": enhanced["blur_score"],
+        "contrast_score": enhanced["contrast_score"],
+        "low_quality": enhanced["low_quality"],
+    }
+    ocr_result = module2_ocr_tesseract.extract_fields(enhanced["image"])
+    fields = ocr_result["fields"]
+    redaction = {
+        "type": "boxes",
+        "items": module3_redaction.find_sensitive_boxes(enhanced["image"], fields),
+    }
+    return fields, redaction, quality
+
+
+def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
+    ext = "." + filename.lower().rsplit(".", 1)[-1]
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(file_bytes)
+        tmp_path = tmp.name
+    try:
+        text_result = module2_text_extraction.extract_fields(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+    fields = text_result["fields"]
+    redaction = {
+        "type": "spans",
+        "items": module3_redaction.find_sensitive_spans(text_result["text"], fields),
+    }
+    return fields, redaction, None
+
+
+def process_document(
+    filename: str,
+    file_bytes: bytes,
+    proposed_monthly_repayment: float | None = None,
+    existing_monthly_debt: float | None = None,
+) -> dict:
+    try:
+        path = detect_processing_path(filename, file_bytes)
+    except ValueError as e:
+        return {**_EMPTY_RESULT, "error": str(e)}
+
+    try:
+        if path == "ocr":
+            fields, redaction, quality = _run_ocr_path(filename, file_bytes)
+        else:
+            fields, redaction, quality = _run_text_native_path(filename, file_bytes)
+
+        loan_readiness = None
+        if proposed_monthly_repayment is not None:
+            loan_readiness = module4_loan_rules.assess_loan_readiness(
+                monthly_income=fields.get("income"),
+                income_basis=fields.get("income_basis"),
+                proposed_monthly_repayment=proposed_monthly_repayment,
+                existing_monthly_debt=existing_monthly_debt,
+            )
+
+        return {
+            "processing_path": path,
+            "fields": fields,
+            "redaction": redaction,
+            "loan_readiness": loan_readiness,
+            "quality": quality,
+            "error": None,
+        }
+    except Exception as e:
+        return {**_EMPTY_RESULT, "processing_path": path, "error": str(e)}
