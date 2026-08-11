@@ -4,7 +4,7 @@ from pathlib import Path
 import docx
 import pypdfium2 as pdfium
 
-from field_extraction import extract_fields_from_text
+from field_extraction_en import extract_fields_from_text_en
 
 
 def extract_text_from_docx(path: str) -> str:
@@ -53,10 +53,10 @@ def extract_text(path: str) -> str:
 def extract_fields(path: str) -> dict:
     if Path(path).suffix.lower() == ".docx":
         text, table_rows = extract_docx_text_and_tables(path)
-        fields = extract_fields_from_text(text, table_rows=table_rows)
+        fields = extract_fields_from_text_en(text, table_rows=table_rows)
     else:
         text = extract_text(path)
-        fields = extract_fields_from_text(text)
+        fields = extract_fields_from_text_en(text)
     return {"fields": fields, "text": text}
 
 
@@ -64,8 +64,8 @@ if __name__ == "__main__":
     import glob
 
     with open("module2_text_selfcheck_output.txt", "w", encoding="utf-8") as out:
-        samples = glob.glob("samples/balance_sheet/*.docx") + glob.glob("samples/balance_sheet/*.pdf")
-        samples += glob.glob("samples/contract/*.docx")
+        samples = glob.glob("samples/en_balance_sheet/*.docx") + glob.glob("samples/en_balance_sheet/*.pdf")
+        samples += glob.glob("samples/en_contract/*.docx")
         for name in samples:
             result = extract_fields(name)
             out.write(f"--- {name} ---\n")

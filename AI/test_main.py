@@ -8,10 +8,10 @@ from main import app
 
 client = TestClient(app)
 
-with open("samples/pay_slip/Mau-phieu-luong-FILLED-1.docx", "rb") as f:
+with open("samples/en_contract/part-time-employment-contract.docx", "rb") as f:
     _DOCX_BYTES = f.read()
 
-with open("samples/pay_slip/image-94-600x414.png", "rb") as f:
+with open("samples/en_pay_slip/Screenshot 2026-07-28 152419.png", "rb") as f:
     _IMAGE_BYTES = f.read()
 
 

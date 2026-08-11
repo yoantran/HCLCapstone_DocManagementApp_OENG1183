@@ -1,9 +1,16 @@
-# NOTE: superseded as the production image-path engine by module2_ocr_tesseract.py
-# (58.8% vs 23.8% on the 38-doc accuracy benchmark -- see issue #116). Kept as
-# a reference implementation: real PPStructureV3 table-structure detection,
-# which no PaddleOCR/PaddleX model pairs with usable Vietnamese diacritic
-# recognition (checked 3 lineages, all near-zero coverage, see issue #116).
-# A future FastAPI endpoint should import from module2_ocr_tesseract, not here.
+# Production image-path OCR engine (issue #129). PPStructureV3 (PaddleOCR),
+# chosen over Tesseract for the English pipeline after a real head-to-head
+# test on a real English payslip: PPStructureV3 transcribed every value
+# correctly and recovered real table structure (3 correctly-separated HTML
+# tables matching the document's actual layout); Tesseract's raw output on
+# the same table was unreadable garbage.
+#
+# This module was originally built and measured against Vietnamese (see
+# issue #116) -- PaddleOCR/PaddleX has no model with usable Vietnamese
+# diacritic coverage (checked 3 lineages, all near-zero), which is why the
+# Vietnamese pipeline uses Tesseract instead (module2_ocr_tesseract.py).
+# That finding doesn't apply to English -- English is exactly where this
+# engine's table-structure win matters, so it's the production engine here.
 
 from html.parser import HTMLParser
 
@@ -11,7 +18,7 @@ import cv2
 import numpy as np
 from paddleocr import PPStructureV3
 
-from field_extraction import extract_fields_from_text
+from field_extraction_en import extract_fields_from_text_en
 
 
 class _TableRowParser(HTMLParser):
@@ -56,9 +63,10 @@ def html_table_to_rows(html: str) -> list[list[str]]:
 # production (see project_ocr_table_form_finding memory).
 #
 # text_detection/recognition model names are forced to the PP-OCRv6 medium
-# pair rather than PPStructureV3's own default — its default auto-selects a
-# lighter latin_PP-OCRv5_mobile_rec model that drops far more Vietnamese
-# diacritics than PP-OCRv6_medium_rec does.
+# pair -- originally forced to fix Vietnamese diacritic coverage (PPStructureV3's
+# own auto-selected default is a lighter latin_PP-OCRv5_mobile_rec model),
+# but also already confirmed to work well for English in the real head-to-line
+# test that selected this engine -- no need to re-tune for English specifically.
 _pipelines: dict[str, PPStructureV3] = {}
 
 
@@ -74,7 +82,7 @@ def _get_pipeline(lang: str) -> PPStructureV3:
     return _pipelines[lang]
 
 
-def ocr_document(image, lang: str = "vi") -> dict:
+def ocr_document(image, lang: str = "en") -> dict:
     if isinstance(image, np.ndarray) and image.ndim == 2:
         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
     result = _get_pipeline(lang).predict(image)[0]
@@ -97,11 +105,11 @@ def lines_to_text(lines: list[dict]) -> str:
     return "\n".join(line["text"] for line in lines)
 
 
-def extract_fields(image, lang: str = "vi") -> dict:
+def extract_fields(image, lang: str = "en") -> dict:
     doc = ocr_document(image, lang=lang)
     text = lines_to_text(doc["lines"])
     table_rows = [row for html in doc["tables"] for row in html_table_to_rows(html)]
-    fields = extract_fields_from_text(text, table_rows=table_rows or None)
+    fields = extract_fields_from_text_en(text, table_rows=table_rows or None)
     return {"fields": fields, "line_boxes": doc["lines"], "tables": doc["tables"], "text": text}
 
 
@@ -109,8 +117,8 @@ if __name__ == "__main__":
     from module1_opencv import enhance
 
     with open("module2_selfcheck_output.txt", "w", encoding="utf-8") as out:
-        for path in ("samples/pay_slip/image-94-600x414.png", "samples/pay_slip/mau-phieu-luong-02.png"):
-            img = cv2.imread(path)
+        for path in ("samples/en_pay_slip/Payslip.jpg", "samples/en_pay_slip/Screenshot 2026-07-28 152419.png"):
+            img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
             assert img is not None, f"could not load {path}"
             enhanced = enhance(img)["image"]
             result = extract_fields(enhanced)
