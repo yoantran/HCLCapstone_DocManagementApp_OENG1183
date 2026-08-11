@@ -6,8 +6,10 @@ import { ToastContainer } from 'react-toastify';
 function App() {
   return (
     <>
-      <RouterProvider router={router} />
-      <ToastContainer />
+        {/*<div className="h-screen w-screen overflow-hidden flex flex-col">*/}
+        <RouterProvider router={router} />
+        <ToastContainer />
+        {/*</div>*/}
     </>
   )
 }
