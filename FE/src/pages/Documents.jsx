@@ -98,7 +98,7 @@ export default function Documents() {
 
     const sortedDocuments = sortDocuments(filteredDocuments, currentSort); // ← add
 
-    const pageSize = 10;
+    const pageSize = 7;
     const paginatedDocuments = sortedDocuments.slice( // ← use sortedDocuments
         (currentPage - 1) * pageSize,
         currentPage * pageSize
@@ -157,7 +157,7 @@ export default function Documents() {
                 }}
             />
 
-            <div className='m-8' />
+            <div className='m-2' />
 
             <CustomTable
                 data={paginatedDocuments}

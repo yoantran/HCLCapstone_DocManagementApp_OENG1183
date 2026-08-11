@@ -140,14 +140,15 @@ export default function AdminManagement() {
         return 0;
     });
 
-    const displayedData = sortedData.slice((currentPage - 1) * 10, currentPage * 10);
+    const ITEMS_PER_PAGE = 7;
+    const displayedData = sortedData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
     return (
         <>
             <div className="relative w-full">
                 <FilteringPanel
                     currentPage={currentPage}
-                    pageSize={10}
+                    pageSize={ITEMS_PER_PAGE}
                     totalItems={filteredData.length}
                     onPageChange={(page) => setCurrentPage(page)}
 
@@ -176,16 +177,25 @@ export default function AdminManagement() {
 
                     customButton={
                         <div className="flex items-center gap-2">
-                            <Button disabled
-                                onClick={() => console.log("Create User")}
+                            <Button
+                                disabled
+                                className="md:hidden"
+                                onClick={() => console.log("Create Action")}
                             >
-                                < HiPlus className={"mr-2"} />
-                                Create New User
+                                <HiPlus className="text-base" />
                             </Button>
                             <Button disabled
+                                    className="hidden md:flex "
+                                onClick={() => console.log("Create User")}
+                            >
+                                < HiPlus className={"text-base mr-2"} />
+                                    Create New User
+                            </Button>
+                            <Button disabled
+                                className="hidden md:flex"
                                 onClick={() => console.log("Create Department")}
                             >
-                                < HiPlus className={"mr-2"} />
+                                < HiPlus className={"text-base  mr-2"} />
                                 Create New Department
                             </Button>
                         </div>
@@ -208,7 +218,7 @@ export default function AdminManagement() {
                     }}
                 />
 
-                <div className={"mt-5"}>
+                <div className={"mt-2"}>
                     <CustomTable
                         data={displayedData}
                         columns={currentColumns}
