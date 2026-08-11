@@ -5,7 +5,7 @@ sys.path.insert(0, ".")
 
 from file_routing import detect_processing_path, render_pdf_first_page
 
-with open("samples/balance_sheet/DAN_Baocaotaichinh_Q4_2018.pdf", "rb") as f:
+with open("samples/en_balance_sheet/IC-Small-Business-Balance-Sheet-Example-11260_PDF.pdf", "rb") as f:
     _TEXT_NATIVE_PDF_BYTES = f.read()
 
 
@@ -31,8 +31,9 @@ def test_pdf_with_much_text_routes_to_text_native():
 
 
 def test_real_text_native_pdf_sample():
-    # DAN_Baocaotaichinh_Q4_2018.pdf is a real financial report, ~2370 chars
-    # of extracted text -- well above the 50-char scanned threshold.
+    # IC-Small-Business-Balance-Sheet-Example-11260_PDF.pdf is a real
+    # Australian balance sheet template, ~1702 chars of extracted text --
+    # well above the 50-char scanned threshold.
     assert detect_processing_path("report.pdf", _TEXT_NATIVE_PDF_BYTES) == "text_native"
 
 

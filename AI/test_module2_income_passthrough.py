@@ -6,10 +6,10 @@ import cv2
 import numpy as np
 
 from module2_text_extraction import extract_fields as extract_fields_text
-from module2_ocr_tesseract import extract_fields as extract_fields_ocr
+from module2_ocr_extraction import extract_fields as extract_fields_ocr
 
-TEXT_SAMPLE = "samples/pay_slip/Mau-phieu-luong-FILLED-1.docx"
-IMAGE_SAMPLE = "samples/pay_slip/image-94-600x414.png"
+TEXT_SAMPLE = "samples/en_contract/part-time-employment-contract.docx"
+IMAGE_SAMPLE = "samples/en_pay_slip/Screenshot 2026-07-28 152419.png"
 
 
 def test_text_native_path_exposes_income_keys():
@@ -20,7 +20,7 @@ def test_text_native_path_exposes_income_keys():
 
 def test_ocr_path_exposes_income_keys():
     img = cv2.imdecode(np.fromfile(IMAGE_SAMPLE, dtype=np.uint8), cv2.IMREAD_COLOR)
-    result = extract_fields_ocr(img, lang="vie")
+    result = extract_fields_ocr(img)
     assert "income" in result["fields"]
     assert "income_basis" in result["fields"]
 
