@@ -16,7 +16,7 @@ from html.parser import HTMLParser
 
 import cv2
 import numpy as np
-from paddleocr import PPStructureV3
+from paddleocr import PaddleOCR, PPStructureV3
 
 from field_extraction_en import extract_fields_from_text_en
 
@@ -111,6 +111,60 @@ def extract_fields(image, lang: str = "en") -> dict:
     table_rows = [row for html in doc["tables"] for row in html_table_to_rows(html)]
     fields = extract_fields_from_text_en(text, table_rows=table_rows or None)
     return {"fields": fields, "line_boxes": doc["lines"], "tables": doc["tables"], "text": text}
+
+
+# Word-box source for module3_redaction.find_sensitive_boxes() (issue #130).
+# PPStructureV3 does not support return_word_box -- confirmed empirically by
+# passing it through predict()'s kwargs and observing overall_ocr_res still
+# reports return_word_box=False. Only the plain (non-structure) PaddleOCR
+# pipeline honors it, giving per-line lists of tokens (text_word) with
+# parallel per-token boxes (text_word_boxes) -- finer than Tesseract's
+# image_to_data even, since punctuation is split into its own token. This is
+# necessarily a second, separate model pass: nothing folds PPStructureV3's
+# table-aware pipeline and return_word_box into one call.
+_word_pipelines: dict[str, PaddleOCR] = {}
+
+
+def _get_word_pipeline(lang: str) -> PaddleOCR:
+    if lang not in _word_pipelines:
+        _word_pipelines[lang] = PaddleOCR(
+            lang=lang,
+            text_detection_model_name="PP-OCRv6_medium_det",
+            text_recognition_model_name="PP-OCRv6_medium_rec",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            enable_mkldnn=False,
+        )
+    return _word_pipelines[lang]
+
+
+def build_word_reconstruction(image, lang: str = "en") -> tuple[str, list[dict]]:
+    """Concatenates return_word_box=True's per-line tokens in order (they
+    already include their own inter-word whitespace/punctuation as separate
+    tokens, so no extra join character is needed to reproduce the original
+    spacing), returning the joined text plus a parallel list recording each
+    non-blank token's exact character span -- the offset map
+    find_sensitive_boxes() (module3_redaction.py) uses to locate a regex
+    match's box(es). Same shape as module2_ocr_tesseract._build_word_reconstruction()."""
+    if isinstance(image, np.ndarray) and image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    result = _get_word_pipeline(lang).predict(image, return_word_box=True)[0]
+
+    text_parts = []
+    word_spans = []
+    pos = 0
+    for tokens, boxes in zip(result.get("text_word", []), result.get("text_word_boxes", [])):
+        for token, box in zip(tokens, boxes):
+            if token.strip():
+                x1, y1, x2, y2 = (int(v) for v in box)
+                word_spans.append({"word": token, "box": (x1, y1, x2, y2), "start": pos, "end": pos + len(token)})
+            text_parts.append(token)
+            pos += len(token)
+        text_parts.append("\n")
+        pos += 1
+
+    return "".join(text_parts), word_spans
 
 
 if __name__ == "__main__":

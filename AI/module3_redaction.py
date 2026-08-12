@@ -1,20 +1,17 @@
 import re
 
-from field_extraction import (
-    CCCD_RE,
+from field_extraction_en import (
+    ABN_RE,
     PHONE_RE,
-    TAX_CODE_RE,
     SALARY_RE,
     LABEL_PATTERNS,
     INCOME_LABEL_PATTERNS,
     _clean_label_value,
-    restore_name_diacritics,
 )
 
 _REGEX_LIST_FIELDS = {
-    "cccd": CCCD_RE,
+    "abn": ABN_RE,
     "phone": PHONE_RE,
-    "tax_code": TAX_CODE_RE,
     "salary": SALARY_RE,
 }
 
@@ -23,11 +20,7 @@ def _cleaned_span(match: re.Match) -> tuple[str, int, int] | None:
     """Given a match whose group(1) is a raw label-anchored capture, return
     (cleaned_value, start, end) covering exactly the substring
     _clean_label_value accepts -- not the raw group, which may include
-    leading/trailing whitespace _clean_label_value's .strip() discards.
-    Deliberately does NOT apply any further display cleanup (e.g. name's
-    diacritic restoration) -- a redaction span must match what's literally
-    printed in the source text at that position, not a display-enhanced
-    version of it."""
+    leading/trailing whitespace _clean_label_value's .strip() discards."""
     raw = match.group(1)
     cleaned = _clean_label_value(raw)
     if cleaned is None:
@@ -40,17 +33,10 @@ def _cleaned_span(match: re.Match) -> tuple[str, int, int] | None:
 def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
     spans = []
 
-    # a VN mobile number is 10 digits, same length as a tax code -- exclude
-    # phone-shaped matches from tax_code spans, same dedup
-    # extract_regex_fields() already applies to the fields dict itself.
-    phone_matches = set(PHONE_RE.findall(text))
-
     for field, pattern in _REGEX_LIST_FIELDS.items():
         if not fields.get(field):
             continue
         for match in pattern.finditer(text):
-            if field == "tax_code" and match.group(0) in phone_matches:
-                continue
             spans.append(
                 {
                     "field": field,
@@ -115,13 +101,7 @@ def _union_box(words: list[dict]) -> tuple[int, int, int, int]:
 
 
 def _matches_accepted_value(field: str, cleaned: str, fields: dict) -> bool:
-    # fields["name"] is post-restore_name_diacritics(); the reconstruction's
-    # raw cleaned match is not -- comparing them directly would reject
-    # every correct name match. Apply the same transform before comparing.
-    target = fields.get(field)
-    if field == "name":
-        return restore_name_diacritics(cleaned) == target
-    return cleaned == target
+    return cleaned == fields.get(field)
 
 
 def _box_pct(box: tuple[int, int, int, int], img_h: int, img_w: int) -> dict:
@@ -135,11 +115,10 @@ def _box_pct(box: tuple[int, int, int, int], img_h: int, img_w: int) -> dict:
 
 
 def find_sensitive_boxes(image, fields: dict) -> list[dict]:
-    from module2_ocr_tesseract import _word_data, _build_word_reconstruction
+    from module2_ocr_extraction import build_word_reconstruction
 
     img_h, img_w = image.shape[:2]
-    data = _word_data(image)
-    text, word_spans = _build_word_reconstruction(data)
+    text, word_spans = build_word_reconstruction(image)
     boxes = []
 
     for field, pattern in _REGEX_LIST_FIELDS.items():
@@ -216,68 +195,67 @@ def find_sensitive_boxes(image, fields: dict) -> list[dict]:
 
 if __name__ == "__main__":
     def test_single_occurrence_regex_field():
-        text = "MST TNCN: 8396543222\nHọ tên: Nguyễn Văn A"
-        fields = {"tax_code": ["8396543222"]}
+        text = "ABN: 12 345 978 910\nEmployee: Jo Worker"
+        fields = {"abn": ["12 345 978 910"]}
         spans = find_sensitive_spans(text, fields)
-        tax_spans = [s for s in spans if s["field"] == "tax_code"]
-        assert len(tax_spans) == 1
-        assert tax_spans[0]["value"] == "8396543222"
-        assert text[tax_spans[0]["start"]:tax_spans[0]["end"]] == "8396543222"
+        abn_spans = [s for s in spans if s["field"] == "abn"]
+        assert len(abn_spans) == 1
+        assert abn_spans[0]["value"] == "12 345 978 910"
+        assert text[abn_spans[0]["start"]:abn_spans[0]["end"]] == "12 345 978 910"
 
     def test_multiple_occurrences_regex_field():
-        text = "SĐT: 0912345678\nSố khác: 0987654321"
-        fields = {"phone": ["0912345678", "0987654321"]}
+        text = "Phone: 0412345678\nOther: 0398765432"
+        fields = {"phone": ["0412345678", "0398765432"]}
         spans = find_sensitive_spans(text, fields)
         phone_spans = [s for s in spans if s["field"] == "phone"]
         assert len(phone_spans) == 2
         values = {s["value"] for s in phone_spans}
-        assert values == {"0912345678", "0987654321"}
+        assert values == {"0412345678", "0398765432"}
 
     def test_label_anchored_skips_rejected_candidate():
-        # first "Địa chỉ:" candidate is a filler placeholder (rejected by
-        # _clean_label_value), second is the real address that Module 2
-        # would have accepted -- span must land on the second, not the first.
-        text = "Địa chỉ: ……………………\nĐịa chỉ: 123 Lê Lợi, Quận 1, TP.HCM"
-        fields = {"address": "123 Lê Lợi, Quận 1, TP.HCM"}
+        # first "Employee Address:" candidate is an angle-bracket
+        # placeholder (rejected by _clean_label_value), second is the real
+        # address Module 2 would have accepted -- span must land on the
+        # second, not the first.
+        text = "Employee Address: <insert employee address>\nEmployee Address: 42 Example Street, Melbourne VIC 3000"
+        fields = {"address": "42 Example Street, Melbourne VIC 3000"}
         spans = find_sensitive_spans(text, fields)
         address_spans = [s for s in spans if s["field"] == "address"]
         assert len(address_spans) == 1
-        assert address_spans[0]["value"] == "123 Lê Lợi, Quận 1, TP.HCM"
-        expected_start = text.index("123 Lê Lợi")
+        assert address_spans[0]["value"] == "42 Example Street, Melbourne VIC 3000"
+        expected_start = text.index("42 Example Street")
         assert address_spans[0]["start"] == expected_start
 
     def test_absent_field_produces_no_span():
-        text = "Họ tên: Nguyễn Văn A"
-        fields = {"bank_account": None}
+        text = "Employee: Jo Worker"
+        fields = {"bsb": None}
         spans = find_sensitive_spans(text, fields)
-        assert [s for s in spans if s["field"] == "bank_account"] == []
+        assert [s for s in spans if s["field"] == "bsb"] == []
 
     def test_income_field_uses_matching_basis_pattern():
-        text = "Tổng thu nhập chính thức: 30.000.000 VND\nThực lĩnh lương (1): 10.000.000 VND"
-        fields = {"income": 30000000.0, "income_basis": "gross"}
+        text = "Total gross payment: $718.66\nNET PAY: $625.36"
+        fields = {"income": 718.66, "income_basis": "gross"}
         spans = find_sensitive_spans(text, fields)
         income_spans = [s for s in spans if s["field"] == "income"]
         assert len(income_spans) == 1
-        assert income_spans[0]["value"] == "30.000.000 VND"
+        assert income_spans[0]["value"] == "$718.66"
 
     def test_all_spans_satisfy_text_slice_invariant():
         text = (
-            "MST TNCN: 8396543222\n"
-            "SĐT: 0912345678\n"
-            "Số TK: 0631000449323\n"
-            "Địa chỉ: 123 Lê Lợi, Quận 1, TP.HCM\n"
-            "Tổng thu nhập chính thức: 30.000.000 VND"
+            "ABN: 12 345 978 910\n"
+            "Phone: 0412345678\n"
+            "Employee Address: 42 Example Street, Melbourne VIC 3000\n"
+            "Total gross payment: $718.66"
         )
         fields = {
-            "tax_code": ["8396543222"],
-            "phone": ["0912345678"],
-            "bank_account": "0631000449323",
-            "address": "123 Lê Lợi, Quận 1, TP.HCM",
-            "income": 30000000.0,
+            "abn": ["12 345 978 910"],
+            "phone": ["0412345678"],
+            "address": "42 Example Street, Melbourne VIC 3000",
+            "income": 718.66,
             "income_basis": "gross",
         }
         spans = find_sensitive_spans(text, fields)
-        assert len(spans) == 5
+        assert len(spans) == 4
         for span in spans:
             assert text[span["start"]:span["end"]] == span["value"]
 
@@ -286,42 +264,38 @@ if __name__ == "__main__":
 
     _FAKE_IMAGE = np.zeros((100, 400, 3), dtype=np.uint8)  # 400x100 (w x h)
 
-    def _fake_word_data(*args, **kwargs):
-        return {
-            "text": ["Số", "TK:", "0631000449323"],
-            "conf": [90, 88, 95],
-            "block_num": [1, 1, 1],
-            "par_num": [1, 1, 1],
-            "line_num": [1, 1, 1],
-            "left": [10, 40, 90],
-            "top": [20, 20, 20],
-            "width": [25, 25, 120],
-            "height": [15, 15, 15],
-        }
+    def _fake_word_reconstruction(*args, **kwargs):
+        text = "Account: 1234 5678"
+        word_spans = [
+            {"word": "Account:", "box": (10, 20, 90, 35), "start": 0, "end": 8},
+            {"word": "1234", "box": (95, 20, 120, 35), "start": 9, "end": 13},
+            {"word": "5678", "box": (125, 20, 150, 35), "start": 14, "end": 18},
+        ]
+        return text, word_spans
 
     def test_single_word_box():
-        with patch("module2_ocr_tesseract._word_data", side_effect=_fake_word_data):
-            fields = {"bank_account": "0631000449323"}
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_word_reconstruction):
+            fields = {"account_number": "1234 5678"}
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
-        bank_boxes = [b for b in boxes if b["field"] == "bank_account"]
-        assert len(bank_boxes) == 1
-        assert bank_boxes[0]["value"] == "0631000449323"
-        assert abs(bank_boxes[0]["x_pct"] - 0.225) < 1e-6
-        assert abs(bank_boxes[0]["y_pct"] - 0.20) < 1e-6
-        assert abs(bank_boxes[0]["w_pct"] - 0.30) < 1e-6
-        assert abs(bank_boxes[0]["h_pct"] - 0.15) < 1e-6
+        acct_boxes = [b for b in boxes if b["field"] == "account_number"]
+        assert len(acct_boxes) == 1
+        assert acct_boxes[0]["value"] == "1234 5678"
+        assert abs(acct_boxes[0]["x_pct"] - 95 / 400) < 1e-6
+        assert abs(acct_boxes[0]["y_pct"] - 20 / 100) < 1e-6
+        assert abs(acct_boxes[0]["w_pct"] - (150 - 95) / 400) < 1e-6
+        assert abs(acct_boxes[0]["h_pct"] - (35 - 20) / 100) < 1e-6
 
     def test_absent_field_no_box():
-        with patch("module2_ocr_tesseract._word_data", side_effect=_fake_word_data):
-            fields = {"bank_account": None}
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_word_reconstruction):
+            fields = {"account_number": None}
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
-        assert [b for b in boxes if b["field"] == "bank_account"] == []
+        assert [b for b in boxes if b["field"] == "account_number"] == []
 
     def test_value_not_in_fields_produces_no_box():
-        with patch("module2_ocr_tesseract._word_data", side_effect=_fake_word_data):
-            fields = {"bank_account": "9999999999999"}
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_word_reconstruction):
+            fields = {"account_number": "9999 9999"}
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
-        assert [b for b in boxes if b["field"] == "bank_account"] == []
+        assert [b for b in boxes if b["field"] == "account_number"] == []
 
     tests = [
         test_single_occurrence_regex_field,
