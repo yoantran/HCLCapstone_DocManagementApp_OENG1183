@@ -74,20 +74,34 @@ def _apply_label_fillers(text: str, fillers: list[tuple[re.Pattern, object, str 
     return text, recorded
 
 
-_DOLLAR_THOUSANDS_RE = re.compile(r"\$\d{2},\d{3}\b")
-_DOLLAR_RE = re.compile(r"\$\d{2}\.\d{2}\b")
-_HOURS_RE = re.compile(r"(?<!\$)\b\d{2}\.\d{2}\b")
+# Matches the template's own literal placeholder text ("$00.00", "$00,000",
+# "00.00" -- confirmed via direct inspection every numeric placeholder in
+# this template uses all-zero digits, no exceptions), not just the general
+# shape. This matters because table 0's employer/pay-period cell is a
+# genuinely merged table cell (row 0 and row 1 share the same underlying
+# XML element -- confirmed via `cell._tc is cell._tc`), so this function
+# runs against the same paragraph twice per document. A shape-based regex
+# (any \d{2},\d{3}) would occasionally re-match a value this function
+# itself already generated on the first pass (e.g. a random "$67,000" has
+# the same 2-digit-prefix shape as the placeholder it replaced) and
+# silently overwrite it with a second random value on the second visit.
+# Matching the literal zero-digit placeholder text instead makes every
+# substitution naturally idempotent -- once replaced, the exact "00.00"/
+# "00,000" text is gone and can never accidentally re-match.
+_DOLLAR_THOUSANDS_RE = re.compile(r"\$00,000\b")
+_DOLLAR_RE = re.compile(r"\$00\.00\b")
+_HOURS_RE = re.compile(r"(?<!\$)\b00\.00\b")
 
 
 def _apply_numeric_placeholders(text: str) -> tuple[str, list[str]]:
-    """Blanket-replaces the payslip template's own bare '$00.00' / '$00,000'
-    / '00.00' placeholder shapes with realistic random values, independent
-    of any label -- these sit in table cells (hours/rate/total columns)
-    with no adjacent label text to anchor on. Returns every dollar value
-    substituted (each one is a legitimate 'salary' list-field ground-truth
-    entry per SALARY_RE's shape) alongside the substituted text; hours
-    values are generated but not returned since they aren't a scored
-    field (SALARY_RE requires a '$' prefix)."""
+    """Blanket-replaces the payslip template's own literal '$00.00' /
+    '$00,000' / '00.00' placeholder text with realistic random values,
+    independent of any label -- these sit in table cells (hours/rate/total
+    columns) with no adjacent label text to anchor on. Returns every dollar
+    value substituted (each one is a legitimate 'salary' list-field
+    ground-truth entry per SALARY_RE's shape) alongside the substituted
+    text; hours values are generated but not returned since they aren't a
+    scored field (SALARY_RE requires a '$' prefix)."""
     salary_values: list[str] = []
 
     def thousands_repl(_m: re.Match) -> str:
