@@ -7,16 +7,9 @@ import numpy as np
 import module1_opencv
 import module2_ocr_extraction
 import module2_text_extraction
+import module3_redaction
 import module4_loan_rules
 from file_routing import detect_processing_path, render_pdf_first_page
-
-# module3_redaction.find_sensitive_spans()/find_sensitive_boxes() still
-# hardcode Vietnamese field patterns (import LABEL_PATTERNS/
-# _REGEX_LIST_FIELDS from field_extraction.py, not whatever `fields` dict
-# is actually passed in) -- calling them here would silently return zero
-# spans/boxes for every English field rather than erroring. Redaction is
-# deliberately not wired for either path below, pending #130, so this gap
-# stays visible instead of masquerading as "it ran, found nothing."
 
 _EMPTY_RESULT = {
     "processing_path": None,
@@ -43,7 +36,8 @@ def _run_ocr_path(filename: str, file_bytes: bytes) -> dict:
     }
     ocr_result = module2_ocr_extraction.extract_fields(enhanced["image"])
     fields = ocr_result["fields"]
-    redaction = {"type": "boxes", "items": []}  # pending #130, see module note above
+    boxes = module3_redaction.find_sensitive_boxes(enhanced["image"], fields)
+    redaction = {"type": "boxes", "items": boxes}
     return fields, redaction, quality
 
 
@@ -58,7 +52,8 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
         os.unlink(tmp_path)
 
     fields = text_result["fields"]
-    redaction = {"type": "spans", "items": []}  # pending #130, see module note above
+    spans = module3_redaction.find_sensitive_spans(text_result["text"], fields)
+    redaction = {"type": "spans", "items": spans}
     return fields, redaction, None
 
 
