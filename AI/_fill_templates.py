@@ -6,107 +6,107 @@ from pathlib import Path
 import docx
 from faker import Faker
 
-fake = Faker("vi_VN")
+fake = Faker("en_AU")
 
-VN_STREETS = ["Nguyễn Trãi", "Lê Lợi", "Trần Hưng Đạo", "Hai Bà Trưng", "Điện Biên Phủ",
-              "Cách Mạng Tháng Tám", "Nguyễn Văn Cừ", "Hoàng Diệu", "Lý Thường Kiệt", "Phan Đình Phùng"]
-VN_WARDS = ["Phường 1", "Phường Bến Nghé", "Phường Tân Định", "Phường 5", "Phường An Phú", "Phường Bình Hưng"]
-VN_DISTRICTS = ["Quận 1", "Quận 3", "Quận Bình Thạnh", "Quận Gò Vấp", "Huyện Nhà Bè", "Quận Cầu Giấy"]
-VN_CITIES = ["TP. Hồ Chí Minh", "Hà Nội", "Đà Nẵng", "Cần Thơ", "Hải Phòng"]
-COMPANIES = [
-    "CÔNG TY TNHH GIẢI PHÁP CÔNG NGHỆ VIỆT", "CÔNG TY CỔ PHẦN ĐẦU TƯ MINH PHÁT",
-    "CÔNG TY TNHH THƯƠNG MẠI DỊCH VỤ AN KHANG", "CÔNG TY CỔ PHẦN XÂY DỰNG HOÀNG LONG",
-    "CÔNG TY TNHH SẢN XUẤT THƯƠNG MẠI PHÚ CƯỜNG",
-]
-POSITIONS = [
-    "Nhân viên Kế toán", "Nhân viên Kinh doanh", "Chuyên viên Nhân sự", "Kỹ sư phần mềm",
-    "Trưởng phòng Marketing", "Nhân viên Hành chính", "Chuyên viên Chăm sóc khách hàng",
-    "Nhân viên Kho vận", "Kế toán trưởng", "Nhân viên Bảo trì",
-]
+AU_STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"]
 
 
-def fake_name():
+def fake_name() -> str:
     return fake.name()
 
 
-def fake_address():
-    return (f"Số {random.randint(1, 300)} {random.choice(VN_STREETS)}, "
-            f"{random.choice(VN_WARDS)}, {random.choice(VN_DISTRICTS)}, {random.choice(VN_CITIES)}")
+def fake_address() -> str:
+    street = fake.street_address().replace("\n", ", ")
+    return f"{street}, {fake.city()} {random.choice(AU_STATES)} {fake.postcode()}"
 
 
-def fake_phone():
-    prefix = random.choice(["03", "05", "07", "08", "09"])
-    return f"{prefix}{random.randint(10000000, 99999999)}"
+def fake_abn() -> str:
+    return f"{random.randint(10, 99)} {random.randint(100, 999)} {random.randint(100, 999)} {random.randint(100, 999)}"
 
 
-def fake_cccd():
-    return "".join(str(random.randint(0, 9)) for _ in range(12))
+def fake_bsb() -> str:
+    return f"{random.randint(100, 999)}-{random.randint(100, 999)}"
 
 
-def fake_salary():
-    return f"{random.randint(5, 50) * 1_000_000:,}"
+def fake_account_number() -> str:
+    return f"{random.randint(1000, 9999)} {random.randint(1000, 9999)}"
 
 
-def fake_date():
+def fake_dollar(lo: float = 10.0, hi: float = 900.0) -> str:
+    return f"${random.uniform(lo, hi):.2f}"
+
+
+def fake_dollar_thousands() -> str:
+    return f"${random.randint(30, 150) * 1_000:,}"
+
+
+def fake_hours() -> str:
+    return f"{random.uniform(1.0, 40.0):.1f}"
+
+
+def fake_date() -> str:
     d = fake.date_between(start_date="-5y", end_date="today")
     return d.strftime("%d/%m/%Y")
 
 
-def fake_position():
-    return random.choice(POSITIONS)
+# field_key matches field_extraction_en.py's output dict keys (name,
+# address, abn, bsb, account_number, salary) so a generated value can be
+# checked against what extraction actually found. None means this filler
+# doesn't correspond to any scored field (e.g. the employer's own name --
+# only the employee's is scored).
 
 
-def fake_company():
-    return random.choice(COMPANIES)
-
-
-# field_key matches field_extraction.py's output dict keys (name, address,
-# cccd, phone, salary) so a generated value can be checked against what
-# extraction actually found. None means this filler doesn't correspond to
-# any field our extraction logic tries to recover (position, company,
-# employee ID) -- generated for document realism, not scored.
-
-# colon-anchored -- for inline "Label: value" text within a single paragraph
-LABEL_FILLERS = [
-    (re.compile(r"(?:H[oọ]?\s*(?:và)?\s*t[eê]n|BÊN\s*B|T[eê]n\s*NV|[ÔO]ng\s*/\s*[Bb][àa])\s*:", re.I), fake_name, "name"),
-    (re.compile(r"[ĐD][iị]a\s*ch[iỉ]\s*:", re.I), fake_address, "address"),
-    (re.compile(r"[Ss][ốo]\s*CCCD|CCCD\s*/\s*H[ộo]\s*chi[ếe]u", re.I), fake_cccd, "cccd"),
-    (re.compile(r"[Đđ]i[ệe]n\s*tho[ạa]i\s*:", re.I), fake_phone, "phone"),
-    (re.compile(r"M[ứu]c\s*l[ưu][ơo]ng(?:\s*ch[íi]nh)?\s*:", re.I), fake_salary, "salary"),
-    (re.compile(r"[Cc]h[ứu]c\s*danh|[Cc]h[ứu]c\s*v[ụu]|[Vv][ịi]\s*tr[íi]\s*c[ôo]ng\s*t[áa]c", re.I), fake_position, None),
-    (re.compile(r"BÊN\s*A\s*:\s*C[ÔO]NG\s*TY", re.I), fake_company, None),
-]
-
-# bare (no colon required) -- for table cells where the whole cell is just
-# the label and the value lives in an adjacent cell, e.g. "Họ Và Tên" alone
-# in one cell with the value expected in the next cell over.
-LABEL_FILLERS_BARE = [
-    (re.compile(r"H[oọ]?\s*[Vv][àa]?\s*T[eê]n|BÊN\s*B|T[eê]n\s*NV|[ÔO]ng\s*/\s*[Bb][àa]", re.I), fake_name, "name"),
-    (re.compile(r"[ĐD][iị]a\s*ch[iỉ]", re.I), fake_address, "address"),
-    (re.compile(r"[Ss][ốo]\s*CCCD|CCCD\s*/\s*H[ộo]\s*chi[ếe]u|CMND", re.I), fake_cccd, "cccd"),
-    (re.compile(r"[Đđ]i[ệe]n\s*tho[ạa]i", re.I), fake_phone, "phone"),
-    (re.compile(r"M[ứu]c\s*l[ưu][ơo]ng(?:\s*ch[íi]nh)?|L[ưu][ơo]ng\s*ch[íi]nh|L[ưu][ơo]ng\s*c[ơo]\s*b[ảa]n", re.I), fake_salary, "salary"),
-    (re.compile(r"[Cc]h[ứu]c\s*danh|[Cc]h[ứu]c\s*v[ụu]|[Vv][ịi]\s*tr[íi]\s*c[ôo]ng\s*t[áa]c", re.I), fake_position, None),
-    (re.compile(r"M[ãa]\s*Nh[âa]n\s*Vi[êe]n", re.I), lambda: str(random.randint(1000, 9999)), None),
-]
-
-_PLACEHOLDER_RE = re.compile(r"^[\s.…_\-]*$")
-
-
-def _is_placeholder(text: str) -> bool:
-    return bool(_PLACEHOLDER_RE.match(text.strip())) or not text.strip()
-
-
-def _try_fill_paragraph_text(text: str) -> tuple[str, bool, str | None, str | None]:
-    for label_re, generator, field_key in LABEL_FILLERS:
-        m = label_re.search(text)
-        if not m:
+def _apply_label_fillers(text: str, fillers: list[tuple[re.Pattern, object, str | None]]) -> tuple[str, list[tuple[str, str]]]:
+    """Each fillers entry is (pattern, generator, field_key). pattern must
+    have exactly one capture group covering the placeholder span to
+    replace -- everything else in the line (the label text) is preserved
+    verbatim. Applies every fillers entry that matches (a line can carry
+    more than one field, e.g. the payslip's dense header cells)."""
+    recorded: list[tuple[str, str]] = []
+    for pattern, generator, field_key in fillers:
+        m = pattern.search(text)
+        if m is None:
             continue
-        after = text[m.end():]
-        if _is_placeholder(after):
-            value = generator()
-            return text[:m.end()] + " " + value, True, field_key, value
-    return text, False, None, None
+        value = generator()
+        text = text[: m.start(1)] + value + text[m.end(1):]
+        if field_key is not None:
+            recorded.append((field_key, value))
+    return text, recorded
+
+
+_DOLLAR_THOUSANDS_RE = re.compile(r"\$\d{2},\d{3}\b")
+_DOLLAR_RE = re.compile(r"\$\d{2}\.\d{2}\b")
+_HOURS_RE = re.compile(r"(?<!\$)\b\d{2}\.\d{2}\b")
+
+
+def _apply_numeric_placeholders(text: str) -> tuple[str, list[str]]:
+    """Blanket-replaces the payslip template's own bare '$00.00' / '$00,000'
+    / '00.00' placeholder shapes with realistic random values, independent
+    of any label -- these sit in table cells (hours/rate/total columns)
+    with no adjacent label text to anchor on. Returns every dollar value
+    substituted (each one is a legitimate 'salary' list-field ground-truth
+    entry per SALARY_RE's shape) alongside the substituted text; hours
+    values are generated but not returned since they aren't a scored
+    field (SALARY_RE requires a '$' prefix)."""
+    salary_values: list[str] = []
+
+    def thousands_repl(_m: re.Match) -> str:
+        value = fake_dollar_thousands()
+        salary_values.append(value)
+        return value
+
+    def dollar_repl(_m: re.Match) -> str:
+        value = fake_dollar()
+        salary_values.append(value)
+        return value
+
+    def hours_repl(_m: re.Match) -> str:
+        return fake_hours()
+
+    text = _DOLLAR_THOUSANDS_RE.sub(thousands_repl, text)
+    text = _DOLLAR_RE.sub(dollar_repl, text)
+    text = _HOURS_RE.sub(hours_repl, text)
+    return text, salary_values
 
 
 def _set_paragraph_text(p, new_text: str) -> None:
@@ -118,7 +118,23 @@ def _set_paragraph_text(p, new_text: str) -> None:
         p.add_run(new_text)
 
 
-def fill_docx(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+# Vetted against field_extraction_en.py's actual LABEL_PATTERNS -- of the 8
+# downloaded en_contract templates with real placeholder blanks, only this
+# one uses a colon-anchored "Employee Name:"/"Employee Address:" convention
+# LABEL_PATTERNS actually matches; the rest embed placeholders in letter
+# headers or prose ("[Employee First Name]", "Dear [insert employee's
+# first name]") with no colon anchor, and were dropped rather than
+# special-cased (see docs/superpowers/specs/2026-08-12-en-validation-
+# corpus-benchmark-design.md, Decision 3).
+CONTRACT_LABEL_FILLERS = [
+    (re.compile(r"Employer\s*Name\s*:\s*(_{4,})", re.IGNORECASE), fake_name, None),
+    (re.compile(r"Employer\s*Address\s*:\s*(_{4,})", re.IGNORECASE), fake_address, None),
+    (re.compile(r"Employee\s*Name\s*:\s*(_{4,})", re.IGNORECASE), fake_name, "name"),
+    (re.compile(r"Employee\s*Address\s*:\s*(_{4,})", re.IGNORECASE), fake_address, "address"),
+]
+
+
+def fill_docx_contract(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
     if seed is not None:
         random.seed(seed)
         Faker.seed(seed)
@@ -127,49 +143,92 @@ def fill_docx(src_path: str, dst_path: str, seed: int | None = None) -> tuple[in
     filled = 0
     ground_truth: dict[str, list[str]] = {}
 
-    def record(field_key: str | None, value: str | None) -> None:
-        if field_key is not None:
-            ground_truth.setdefault(field_key, []).append(value)
-
     for p in doc.paragraphs:
-        new_text, did_fill, field_key, value = _try_fill_paragraph_text(p.text)
-        if did_fill:
+        text = p.text
+        if not text.strip():
+            continue
+        new_text, recorded = _apply_label_fillers(text, CONTRACT_LABEL_FILLERS)
+        if new_text != text:
             _set_paragraph_text(p, new_text)
             filled += 1
-            record(field_key, value)
-
-    for table in doc.tables:
-        for row in table.rows:
-            cells = row.cells
-            for i, cell in enumerate(cells):
-                # same-cell "Label: value" first (colon-anchored)
-                new_text, did_fill, field_key, value = _try_fill_paragraph_text(cell.text)
-                if did_fill and cell.paragraphs:
-                    _set_paragraph_text(cell.paragraphs[0], new_text)
-                    filled += 1
-                    record(field_key, value)
-                    continue
-                # bare label alone in this cell, value expected in the next cell
-                matched_generator = None
-                matched_field_key = None
-                for label_re, generator, field_key in LABEL_FILLERS_BARE:
-                    if label_re.search(cell.text):
-                        matched_generator = generator
-                        matched_field_key = field_key
-                        break
-                if matched_generator is None:
-                    continue
-                if i + 1 < len(cells) and _is_placeholder(cells[i + 1].text):
-                    target = cells[i + 1]
-                    if target.paragraphs:
-                        value = matched_generator()
-                        _set_paragraph_text(target.paragraphs[0], value)
-                        filled += 1
-                        record(matched_field_key, value)
+            for field_key, value in recorded:
+                ground_truth.setdefault(field_key, []).append(value)
 
     Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
     doc.save(dst_path)
     return filled, ground_truth
+
+
+# The real Fair Work Ombudsman official payslip template
+# (samples/en_pay_slip/Pay-slip-template-sts.docx) -- the same document
+# field_extraction_en.py's docstring already cites as its grounding source.
+# Structurally different from the contract template: fields are packed
+# multiple-per-cell as separate paragraphs within one table cell (confirmed
+# via direct inspection -- cell.paragraphs returns one paragraph per line,
+# not one paragraph with embedded line breaks), using "<insert x>"
+# placeholders, plus bare "$00.00"/"$00,000"/"00.00" numeric placeholders
+# in the Entitlements/Deductions/Superannuation line-item tables with no
+# adjacent label at all.
+PAYSLIP_LABEL_FILLERS = [
+    (re.compile(r"\*?Employee\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_name, "name"),
+    (re.compile(r"\*?ABN\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_abn, "abn"),
+    (re.compile(r"BSB\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_bsb, "bsb"),
+    (re.compile(r"Account\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_account_number, "account_number"),
+]
+
+
+def fill_docx_payslip(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    if seed is not None:
+        random.seed(seed)
+        Faker.seed(seed)
+
+    doc = docx.Document(src_path)
+    filled = 0
+    ground_truth: dict[str, list[str]] = {}
+
+    def record(field_key: str, value: str) -> None:
+        ground_truth.setdefault(field_key, []).append(value)
+
+    for table in doc.tables:
+        for row in table.rows:
+            row_label = row.cells[0].text.strip().lower()
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    text = p.text
+                    if not text.strip():
+                        continue
+                    new_text, recorded = _apply_label_fillers(text, PAYSLIP_LABEL_FILLERS)
+                    new_text, salary_values = _apply_numeric_placeholders(new_text)
+                    if new_text != text:
+                        _set_paragraph_text(p, new_text)
+                        filled += 1
+                        for field_key, value in recorded:
+                            record(field_key, value)
+                        for value in salary_values:
+                            record("salary", value)
+            # "Total gross payment" (table 1, last row) is the only figure
+            # extract_income_en() actually reads -- it checks gross before
+            # net, so that's the value ground truth must match, even though
+            # "Total net payment" (table 4) also gets a real dollar value
+            # above via the generic pass (and correctly counts toward
+            # "salary" list-field ground truth, matching real observed
+            # production behavior where the gross total appears in both
+            # the "salary" list and the "income" field simultaneously).
+            if row_label.startswith("total gross payment"):
+                m = re.search(r"\$[\d,]+\.\d{2}", row.cells[-1].text)
+                if m:
+                    ground_truth["income"] = [m.group(0)]
+                    ground_truth["income_basis"] = ["gross"]
+
+    Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(dst_path)
+    return filled, ground_truth
+
+
+def fill_docx(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    if "en_pay_slip" in src_path.replace("\\", "/"):
+        return fill_docx_payslip(src_path, dst_path, seed=seed)
+    return fill_docx_contract(src_path, dst_path, seed=seed)
 
 
 if __name__ == "__main__":
