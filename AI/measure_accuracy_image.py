@@ -21,6 +21,7 @@ import numpy as np
 import pypdfium2 as pdfium
 
 from _fill_templates import fill_docx
+from field_extraction_en import parse_currency_amount
 from measure_accuracy import build_manifest
 from module1_opencv import enhance
 from module2_ocr_extraction import extract_fields
@@ -28,8 +29,8 @@ from module2_ocr_extraction import extract_fields
 SOFFICE = r"C:\Program Files\LibreOffice\program\soffice.exe"
 RENDER_DIR = Path("samples/_rendered_for_ocr_scoring")
 
-SCALAR_FIELDS = {"name", "address"}
-LIST_FIELDS = {"cccd", "phone", "salary"}
+SCALAR_FIELDS = {"name", "address", "bsb", "account_number"}
+LIST_FIELDS = {"abn", "salary"}
 
 
 def docx_to_png(docx_path: str, out_png: Path, scale: float) -> None:
@@ -51,6 +52,7 @@ def score(render_scale: float = 2.0, use_enhance: bool = True, limit: int | None
     manifest = build_manifest()[:limit]
     totals = {f: 0 for f in SCALAR_FIELDS | LIST_FIELDS}
     correct = {f: 0 for f in SCALAR_FIELDS | LIST_FIELDS}
+    income_total = income_correct = 0
     misses = []
 
     for i, (src, dst, seed) in enumerate(manifest, 1):
@@ -65,7 +67,7 @@ def score(render_scale: float = 2.0, use_enhance: bool = True, limit: int | None
         # its path handling entirely.
         img = cv2.imdecode(np.fromfile(str(png_path), dtype=np.uint8), cv2.IMREAD_COLOR)
         pipeline_input = enhance(img)["image"] if use_enhance else img
-        extracted = extract_fields(pipeline_input, lang="vi")["fields"]
+        extracted = extract_fields(pipeline_input, lang="en")["fields"]
 
         print(f"[{i}/{len(manifest)}] {dst}", flush=True)
 
@@ -92,17 +94,33 @@ def score(render_scale: float = 2.0, use_enhance: bool = True, limit: int | None
                 else:
                     misses.append((dst, field, [v], sorted(extracted_set)))
 
+        gt_income = ground_truth.get("income")
+        if gt_income:
+            income_total += 1
+            expected = parse_currency_amount(gt_income[0])
+            expected_basis = ground_truth["income_basis"][0]
+            got = extracted.get("income")
+            got_basis = extracted.get("income_basis")
+            if got is not None and abs(got - expected) < 0.01 and got_basis == expected_basis:
+                income_correct += 1
+            else:
+                misses.append((dst, "income", [gt_income[0]], (got, got_basis)))
+
     with open(report_path, "w", encoding="utf-8") as out:
         out.write(f"render_scale={render_scale} use_enhance={use_enhance}\n")
         out.write(f"Documents scored: {len(manifest)}\n\n")
         out.write("Per-field accuracy (correct / total ground-truth values):\n")
         overall_correct = overall_total = 0
-        for field in ("name", "address", "cccd", "phone", "salary"):
+        for field in ("name", "address", "bsb", "account_number", "abn", "salary"):
             t, c = totals[field], correct[field]
             pct = f"{100 * c / t:.1f}%" if t else "n/a (no ground truth)"
-            out.write(f"  {field:8s}: {c:3d} / {t:3d}  ({pct})\n")
+            out.write(f"  {field:15s}: {c:3d} / {t:3d}  ({pct})\n")
             overall_correct += c
             overall_total += t
+        income_pct = f"{100 * income_correct / income_total:.1f}%" if income_total else "n/a"
+        out.write(f"  {'income':15s}: {income_correct:3d} / {income_total:3d}  ({income_pct})\n")
+        overall_correct += income_correct
+        overall_total += income_total
         overall_pct = f"{100 * overall_correct / overall_total:.1f}%" if overall_total else "n/a"
         out.write(f"\nOverall: {overall_correct} / {overall_total}  ({overall_pct})\n")
 
