@@ -20,7 +20,7 @@ from module3_redaction import find_sensitive_boxes
 
 IOU_THRESHOLD = 0.5
 IMAGE_DIR = Path("samples/_redaction_annotation")
-FIELDS = ("name", "abn", "bsb", "account_number", "income", "salary")
+FIELDS = ("name", "address", "abn", "bsb", "account_number", "income", "salary")
 
 
 def compute_iou(box_a: dict, box_b: dict) -> float:
