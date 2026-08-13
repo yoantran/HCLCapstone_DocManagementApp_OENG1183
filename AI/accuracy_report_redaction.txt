@@ -1,0 +1,33 @@
+iou_threshold=0.5
+Documents scored: 54
+
+Per-field accuracy (correct / total ground-truth boxes):
+  name           :  31 /  36  (86.1%)
+  address        :  17 /  18  (94.4%)
+  abn            :  18 /  18  (100.0%)
+  bsb            :  18 /  18  (100.0%)
+  account_number :  18 /  18  (100.0%)
+  income         :  36 /  36  (100.0%)
+  salary         : 303 / 306  (99.0%)
+
+Overall: 441 / 450  (98.0%)
+
+Misses (9):
+  part-time-employment-contract-FILLED-101_p0.png
+    field=address best_iou=0.463 gt_box={'field': 'address', 'x_pct': 0.1709613478691774, 'y_pct': 0.2133933014419304, 'w_pct': 0.44301288404360756, 'h_pct': 0.02623688155922039}
+  part-time-employment-contract-FILLED-108_p0.png
+    field=name best_iou=0.447 gt_box={'field': 'name', 'x_pct': 0.15609514370664024, 'y_pct': 0.17891054282124075, 'w_pct': 0.13082259663032705, 'h_pct': 0.0239880059970015}
+  part-time-employment-contract-FILLED-111_p0.png
+    field=name best_iou=0.476 gt_box={'field': 'name', 'x_pct': 0.15609514370664024, 'y_pct': 0.18040979319605335, 'w_pct': 0.12388503468780972, 'h_pct': 0.022488755622188907}
+  part-time-employment-contract-FILLED-112_p0.png
+    field=name best_iou=0.418 gt_box={'field': 'name', 'x_pct': 0.15510406342913777, 'y_pct': 0.17591204207161557, 'w_pct': 0.09613478691774034, 'h_pct': 0.02848575712143928}
+  part-time-employment-contract-FILLED-113_p0.png
+    field=name best_iou=0.486 gt_box={'field': 'name', 'x_pct': 0.1531219028741328, 'y_pct': 0.17966016800864704, 'w_pct': 0.155599603567889, 'h_pct': 0.023238380809595203}
+  part-time-employment-contract-FILLED-114_p0.png
+    field=name best_iou=0.446 gt_box={'field': 'name', 'x_pct': 0.1531219028741328, 'y_pct': 0.17741129244642814, 'w_pct': 0.1199207135777998, 'h_pct': 0.029985007496251874}
+  Pay-slip-template-sts-FILLED-122_p2.png
+    field=salary best_iou=0.483 gt_box={'field': 'salary', 'x_pct': 0.1426264800861141, 'y_pct': 0.40102171331529873, 'w_pct': 0.08503767491926803, 'h_pct': 0.026053639846743294}
+  Pay-slip-template-sts-FILLED-132_p2.png
+    field=salary best_iou=0.472 gt_box={'field': 'salary', 'x_pct': 0.306243272335845, 'y_pct': 0.4212005264457615, 'w_pct': 0.09903121636167922, 'h_pct': 0.03065134099616858}
+  Pay-slip-template-sts-FILLED-135_p2.png
+    field=salary best_iou=0.446 gt_box={'field': 'salary', 'x_pct': 0.14155005382131325, 'y_pct': 0.39948915211176966, 'w_pct': 0.09257265877287406, 'h_pct': 0.027586206896551724}
