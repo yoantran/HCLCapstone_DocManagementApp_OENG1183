@@ -1,4 +1,20 @@
-MIN_MONTHLY_INCOME_VND = 10_000_000
+# Issue #139: the pipeline's document/OCR language switched to English
+# (#127), and the real validation corpus (#131) is genuinely Australian --
+# the Fair Work Ombudsman's own official payslip template, AUD amounts,
+# ABN, BSB, superannuation, not just English-language VN documents. Kept
+# the Vietnamese min-income floor here after the language switch would
+# have been a live bug: a real AU payslip's extracted income (hundreds to
+# low thousands of dollars per pay period) compared against 10,000,000
+# always fails, regardless of actual income. MAX_REPAYMENT_RATIO/
+# MAX_DTI_RATIO are pure ratios and never needed to change for any
+# currency -- only the absolute-currency floor did.
+#
+# AUD 4,000/month is grounded in Australia's real National Minimum Wage
+# ($26.44/hr, $1,004.90/week full-time as of 1 July 2026 -- Fair Work
+# Ombudsman/Fair Work Commission), rounded down slightly rather than up,
+# consistent with a loan-serviceability floor sitting at or near
+# full-time minimum wage rather than materially above it.
+MIN_MONTHLY_INCOME_AUD = 4_000
 MAX_REPAYMENT_RATIO = 0.30
 MAX_DTI_RATIO = 0.40
 
@@ -19,7 +35,7 @@ def assess_loan_readiness(
             "income_basis": income_basis,
             "existing_debt_assumed_zero": existing_debt_assumed_zero,
             "checks": {
-                "min_income": {**empty_check, "threshold": MIN_MONTHLY_INCOME_VND},
+                "min_income": {**empty_check, "threshold": MIN_MONTHLY_INCOME_AUD},
                 "repayment_ratio": {**empty_check, "threshold": MAX_REPAYMENT_RATIO},
                 "dti": {**empty_check, "threshold": MAX_DTI_RATIO},
             },
@@ -30,9 +46,9 @@ def assess_loan_readiness(
 
     checks = {
         "min_income": {
-            "pass": monthly_income >= MIN_MONTHLY_INCOME_VND,
+            "pass": monthly_income >= MIN_MONTHLY_INCOME_AUD,
             "value": monthly_income,
-            "threshold": MIN_MONTHLY_INCOME_VND,
+            "threshold": MIN_MONTHLY_INCOME_AUD,
         },
         "repayment_ratio": {
             "pass": repayment_ratio <= MAX_REPAYMENT_RATIO,
@@ -58,10 +74,10 @@ def assess_loan_readiness(
 if __name__ == "__main__":
     def test_ready_case():
         result = assess_loan_readiness(
-            monthly_income=20_000_000,
+            monthly_income=8_000,
             income_basis="gross",
-            proposed_monthly_repayment=3_000_000,
-            existing_monthly_debt=1_000_000,
+            proposed_monthly_repayment=1_200,
+            existing_monthly_debt=400,
         )
         assert result["verdict"] == "READY"
         assert result["checks"]["min_income"]["pass"] is True
@@ -71,18 +87,18 @@ if __name__ == "__main__":
 
     def test_income_below_floor():
         result = assess_loan_readiness(
-            monthly_income=8_000_000,
+            monthly_income=3_000,
             income_basis="net",
-            proposed_monthly_repayment=1_000_000,
+            proposed_monthly_repayment=400,
         )
         assert result["verdict"] == "NOT_READY"
         assert result["checks"]["min_income"]["pass"] is False
 
     def test_repayment_ratio_too_high():
         result = assess_loan_readiness(
-            monthly_income=20_000_000,
+            monthly_income=8_000,
             income_basis="gross",
-            proposed_monthly_repayment=7_000_000,  # 35% > 30% cap
+            proposed_monthly_repayment=2_800,  # 35% > 30% cap
         )
         assert result["verdict"] == "NOT_READY"
         assert result["checks"]["repayment_ratio"]["pass"] is False
@@ -90,10 +106,10 @@ if __name__ == "__main__":
 
     def test_dti_too_high_with_existing_debt():
         result = assess_loan_readiness(
-            monthly_income=20_000_000,
+            monthly_income=8_000,
             income_basis="gross",
-            proposed_monthly_repayment=3_000_000,
-            existing_monthly_debt=6_000_000,  # (6M+3M)/20M = 45% > 40% cap
+            proposed_monthly_repayment=1_200,
+            existing_monthly_debt=2_400,  # (2400+1200)/8000 = 45% > 40% cap
         )
         assert result["verdict"] == "NOT_READY"
         assert result["checks"]["dti"]["pass"] is False
@@ -101,19 +117,19 @@ if __name__ == "__main__":
 
     def test_missing_existing_debt_assumed_zero():
         result = assess_loan_readiness(
-            monthly_income=20_000_000,
+            monthly_income=8_000,
             income_basis="net",
-            proposed_monthly_repayment=3_000_000,
+            proposed_monthly_repayment=1_200,
             existing_monthly_debt=None,
         )
         assert result["existing_debt_assumed_zero"] is True
-        assert result["checks"]["dti"]["value"] == 3_000_000 / 20_000_000
+        assert result["checks"]["dti"]["value"] == 1_200 / 8_000
 
     def test_missing_income_is_insufficient_data():
         result = assess_loan_readiness(
             monthly_income=None,
             income_basis=None,
-            proposed_monthly_repayment=3_000_000,
+            proposed_monthly_repayment=1_200,
         )
         assert result["verdict"] == "INSUFFICIENT_DATA"
         assert result["checks"]["min_income"]["pass"] is None
