@@ -3,7 +3,7 @@ import { BsGithub, BsGlobe } from 'react-icons/bs';
 export default function Footer({ className = "" }) {
     return (
         <footer
-            className={`w-full text-(--lighter-blue-300) text-sm rounded-2xl px-8 py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${className}`}
+            className={`w-full text-(--lighter-blue-300) text-sm rounded-2xl px-8 py-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${className}`}
         >
             <div>
                 © {new Date().getFullYear()} The Chosen One. All rights reserved.

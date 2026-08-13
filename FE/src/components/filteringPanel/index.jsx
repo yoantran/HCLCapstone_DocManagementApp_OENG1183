@@ -20,7 +20,7 @@ const searchInputTheme = {
 const FilteringPanel = ({
     // Global
     currentPage = 1,
-    pageSize = 10,
+    pageSize = 5,
     totalItems = 0,
     onPageChange = number => { },
     customButton = null,
@@ -77,7 +77,9 @@ const FilteringPanel = ({
     return (
         <>
             <div
-                className="flex w-[95%] max-w-365 h-17.25 items-center justify-between bg-(--dark-blue-800) px-4 py-3 text-(--cool-gray-500) shadow-md border-b border--(--ch-cool-gray) rounded-t-md">
+                className="
+                flex w-[95%] max-w-365 mx-auto items-center justify-between bg-(--dark-blue-800) px-4 py-1.5 text-(--cool-gray-500) shadow-md border-b border--(--ch-cool-gray) rounded-t-md
+                ">
 
                 {/*Settings Icon & Search Bar */}
                 <div className={"flex items-center gap-3 flex-1 max-w-xl shrink-0"}>
@@ -153,7 +155,7 @@ const FilteringPanel = ({
 
             </div>
             {(activeTabLabel || onClearFilters) && (
-                <div className="flex w-[95%] max-w-365 h-12 items-center bg-(--dark-blue-800) px-4 text-xs border-b border-r border-l border-(--ch-cool-gray) select-none justify-between">
+                <div className="flex w-[95%] max-w-365 mx-auto h-12 items-center gap-4 bg-(--dark-blue-800) px-4 text-xs border-b border-r border-l border-(--ch-cool-gray) select-none justify-between">
                     {activeTabLabel && (
                         <div className="flex items-center gap-2 bg-(--lighter-blue-700) px-2.5 py-1 rounded border border-(--cool-gray-500)/30">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" />
