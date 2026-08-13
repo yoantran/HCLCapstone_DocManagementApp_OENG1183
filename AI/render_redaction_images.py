@@ -39,14 +39,28 @@ def render_corpus() -> list[Path]:
 
     for src, dst, seed in manifest:
         fill_docx(src, dst, seed=seed)
-        png_paths = docx_to_pngs(dst, OUT_DIR, RENDER_SCALE)
+        # docx_to_pngs() writes every page to OUT_DIR unconditionally --
+        # it has no concept of which pages are real content vs. fixed
+        # boilerplate. Slicing its returned list only controls which
+        # paths get enhanced+kept below; the unwanted pages are still
+        # sitting on disk after this call and must be deleted explicitly,
+        # not just left unprocessed (a real bug caught before handing
+        # this off for annotation: an unfixed run left 108 raw, wrong
+        # pages mixed in alongside the 54 real ones, indistinguishable
+        # by filename).
+        all_png_paths = docx_to_pngs(dst, OUT_DIR, RENDER_SCALE)
         normalized_src = src.replace("\\", "/")
         if "en_pay_slip" in normalized_src:
-            png_paths = png_paths[2:4]
+            keep_paths = all_png_paths[2:4]
         elif "en_contract" in normalized_src:
-            png_paths = png_paths[0:1]
+            keep_paths = all_png_paths[0:1]
+        else:
+            keep_paths = all_png_paths
 
-        for png_path in png_paths:
+        for png_path in all_png_paths:
+            if png_path not in keep_paths:
+                png_path.unlink()
+                continue
             img = cv2.imdecode(np.fromfile(str(png_path), dtype=np.uint8), cv2.IMREAD_COLOR)
             enhanced = enhance(img)["image"]
             cv2.imencode(".png", enhanced)[1].tofile(str(png_path))
