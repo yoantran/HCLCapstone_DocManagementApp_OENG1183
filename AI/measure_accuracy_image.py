@@ -10,7 +10,6 @@ the missing measurement flagged after the text-native branch hit 100%.
 """
 
 import argparse
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +24,7 @@ from _fill_templates import fill_docx
 from field_extraction_en import extract_fields_from_text_en, parse_currency_amount
 from measure_accuracy import build_manifest
 from module1_opencv import enhance
+from module2_ocr_extraction import _get_pipeline, html_table_to_rows
 
 SOFFICE = r"C:\Program Files\LibreOffice\program\soffice.exe"
 RENDER_DIR = Path("samples/_rendered_for_ocr_scoring")
@@ -59,32 +59,34 @@ def docx_to_pngs(docx_path: str, out_dir: Path, scale: float) -> list[Path]:
     return png_paths
 
 
-def _extract_fields_for_pages(png_paths: list[Path], lang: str = "en") -> list[dict]:
-    """Runs each page's OCR in a completely fresh, isolated OS subprocess
-    (_ocr_worker.py) -- no shared pipeline object, no shared native memory
-    buffers between pages. Confirmed empirically this session: even a
-    single, correctly *batched* predict() call within one process can
-    occasionally surface a stale/wrong result for one page in the batch
-    while the other pages are correct (e.g. name/bsb genuinely correct on
-    3 of 4 pages, but one page returns coherent, real-looking data copied
-    from a completely different, previously-processed image) -- a real,
-    non-deterministic race in the third-party CPU inference engine's
-    internal buffer handling (PaddleOCR/PaddleX PPStructureV3), not
-    something closeable with a Python-level code change (looping vs.
-    batching, with/without image preprocessing, and several other
-    variables were each tested and ruled out individually). Process
-    isolation closes it by construction: there is no memory left to share
-    across separate OS processes. Slower (a fresh pipeline construction
-    per page) but correct, which matters more for a benchmark whose whole
-    purpose is producing a trustworthy number."""
+def _extract_fields_for_pages(images: list, lang: str = "en") -> list[dict]:
+    """One batched predict() call across every page of a document, not a
+    loop of single-image predict() calls -- looping single-image calls was
+    confirmed unreliable (occasional empty results); PaddleOCR's own docs
+    recommend a list input for multi-image processing, and a single
+    batched call is both correct and fast. (An earlier version of this
+    function chased what looked like cross-page OCR corruption with a much
+    heavier per-page subprocess-isolation approach -- that turned out to
+    be a red herring: the real cause was scoring against the source
+    template's own pages 0-1, which is fixed at the call site now, not
+    anything wrong with the OCR call itself. See
+    docs/superpowers/plans/2026-08-12-en-validation-corpus-benchmark-plan.md
+    for the investigation.)"""
+    normalized = []
+    for image in images:
+        if isinstance(image, np.ndarray) and image.ndim == 2:
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        normalized.append(image)
+
+    results = list(_get_pipeline(lang).predict(normalized))
+
     page_fields = []
-    for png_path in png_paths:
-        proc = subprocess.run(
-            [sys.executable, "_ocr_worker.py", str(png_path), lang],
-            check=True, capture_output=True, text=True, encoding="utf-8",
-        )
-        payload = json.loads(proc.stdout)
-        page_fields.append(extract_fields_from_text_en(payload["text"], table_rows=payload["table_rows"] or None))
+    for result in results:
+        ocr_res = result.get("overall_ocr_res", {})
+        text = "\n".join(ocr_res.get("rec_texts", []))
+        tables = [t["pred_html"] for t in result.get("table_res_list", []) if t.get("pred_html")]
+        table_rows = [row for html in tables for row in html_table_to_rows(html)]
+        page_fields.append(extract_fields_from_text_en(text, table_rows=table_rows or None))
     return page_fields
 
 
@@ -120,22 +122,28 @@ def score(render_scale: float = 2.0, use_enhance: bool = True, limit: int | None
         _, ground_truth = fill_docx(src, dst, seed=seed)
 
         png_paths = docx_to_pngs(dst, RENDER_DIR, render_scale)
+        if "en_pay_slip" in src.replace("\\", "/"):
+            # Pages 0-1 are the Fair Work Ombudsman template's own fixed
+            # instructional preamble and a fully worked "EXAMPLE PAY SLIP"
+            # section -- real, printed, static example data (employee
+            # "Jo Worker", a real-looking ABN/BSB/account/$ figures) baked
+            # into the source template, identical on every generated
+            # document since the filler never touches these pages. Scoring
+            # must only look at pages 2+ (the actual blank form the filler
+            # wrote this document's real seeded values into); otherwise
+            # the "first non-empty page wins" merge below picks up the
+            # example section's fixed values instead of this document's.
+            png_paths = png_paths[2:]
 
-        pipeline_input_paths = []
+        pipeline_inputs = []
         for png_path in png_paths:
-            if not use_enhance:
-                pipeline_input_paths.append(png_path)
-                continue
             # cv2.imread silently returns None on Unicode/bracket paths on
             # Windows (real filenames here, e.g. "[Mẫu tham khảo] HĐ lao
             # động-FILLED.png") -- imdecode from a manually-read buffer
             # sidesteps its path handling entirely.
             img = cv2.imdecode(np.fromfile(str(png_path), dtype=np.uint8), cv2.IMREAD_COLOR)
-            enhanced = enhance(img)["image"]
-            enhanced_path = png_path.parent / f"{png_path.stem}_enhanced.png"
-            cv2.imencode(".png", enhanced)[1].tofile(str(enhanced_path))
-            pipeline_input_paths.append(enhanced_path)
-        page_fields_list = _extract_fields_for_pages(pipeline_input_paths, lang="en")
+            pipeline_inputs.append(enhance(img)["image"] if use_enhance else img)
+        page_fields_list = _extract_fields_for_pages(pipeline_inputs, lang="en")
         extracted = _merge_page_fields(page_fields_list)
 
         print(f"[{i}/{len(manifest)}] {dst}", flush=True)
