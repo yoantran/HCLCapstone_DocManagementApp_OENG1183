@@ -4,47 +4,11 @@ Per-field accuracy (correct / total ground-truth values):
   name           :  36 /  36  (100.0%)
   address        :  18 /  18  (100.0%)
   bsb            :  18 /  18  (100.0%)
-  account_number :   0 /  18  (0.0%)
+  account_number :  18 /  18  (100.0%)
   abn            :  18 /  18  (100.0%)
   salary         : 342 / 342  (100.0%)
   income         :  18 /  18  (100.0%)
 
-Overall: 450 / 468  (96.2%)
+Overall: 468 / 468  (100.0%)
 
-Misses (18):
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-118.docx
-    field=account_number expected=['6893 6432'] got='6893 6432 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-119.docx
-    field=account_number expected=['2766 1756'] got='2766 1756 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-120.docx
-    field=account_number expected=['7295 7469'] got='7295 7469 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-121.docx
-    field=account_number expected=['8000 9679'] got='8000 9679 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-122.docx
-    field=account_number expected=['9091 5622'] got='9091 5622 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-123.docx
-    field=account_number expected=['8813 5347'] got='8813 5347 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-124.docx
-    field=account_number expected=['2836 7306'] got='2836 7306 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-125.docx
-    field=account_number expected=['3919 3639'] got='3919 3639 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-126.docx
-    field=account_number expected=['7913 1958'] got='7913 1958 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-127.docx
-    field=account_number expected=['7174 5635'] got='7174 5635 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-128.docx
-    field=account_number expected=['5165 4233'] got='5165 4233 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-129.docx
-    field=account_number expected=['4940 3867'] got='4940 3867 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-130.docx
-    field=account_number expected=['7446 2323'] got='7446 2323 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-131.docx
-    field=account_number expected=['9140 5332'] got='9140 5332 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-132.docx
-    field=account_number expected=['6469 4209'] got='6469 4209 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-133.docx
-    field=account_number expected=['3104 2922'] got='3104 2922 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-134.docx
-    field=account_number expected=['7254 6863'] got='7254 6863 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
-  samples/en_pay_slip/Pay-slip-template-sts-FILLED-135.docx
-    field=account_number expected=['2261 4764'] got='2261 4764 [This is the amount paid after tax and any other allowable deductions have been deducted from the total gross payment.'
+Misses (0):
