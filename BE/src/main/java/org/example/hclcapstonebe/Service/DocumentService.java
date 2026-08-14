@@ -43,6 +43,7 @@ public class DocumentService {
     private final DocumentMapper documentMapper;
     private final SupabaseStorageService supabaseStorageService;
     private final ClamAvScannerService clamAvScannerService;
+    private final AiProcessingService aiProcessingService;
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
@@ -157,7 +158,14 @@ public class DocumentService {
                 .proposedRepaymentAmount(proposedRepaymentAmount)
                 .build();
 
-        return documentRepository.save(doc);
+        Document saved = documentRepository.save(doc);
+
+        if (scanResult.status() == ScanStatus.CLEAN) {
+            aiProcessingService.processAsync(saved.getId(), fileData, originalName,
+                    proposedRepaymentAmount, uploader.getEmail());
+        }
+
+        return saved;
     }
 
     /**
