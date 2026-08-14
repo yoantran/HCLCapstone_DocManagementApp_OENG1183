@@ -30,9 +30,22 @@ def extract_text_from_csv(path: str) -> str:
 
 
 def extract_text_from_pdf(path: str) -> str:
+    # ponytail: pdfium keeps a native file handle open until this
+    # PdfDocument is explicitly closed -- on Windows that blocks the
+    # caller's os.unlink() of the tmp file (WinError 32), unlike POSIX
+    # which allows deleting an open file. Close pages/doc explicitly
+    # rather than relying on GC timing.
     pdf = pdfium.PdfDocument(path)
-    pages = [page.get_textpage().get_text_range() for page in pdf]
-    return "\n".join(pages)
+    try:
+        pages = []
+        for page in pdf:
+            textpage = page.get_textpage()
+            pages.append(textpage.get_text_range())
+            textpage.close()
+            page.close()
+        return "\n".join(pages)
+    finally:
+        pdf.close()
 
 
 _EXTRACTORS = {
