@@ -9,6 +9,7 @@ import module2_ocr_extraction
 import module2_text_extraction
 import module3_redaction
 import module4_loan_rules
+import income_normalization
 from file_routing import detect_processing_path, render_pdf_first_page
 
 _EMPTY_RESULT = {
@@ -76,12 +77,14 @@ def process_document(
 
         loan_readiness = None
         if proposed_monthly_repayment is not None:
+            normalized = income_normalization.normalize_monthly_income(fields)
             loan_readiness = module4_loan_rules.assess_loan_readiness(
-                monthly_income=fields.get("income"),
-                income_basis=fields.get("income_basis"),
+                monthly_income=normalized["monthly_income"],
+                income_basis=normalized["income_basis"],
                 proposed_monthly_repayment=proposed_monthly_repayment,
                 existing_monthly_debt=existing_monthly_debt,
             )
+            loan_readiness["income_source"] = normalized["income_source"]
 
         return {
             "processing_path": path,
