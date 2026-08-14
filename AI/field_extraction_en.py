@@ -173,10 +173,51 @@ def extract_pay_period_days_en(text: str) -> int | None:
     return (end - start).days
 
 
+# Issue #163 -- balance-sheet totals. Checked all 8 real templates in
+# samples/en_balance_sheet/ directly: every one is a category-label-cell +
+# adjacent-value-cell grid (never a colon-anchored single line like the
+# payslip's "Total gross payment: $X"), which is why this pairs table
+# cells rather than extending LABEL_PATTERNS. "Total Assets" deliberately
+# won't match inside "Total Current Assets" -- \s* only matches
+# whitespace, "Current" sits between them -- so these four patterns don't
+# collide despite three sharing a "Total ... Assets/Liabilities" shape.
+_BALANCE_SHEET_LABEL_RE = {
+    "total_current_assets": re.compile(r"Total\s*Current\s*Assets", re.IGNORECASE),
+    "total_assets": re.compile(r"Total\s*Assets", re.IGNORECASE),
+    "total_current_liabilities": re.compile(r"Total\s*Current\s*Liabilities", re.IGNORECASE),
+    "total_liabilities": re.compile(r"Total\s*Liabilities", re.IGNORECASE),
+    "total_equity": re.compile(r"Total\s*(?:Owner.?s?\s*)?Equity", re.IGNORECASE),
+}
+
+
+def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
+    """Pair a bare label cell with its adjacent value cell -- same
+    algorithm as field_extraction.py's extract_from_table_rows (VN era),
+    ported to English balance-sheet labels. Real templates put the label
+    and its number in adjacent cells of the same row, no colon."""
+    result: dict[str, float | None] = {field: None for field in _BALANCE_SHEET_LABEL_RE}
+    for row in table_rows:
+        for i, cell in enumerate(row):
+            cell = cell.strip()
+            if not cell:
+                continue
+            for field, pattern in _BALANCE_SHEET_LABEL_RE.items():
+                if result.get(field) is not None or not pattern.search(cell):
+                    continue
+                candidate = None
+                if i + 1 < len(row):
+                    candidate = parse_currency_amount(row[i + 1])
+                if candidate is not None:
+                    result[field] = candidate
+    return result
+
+
 def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = None) -> dict:
     fields = extract_regex_fields_en(text)
     fields.update(extract_label_anchored_en(text))
     fields["income"], fields["income_basis"] = extract_income_en(text)
     fields["annual_salary"] = extract_annual_salary_en(text)
     fields["pay_period_days"] = extract_pay_period_days_en(text)
+    if table_rows:
+        fields.update(extract_balance_sheet_fields_en(table_rows))
     return fields
