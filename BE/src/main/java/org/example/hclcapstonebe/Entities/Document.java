@@ -6,6 +6,8 @@ import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
 import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -50,6 +52,7 @@ public class Document {
     private Department department;
 
     @Column(nullable = false)
+    @Builder.Default
     private boolean isDeleted = false;
 
     private LocalDateTime deletedAt;
@@ -61,4 +64,12 @@ public class Document {
     private String scanMessage;
 
     private LocalDateTime scannedAt;
+
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean aiProcessed = false;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private String aiResult;
 }
