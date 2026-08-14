@@ -24,6 +24,7 @@ Real evidence this module's patterns are grounded in:
   cccd/tax_code have no equivalent here and are dropped, not renamed.
 """
 import re
+from datetime import datetime
 
 from field_extraction import _clean_label_value as _clean_label_value_base
 
@@ -71,6 +72,27 @@ INCOME_LABEL_PATTERNS = {
     "gross": re.compile(r"(?:Total\s*gross\s*payment|Gross\s*Pay)\s*:?[ \t]*([^\[\n]*)", re.IGNORECASE),
     "net": re.compile(r"(?:NET\s*PAY|Total\s*net\s*payment|Net\s*Pay)\s*:?[ \t]*([^\[\n]*)", re.IGNORECASE),
 }
+
+# Real line on the Fair Work template: "*Annual salary: [if applicable]
+# $67,000" -- a bracketed aside sits BETWEEN the label and the value,
+# which would break LABEL_PATTERNS's bracket-bounded "rest of line"
+# convention (issue #138) since that stops at the FIRST "[", which here
+# precedes the real value. Anchored to the $-shape itself instead of a
+# generic "rest of line" capture, with an optional bracketed aside
+# skipped in between.
+ANNUAL_SALARY_RE = re.compile(
+    r"Annual\s*salary\s*:[ \t]*(?:\[[^\[\]]*\]\s*)?(\$[\d,]+(?:\.\d{2})?)",
+    re.IGNORECASE,
+)
+
+# Real line once a document is filled: "*Pay period: 16/07/2026 to
+# 22/07/2026" -- the blank template's own placeholders ("<insert date>")
+# are gone once fill_docx_payslip() runs, leaving clean DD/MM/YYYY dates
+# with no bracket noise, unlike ANNUAL_SALARY_RE's label line.
+PAY_PERIOD_RE = re.compile(
+    r"Pay\s*period\s*:[ \t]*(\d{2}/\d{2}/\d{4})\s*to\s*(\d{2}/\d{2}/\d{4})",
+    re.IGNORECASE,
+)
 
 # Real placeholder conventions found in the downloaded corpus that
 # field_extraction.py's _clean_label_value doesn't cover -- Vietnamese
@@ -135,8 +157,26 @@ def extract_income_en(text: str) -> tuple[float | None, str | None]:
     return None, None
 
 
+def extract_annual_salary_en(text: str) -> float | None:
+    match = ANNUAL_SALARY_RE.search(text)
+    if match is None:
+        return None
+    return parse_currency_amount(match.group(1))
+
+
+def extract_pay_period_days_en(text: str) -> int | None:
+    match = PAY_PERIOD_RE.search(text)
+    if match is None:
+        return None
+    start = datetime.strptime(match.group(1), "%d/%m/%Y")
+    end = datetime.strptime(match.group(2), "%d/%m/%Y")
+    return (end - start).days
+
+
 def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = None) -> dict:
     fields = extract_regex_fields_en(text)
     fields.update(extract_label_anchored_en(text))
     fields["income"], fields["income_basis"] = extract_income_en(text)
+    fields["annual_salary"] = extract_annual_salary_en(text)
+    fields["pay_period_days"] = extract_pay_period_days_en(text)
     return fields

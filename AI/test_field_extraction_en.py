@@ -106,6 +106,36 @@ def test_no_cccd_or_vietnamese_fields_in_schema():
     assert "bank_account" not in fields
 
 
+def test_extracts_annual_salary_with_bracketed_aside():
+    text = "*Annual salary: [if applicable] $67,000"
+    fields = extract_fields_from_text_en(text)
+    assert fields["annual_salary"] == 67000.0
+
+
+def test_extracts_annual_salary_without_bracketed_aside():
+    text = "Annual salary: $50,000"
+    fields = extract_fields_from_text_en(text)
+    assert fields["annual_salary"] == 50000.0
+
+
+def test_no_annual_salary_returns_none():
+    text = "Employee: Jo Worker"
+    fields = extract_fields_from_text_en(text)
+    assert fields["annual_salary"] is None
+
+
+def test_extracts_pay_period_days():
+    text = "*Pay period: 16/07/2026 to 22/07/2026"
+    fields = extract_fields_from_text_en(text)
+    assert fields["pay_period_days"] == 6
+
+
+def test_no_pay_period_returns_none():
+    text = "Employee: Jo Worker"
+    fields = extract_fields_from_text_en(text)
+    assert fields["pay_period_days"] is None
+
+
 def run_all():
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for test in tests:
