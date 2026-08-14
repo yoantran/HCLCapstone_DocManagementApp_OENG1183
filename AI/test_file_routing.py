@@ -45,6 +45,18 @@ def test_unsupported_extension_raises():
         pass
 
 
+def test_malformed_pdf_raises_value_error():
+    # A .pdf extension with content pdfium can't actually parse (e.g. a
+    # truncated/corrupt upload) must surface as ValueError -- same shape
+    # as the unsupported-extension case -- not an unhandled PdfiumError
+    # that would 500 the /process endpoint (#153).
+    try:
+        detect_processing_path("broken.pdf", b"%PDF-1.4\n%%EOF")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
 def test_render_pdf_first_page_returns_bgr_array():
     image = render_pdf_first_page(_TEXT_NATIVE_PDF_BYTES)
     assert image.ndim == 3

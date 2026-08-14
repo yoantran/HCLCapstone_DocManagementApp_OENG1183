@@ -41,7 +41,11 @@ def detect_processing_path(filename: str, file_bytes: bytes) -> str:
     if ext in _TEXT_NATIVE_EXTENSIONS:
         return "text_native"
     if ext == "pdf":
-        return "ocr" if _pdf_text_length(file_bytes) < SCANNED_PDF_TEXT_THRESHOLD else "text_native"
+        try:
+            text_length = _pdf_text_length(file_bytes)
+        except pdfium.PdfiumError as e:
+            raise ValueError(f"malformed or unreadable PDF: {e}") from e
+        return "ocr" if text_length < SCANNED_PDF_TEXT_THRESHOLD else "text_native"
     raise ValueError(f"unsupported file extension: {ext!r}")
 
 
