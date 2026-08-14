@@ -194,11 +194,25 @@ _BALANCE_SHEET_LABEL_RE = {
 }
 
 
+def _last_numeric_cell(cells: list[str]) -> float | None:
+    """Issue #172 -- several real templates have more than one value
+    column (e.g. PRIOR YEAR / CURRENT YEAR, FY1 / FY2). The rightmost
+    parseable cell is the most recent period, which is what a
+    loan-readiness check actually wants -- take the LAST match, not the
+    first, so a multi-period row doesn't silently return stale data."""
+    result = None
+    for cell in cells:
+        amount = parse_currency_amount(cell)
+        if amount is not None:
+            result = amount
+    return result
+
+
 def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
-    """Pair a bare label cell with its adjacent value cell -- same
+    """Pair a bare label cell with its adjacent value cell(s) -- same
     algorithm as field_extraction.py's extract_from_table_rows (VN era),
     ported to English balance-sheet labels. Real templates put the label
-    and its number in adjacent cells of the same row, no colon.
+    and its number(s) in adjacent cells of the same row, no colon.
 
     Issue #165 -- one real template (IC-Simple-Small-Business-Balance-Sheet)
     has a summary header row bunching several labels together (adjacent
@@ -214,9 +228,15 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
             for field, pattern in _BALANCE_SHEET_LABEL_RE.items():
                 if result.get(field) is not None or not pattern.search(cell):
                     continue
-                candidate = None
-                if i + 1 < len(row):
-                    candidate = parse_currency_amount(row[i + 1])
+                # Same-row cells are all the same field across time periods
+                # (e.g. "TOTAL ASSETS | $4,900 | $7,850") -- take the last
+                # (most recent). The next-row fallback (#165) is different:
+                # that row typically holds DIFFERENT fields at different
+                # column positions (a header row bunching several labels
+                # together, values below at matching indices), so it must
+                # stay a single same-column lookup, not a rightmost-scan --
+                # scanning there would grab a neighboring field's value.
+                candidate = _last_numeric_cell(row[i + 1:])
                 if candidate is None and row_idx + 1 < len(table_rows):
                     next_row = table_rows[row_idx + 1]
                     if i < len(next_row):
