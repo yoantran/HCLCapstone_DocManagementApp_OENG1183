@@ -194,9 +194,15 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
     """Pair a bare label cell with its adjacent value cell -- same
     algorithm as field_extraction.py's extract_from_table_rows (VN era),
     ported to English balance-sheet labels. Real templates put the label
-    and its number in adjacent cells of the same row, no colon."""
+    and its number in adjacent cells of the same row, no colon.
+
+    Issue #165 -- one real template (IC-Simple-Small-Business-Balance-Sheet)
+    has a summary header row bunching several labels together (adjacent
+    cell is another label, not a value), with the real numbers sitting in
+    the SAME column index on the row directly below instead. Fall back
+    there before giving up."""
     result: dict[str, float | None] = {field: None for field in _BALANCE_SHEET_LABEL_RE}
-    for row in table_rows:
+    for row_idx, row in enumerate(table_rows):
         for i, cell in enumerate(row):
             cell = cell.strip()
             if not cell:
@@ -207,6 +213,10 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
                 candidate = None
                 if i + 1 < len(row):
                     candidate = parse_currency_amount(row[i + 1])
+                if candidate is None and row_idx + 1 < len(table_rows):
+                    next_row = table_rows[row_idx + 1]
+                    if i < len(next_row):
+                        candidate = parse_currency_amount(next_row[i])
                 if candidate is not None:
                     result[field] = candidate
     return result
