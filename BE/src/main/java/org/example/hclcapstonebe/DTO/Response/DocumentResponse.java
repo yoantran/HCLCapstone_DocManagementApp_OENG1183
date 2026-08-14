@@ -4,6 +4,7 @@ package org.example.hclcapstonebe.DTO.Response;
 import lombok.Data;
 import org.example.hclcapstonebe.Enums.ScanStatus;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -25,4 +26,7 @@ public class DocumentResponse {
     private String departmentName;
     private LocalDateTime uploadedDateTime;
     private LocalDateTime latestViewedDateTime;
+    private boolean aiProcessed;
+    private String aiResult; // raw JSON text as stored -- FE JSON.parse()s it
+    private BigDecimal proposedRepaymentAmount;
 }
