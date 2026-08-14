@@ -208,6 +208,18 @@ def _last_numeric_cell(cells: list[str]) -> float | None:
     return result
 
 
+def _next_nonempty_row(table_rows: list[list[str]], start_idx: int) -> list[str] | None:
+    """Issue #171 -- PPStructureV3's table recovery sometimes inserts a
+    genuinely empty spacer row between a header-labels row and its real
+    values row (the docx source of #165's original fix had them
+    adjacent, with no such gap). Skip past empty rows instead of only
+    ever checking exactly one row down."""
+    for row in table_rows[start_idx:]:
+        if any(cell.strip() for cell in row):
+            return row
+    return None
+
+
 def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
     """Pair a bare label cell with its adjacent value cell(s) -- same
     algorithm as field_extraction.py's extract_from_table_rows (VN era),
@@ -218,29 +230,49 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
     has a summary header row bunching several labels together (adjacent
     cell is another label, not a value), with the real numbers sitting in
     the SAME column index on the row directly below instead. Fall back
-    there before giving up."""
+    there before giving up.
+
+    Issue #171 -- on the OCR/image path, PPStructureV3 sometimes recovers
+    that same header row as ONE merged cell containing all the label text
+    concatenated ("TOTAL CURRENT ASSETS TOTAL CURRENT LIABILITIES TOTAL
+    CURRENT EQUITY" as a single string), unlike docx's separate <td> per
+    label -- so every label in the group shares the same cell index and a
+    naive same-column lookup can't tell them apart. Find every field a
+    cell matches, in left-to-right order of appearance, and use each
+    field's RANK within that group (not the cell's own index) as the
+    column position in the values row below -- first label found maps to
+    the first value column, second to the second, etc., matching the
+    real left-to-right visual layout."""
     result: dict[str, float | None] = {field: None for field in _BALANCE_SHEET_LABEL_RE}
     for row_idx, row in enumerate(table_rows):
         for i, cell in enumerate(row):
             cell = cell.strip()
             if not cell:
                 continue
-            for field, pattern in _BALANCE_SHEET_LABEL_RE.items():
-                if result.get(field) is not None or not pattern.search(cell):
+            matches_in_cell = sorted(
+                (match.start(), field)
+                for field, pattern in _BALANCE_SHEET_LABEL_RE.items()
+                if result.get(field) is None
+                for match in [pattern.search(cell)]
+                if match is not None
+            )
+            for within_cell_rank, (_, field) in enumerate(matches_in_cell):
+                if result.get(field) is not None:
                     continue
                 # Same-row cells are all the same field across time periods
                 # (e.g. "TOTAL ASSETS | $4,900 | $7,850") -- take the last
                 # (most recent). The next-row fallback (#165) is different:
                 # that row typically holds DIFFERENT fields at different
-                # column positions (a header row bunching several labels
-                # together, values below at matching indices), so it must
-                # stay a single same-column lookup, not a rightmost-scan --
-                # scanning there would grab a neighboring field's value.
+                # column positions, so it must stay a single-column
+                # lookup, not a rightmost-scan -- scanning there would
+                # grab a neighboring field's value.
                 candidate = _last_numeric_cell(row[i + 1:])
-                if candidate is None and row_idx + 1 < len(table_rows):
-                    next_row = table_rows[row_idx + 1]
-                    if i < len(next_row):
-                        candidate = parse_currency_amount(next_row[i])
+                if candidate is None:
+                    next_row = _next_nonempty_row(table_rows, row_idx + 1)
+                    if next_row is not None:
+                        col = i + within_cell_rank if len(matches_in_cell) > 1 else i
+                        if col < len(next_row):
+                            candidate = parse_currency_amount(next_row[col])
                 if candidate is not None:
                     result[field] = candidate
     return result
