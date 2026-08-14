@@ -193,6 +193,26 @@ _BALANCE_SHEET_LABEL_RE = {
     "total_equity": re.compile(r"Total\s*(?:Owner.?s?\s*)?Equity|Net\s*Assets|Net\s*Worth", re.IGNORECASE),
 }
 
+# Issue #167 -- one real template (samples/en_balance_sheet/Balance sheet
+# template.docx) never writes "Total Current Assets"/"Total Current
+# Liabilities" as combined literal text at all. "Current" only appears in
+# a section-header row ("Current assets"), with a bare, unlabeled "Total"
+# row following later in that same section -- the same bare "Total" text
+# also appears for Fixed Assets/Long-Term Liabilities subtotals we don't
+# want, so which section we're currently in has to be tracked.
+_SECTION_HEADER_TO_FIELD = {
+    re.compile(r"^Current\s+Assets$", re.IGNORECASE): "total_current_assets",
+    re.compile(r"^Current(?:/short-term)?\s+Liabilities$", re.IGNORECASE): "total_current_liabilities",
+}
+# Other section headers seen in the real template -- encountering one of
+# these resets the tracked section so ITS bare "Total" row isn't
+# misattributed to whichever current-asset/liability section came before.
+_OTHER_SECTION_HEADER_RE = re.compile(
+    r"^(?:Fixed\s+Assets|Long-Term\s+Liabilities|Intermediate\s+Liabilities)$",
+    re.IGNORECASE,
+)
+_BARE_TOTAL_RE = re.compile(r"^Total$", re.IGNORECASE)
+
 
 def _last_numeric_cell(cells: list[str]) -> float | None:
     """Issue #172 -- several real templates have more than one value
@@ -220,6 +240,29 @@ def _next_nonempty_row(table_rows: list[list[str]], start_idx: int) -> list[str]
     return None
 
 
+def _row_has_other_numeric_cell(row: list[str], skip_index: int) -> bool:
+    """A real section-header row (e.g. "Current assets" alone) has no
+    other cell with any digit/currency content. A line-item row that
+    happens to share the same text (e.g. IC-Simple's "Current Assets"
+    line item, "['Current Assets', '$', '$', '$', '$', '$']") does --
+    even blank "$" placeholder cells count, distinguishing a header from
+    a line item that just hasn't been filled in yet."""
+    return any(re.search(r"[$\d]", c) for j, c in enumerate(row) if j != skip_index)
+
+
+def _resolve_value(
+    table_rows: list[list[str]], row_idx: int, row: list[str], i: int, col_offset: int
+) -> float | None:
+    candidate = _last_numeric_cell(row[i + 1:])
+    if candidate is None:
+        next_row = _next_nonempty_row(table_rows, row_idx + 1)
+        if next_row is not None:
+            col = i + col_offset
+            if col < len(next_row):
+                candidate = parse_currency_amount(next_row[col])
+    return candidate
+
+
 def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
     """Pair a bare label cell with its adjacent value cell(s) -- same
     algorithm as field_extraction.py's extract_from_table_rows (VN era),
@@ -242,13 +285,40 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
     field's RANK within that group (not the cell's own index) as the
     column position in the values row below -- first label found maps to
     the first value column, second to the second, etc., matching the
-    real left-to-right visual layout."""
+    real left-to-right visual layout.
+
+    Issue #167 -- one real template never writes "Total Current Assets"/
+    "Total Current Liabilities" as combined text at all -- see
+    _SECTION_HEADER_TO_FIELD's comment. Track the current section while
+    scanning; a bare "Total" row is attributed to it."""
     result: dict[str, float | None] = {field: None for field in _BALANCE_SHEET_LABEL_RE}
+    current_section_field: str | None = None
     for row_idx, row in enumerate(table_rows):
         for i, cell in enumerate(row):
             cell = cell.strip()
             if not cell:
                 continue
+
+            if not _row_has_other_numeric_cell(row, i):
+                section_field = next(
+                    (f for p, f in _SECTION_HEADER_TO_FIELD.items() if p.match(cell)), None
+                )
+                if section_field is not None:
+                    current_section_field = section_field
+                    continue
+                if _OTHER_SECTION_HEADER_RE.match(cell):
+                    current_section_field = None
+                    continue
+
+            if _BARE_TOTAL_RE.match(cell) and current_section_field is not None:
+                field = current_section_field
+                current_section_field = None  # only the first bare Total after a header counts
+                if result.get(field) is None:
+                    candidate = _resolve_value(table_rows, row_idx, row, i, 0)
+                    if candidate is not None:
+                        result[field] = candidate
+                continue
+
             matches_in_cell = sorted(
                 (match.start(), field)
                 for field, pattern in _BALANCE_SHEET_LABEL_RE.items()
@@ -259,20 +329,8 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
             for within_cell_rank, (_, field) in enumerate(matches_in_cell):
                 if result.get(field) is not None:
                     continue
-                # Same-row cells are all the same field across time periods
-                # (e.g. "TOTAL ASSETS | $4,900 | $7,850") -- take the last
-                # (most recent). The next-row fallback (#165) is different:
-                # that row typically holds DIFFERENT fields at different
-                # column positions, so it must stay a single-column
-                # lookup, not a rightmost-scan -- scanning there would
-                # grab a neighboring field's value.
-                candidate = _last_numeric_cell(row[i + 1:])
-                if candidate is None:
-                    next_row = _next_nonempty_row(table_rows, row_idx + 1)
-                    if next_row is not None:
-                        col = i + within_cell_rank if len(matches_in_cell) > 1 else i
-                        if col < len(next_row):
-                            candidate = parse_currency_amount(next_row[col])
+                col_offset = within_cell_rank if len(matches_in_cell) > 1 else 0
+                candidate = _resolve_value(table_rows, row_idx, row, i, col_offset)
                 if candidate is not None:
                     result[field] = candidate
     return result
