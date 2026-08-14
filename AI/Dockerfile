@@ -21,14 +21,18 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Explicit file list, not `COPY . .` -- excludes venv/, samples/, test_*.py,
-# and the superseded module2_ocr_extraction.py reference implementation,
-# none of which belong in the runtime image.
+# and module2_ocr_tesseract.py, the pre-#127 Vietnamese Tesseract-path file
+# pipeline.py no longer imports at all. field_extraction.py stays -- it's
+# not itself part of the VN path, field_extraction_en.py imports a shared
+# helper from it (_clean_label_value).
 COPY field_extraction.py \
+     field_extraction_en.py \
      module1_opencv.py \
-     module2_ocr_tesseract.py \
+     module2_ocr_extraction.py \
      module2_text_extraction.py \
      module3_redaction.py \
      module4_loan_rules.py \
+     income_normalization.py \
      file_routing.py \
      pipeline.py \
      main.py \
