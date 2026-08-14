@@ -20,11 +20,17 @@ LIST_FIELDS = {"abn", "salary"}
 CONTRACT_SRC = "samples/en_contract/part-time-employment-contract.docx"
 PAYSLIP_SRC = "samples/en_pay_slip/Pay-slip-template-sts.docx"
 REPS_PER_TEMPLATE = 18
+# #77's epic success criterion calls for 50+ synthetic extraction docs;
+# the original 18+18=36 batch was short. Appended at the tail (seeds
+# 136-149, continuing past the existing 100-135 range) rather than
+# renumbering -- the existing 36 already have scored, committed results
+# and must not be regenerated under different filenames/seeds.
+EXTRA_REPS_PER_TEMPLATE = 7
 
 
 def build_manifest() -> list[tuple[str, str, int]]:
-    """(src, dst, seed) triples -- 18 reps of the one vetted contract
-    template, 18 reps of the one vetted payslip template. Both templates
+    """(src, dst, seed) triples -- 18+7 reps of the one vetted contract
+    template, 18+7 reps of the one vetted payslip template. Both templates
     were screened against field_extraction_en.py's actual LABEL_PATTERNS
     before being chosen; every other downloaded candidate's placeholders
     didn't sit in a colon-anchored label line and was dropped rather than
@@ -39,6 +45,16 @@ def build_manifest() -> list[tuple[str, str, int]]:
         seed += 1
 
     for _ in range(REPS_PER_TEMPLATE):
+        dst = f"samples/en_pay_slip/Pay-slip-template-sts-FILLED-{seed}.docx"
+        manifest.append((PAYSLIP_SRC, dst, seed))
+        seed += 1
+
+    for _ in range(EXTRA_REPS_PER_TEMPLATE):
+        dst = f"samples/en_contract/part-time-employment-contract-FILLED-{seed}.docx"
+        manifest.append((CONTRACT_SRC, dst, seed))
+        seed += 1
+
+    for _ in range(EXTRA_REPS_PER_TEMPLATE):
         dst = f"samples/en_pay_slip/Pay-slip-template-sts-FILLED-{seed}.docx"
         manifest.append((PAYSLIP_SRC, dst, seed))
         seed += 1
