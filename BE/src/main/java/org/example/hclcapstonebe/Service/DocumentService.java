@@ -24,6 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -57,15 +58,16 @@ public class DocumentService {
 
     // ─── UPLOAD ───────────────────────────────────────────
 
-    public DocumentResponse uploadOne(MultipartFile file, String type, String currentUserEmail) {
+    public DocumentResponse uploadOne(MultipartFile file, String type, String currentUserEmail,
+            BigDecimal proposedRepaymentAmount) {
         User uploader = getUserByEmail(currentUserEmail);
-        Document doc = buildAndSaveDocument(file, type, uploader);
+        Document doc = buildAndSaveDocument(file, type, uploader, proposedRepaymentAmount);
         sendNotificationToManager(doc, uploader);
         return toDocumentResponse(doc);
     }
 
     public List<DocumentResponse> uploadMany(List<MultipartFile> files, String type,
-            String currentUserEmail) {
+            String currentUserEmail, BigDecimal proposedRepaymentAmount) {
         // ── Batch size validation ─────────────────────────────────────────────
         if (files == null || files.isEmpty()) {
             throw new AppException("No files provided", HttpStatus.BAD_REQUEST);
@@ -78,13 +80,14 @@ public class DocumentService {
 
         User uploader = getUserByEmail(currentUserEmail);
         return files.stream().map(file -> {
-            Document doc = buildAndSaveDocument(file, type, uploader);
+            Document doc = buildAndSaveDocument(file, type, uploader, proposedRepaymentAmount);
             sendNotificationToManager(doc, uploader);
             return toDocumentResponse(doc);
         }).collect(Collectors.toList());
     }
 
-    private Document buildAndSaveDocument(MultipartFile file, String type, User uploader) {
+    private Document buildAndSaveDocument(MultipartFile file, String type, User uploader,
+            BigDecimal proposedRepaymentAmount) {
         String originalName = file.getOriginalFilename() != null
                 ? file.getOriginalFilename()
                 : "unnamed";
@@ -151,6 +154,7 @@ public class DocumentService {
                 .scanStatus(scanResult.status())
                 .scanMessage(scanResult.message())
                 .scannedAt(scannedAt)
+                .proposedRepaymentAmount(proposedRepaymentAmount)
                 .build();
 
         return documentRepository.save(doc);

@@ -84,9 +84,11 @@ public class DocumentController {
                     )
             )
             @RequestParam("type") String type,
+            @Parameter(description = "Proposed monthly repayment amount for loan-readiness assessment. Optional.")
+            @RequestParam(value = "proposedRepaymentAmount", required = false) java.math.BigDecimal proposedRepaymentAmount,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(documentService.uploadOne(file, type, userDetails.getUsername()));
+                .body(documentService.uploadOne(file, type, userDetails.getUsername(), proposedRepaymentAmount));
     }
 
     @Operation(
@@ -147,9 +149,11 @@ public class DocumentController {
                     )
             )
             @RequestParam("type") String type,
+            @Parameter(description = "Proposed monthly repayment amount for loan-readiness assessment. Optional, applied to all files in the batch.")
+            @RequestParam(value = "proposedRepaymentAmount", required = false) java.math.BigDecimal proposedRepaymentAmount,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(documentService.uploadMany(files, type, userDetails.getUsername()));
+                .body(documentService.uploadMany(files, type, userDetails.getUsername(), proposedRepaymentAmount));
     }
     @Operation(
             summary = "Staff only: Get my uploaded documents",
