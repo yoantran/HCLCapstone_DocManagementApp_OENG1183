@@ -52,6 +52,7 @@ public class Document {
     private Department department;
 
     @Column(nullable = false)
+    @Builder.Default
     private boolean isDeleted = false;
 
     private LocalDateTime deletedAt;
