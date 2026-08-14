@@ -1,15 +1,15 @@
 render_scale=2.0 use_enhance=True
-Documents scored: 36
+Documents scored: 50
 
 Per-field accuracy (correct / total ground-truth values):
-  name           :  36 /  36  (100.0%)
-  address        :  18 /  18  (100.0%)
-  bsb            :  18 /  18  (100.0%)
-  account_number :  18 /  18  (100.0%)
-  abn            :  18 /  18  (100.0%)
-  salary         : 342 / 342  (100.0%)
-  income         :  18 /  18  (100.0%)
+  name           :  50 /  50  (100.0%)
+  address        :  25 /  25  (100.0%)
+  bsb            :  25 /  25  (100.0%)
+  account_number :  25 /  25  (100.0%)
+  abn            :  25 /  25  (100.0%)
+  salary         : 475 / 475  (100.0%)
+  income         :  25 /  25  (100.0%)
 
-Overall: 468 / 468  (100.0%)
+Overall: 650 / 650  (100.0%)
 
 Misses (0):
