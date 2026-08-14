@@ -19,6 +19,65 @@ MAX_REPAYMENT_RATIO = 0.30
 MAX_DTI_RATIO = 0.40
 
 
+# Issue #163 -- balance-sheet-based readiness, a company's financial
+# health rather than a personal repayment-vs-income check. Real AU SME
+# lending sources, not invented: current ratio >= 1.0 is the accepted
+# minimum (1.5-2.0 considered healthy); debt-to-equity <= 2.0 is where AU
+# lenders' "stress zone" starts (below 1.0 = strong, 1.5-2.0 = moderate).
+# https://www.crestmontcapital.com/blog/how-financial-ratios-influence-loan-approval
+# https://nexist.com.au/blog/debt-to-equity-ratio
+MIN_CURRENT_RATIO = 1.0
+MAX_DEBT_TO_EQUITY_RATIO = 2.0
+
+
+def assess_balance_sheet_readiness(
+    total_current_assets: float | None,
+    total_current_liabilities: float | None,
+    total_liabilities: float | None,
+    total_equity: float | None,
+) -> dict:
+    can_check_current_ratio = total_current_assets is not None and total_current_liabilities is not None
+    can_check_debt_to_equity = total_liabilities is not None and total_equity is not None
+
+    if not can_check_current_ratio and not can_check_debt_to_equity:
+        empty_check = {"pass": None, "value": None}
+        return {
+            "verdict": "INSUFFICIENT_DATA",
+            "checks": {
+                "current_ratio": {**empty_check, "threshold": MIN_CURRENT_RATIO},
+                "debt_to_equity": {**empty_check, "threshold": MAX_DEBT_TO_EQUITY_RATIO},
+            },
+        }
+
+    checks = {}
+    if can_check_current_ratio:
+        current_ratio = total_current_assets / total_current_liabilities if total_current_liabilities else None
+        checks["current_ratio"] = {
+            "pass": current_ratio is not None and current_ratio >= MIN_CURRENT_RATIO,
+            "value": current_ratio,
+            "threshold": MIN_CURRENT_RATIO,
+        }
+    else:
+        checks["current_ratio"] = {"pass": None, "value": None, "threshold": MIN_CURRENT_RATIO}
+
+    if can_check_debt_to_equity:
+        debt_to_equity = total_liabilities / total_equity if total_equity else None
+        checks["debt_to_equity"] = {
+            "pass": debt_to_equity is not None and debt_to_equity <= MAX_DEBT_TO_EQUITY_RATIO,
+            "value": debt_to_equity,
+            "threshold": MAX_DEBT_TO_EQUITY_RATIO,
+        }
+    else:
+        checks["debt_to_equity"] = {"pass": None, "value": None, "threshold": MAX_DEBT_TO_EQUITY_RATIO}
+
+    known_checks = [c for c in checks.values() if c["pass"] is not None]
+    verdict = "READY" if known_checks and all(c["pass"] for c in known_checks) else "NOT_READY"
+    if not known_checks:
+        verdict = "INSUFFICIENT_DATA"
+
+    return {"verdict": verdict, "checks": checks}
+
+
 def assess_loan_readiness(
     monthly_income: float | None,
     income_basis: str | None,
@@ -135,6 +194,62 @@ if __name__ == "__main__":
         assert result["checks"]["min_income"]["pass"] is None
         assert result["checks"]["min_income"]["value"] is None
 
+    def test_balance_sheet_ready_case():
+        result = assess_balance_sheet_readiness(
+            total_current_assets=200_000,
+            total_current_liabilities=100_000,  # current ratio 2.0
+            total_liabilities=150_000,
+            total_equity=100_000,  # debt-to-equity 1.5
+        )
+        assert result["verdict"] == "READY"
+        assert result["checks"]["current_ratio"]["pass"] is True
+        assert result["checks"]["debt_to_equity"]["pass"] is True
+
+    def test_balance_sheet_current_ratio_too_low():
+        result = assess_balance_sheet_readiness(
+            total_current_assets=50_000,
+            total_current_liabilities=100_000,  # current ratio 0.5 < 1.0
+            total_liabilities=100_000,
+            total_equity=100_000,
+        )
+        assert result["verdict"] == "NOT_READY"
+        assert result["checks"]["current_ratio"]["pass"] is False
+
+    def test_balance_sheet_debt_to_equity_too_high():
+        result = assess_balance_sheet_readiness(
+            total_current_assets=200_000,
+            total_current_liabilities=100_000,
+            total_liabilities=300_000,
+            total_equity=100_000,  # debt-to-equity 3.0 > 2.0
+        )
+        assert result["verdict"] == "NOT_READY"
+        assert result["checks"]["debt_to_equity"]["pass"] is False
+        assert result["checks"]["current_ratio"]["pass"] is True
+
+    def test_balance_sheet_missing_all_data_is_insufficient():
+        result = assess_balance_sheet_readiness(
+            total_current_assets=None,
+            total_current_liabilities=None,
+            total_liabilities=None,
+            total_equity=None,
+        )
+        assert result["verdict"] == "INSUFFICIENT_DATA"
+        assert result["checks"]["current_ratio"]["pass"] is None
+        assert result["checks"]["debt_to_equity"]["pass"] is None
+
+    def test_balance_sheet_partial_data_checks_what_it_can():
+        # only current-ratio fields present -- debt-to-equity stays
+        # unknown (None), doesn't block the verdict on what IS known
+        result = assess_balance_sheet_readiness(
+            total_current_assets=200_000,
+            total_current_liabilities=100_000,
+            total_liabilities=None,
+            total_equity=None,
+        )
+        assert result["verdict"] == "READY"
+        assert result["checks"]["current_ratio"]["pass"] is True
+        assert result["checks"]["debt_to_equity"]["pass"] is None
+
     tests = [
         test_ready_case,
         test_income_below_floor,
@@ -142,6 +257,11 @@ if __name__ == "__main__":
         test_dti_too_high_with_existing_debt,
         test_missing_existing_debt_assumed_zero,
         test_missing_income_is_insufficient_data,
+        test_balance_sheet_ready_case,
+        test_balance_sheet_current_ratio_too_low,
+        test_balance_sheet_debt_to_equity_too_high,
+        test_balance_sheet_missing_all_data_is_insufficient,
+        test_balance_sheet_partial_data_checks_what_it_can,
     ]
     for test in tests:
         test()

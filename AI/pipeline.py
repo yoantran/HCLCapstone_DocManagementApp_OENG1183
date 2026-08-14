@@ -17,9 +17,21 @@ _EMPTY_RESULT = {
     "fields": None,
     "redaction": None,
     "loan_readiness": None,
+    "balance_sheet_readiness": None,
     "quality": None,
     "error": None,
 }
+
+# Issue #163 -- any of these present means real balance-sheet table data
+# was extracted, regardless of document type. Content-driven, not gated
+# on proposed_monthly_repayment (a company's balance-sheet health isn't
+# about a specific proposed repayment) -- unlike loan_readiness above.
+_BALANCE_SHEET_FIELD_KEYS = (
+    "total_current_assets",
+    "total_current_liabilities",
+    "total_liabilities",
+    "total_equity",
+)
 
 
 def _run_ocr_path(filename: str, file_bytes: bytes) -> dict:
@@ -86,11 +98,21 @@ def process_document(
             )
             loan_readiness["income_source"] = normalized["income_source"]
 
+        balance_sheet_readiness = None
+        if any(fields.get(key) is not None for key in _BALANCE_SHEET_FIELD_KEYS):
+            balance_sheet_readiness = module4_loan_rules.assess_balance_sheet_readiness(
+                total_current_assets=fields.get("total_current_assets"),
+                total_current_liabilities=fields.get("total_current_liabilities"),
+                total_liabilities=fields.get("total_liabilities"),
+                total_equity=fields.get("total_equity"),
+            )
+
         return {
             "processing_path": path,
             "fields": fields,
             "redaction": redaction,
             "loan_readiness": loan_readiness,
+            "balance_sheet_readiness": balance_sheet_readiness,
             "quality": quality,
             "error": None,
         }
