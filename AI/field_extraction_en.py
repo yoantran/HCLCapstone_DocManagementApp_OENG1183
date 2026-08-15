@@ -185,7 +185,13 @@ _BALANCE_SHEET_LABEL_RE = {
     "total_current_assets": re.compile(r"Total\s*Current\s*Assets", re.IGNORECASE),
     "total_assets": re.compile(r"Total\s*Assets", re.IGNORECASE),
     "total_current_liabilities": re.compile(r"Total\s*Current\s*Liabilities", re.IGNORECASE),
-    "total_liabilities": re.compile(r"Total\s*Liabilities", re.IGNORECASE),
+    # Issue #181 -- confirmed on 5 distinct real templates: none of them
+    # print a standalone "Total Liabilities" row, only a combined "Total
+    # Liabilities and Owner's Equity"/"Total Liabilities & Equity" row.
+    # Without the negative lookahead this pattern matches the start of
+    # that combined text too, and (when no standalone row exists) wrongly
+    # returns the combined assets+equity figure as pure liabilities.
+    "total_liabilities": re.compile(r"Total\s*Liabilities(?!\s*(?:and|&))", re.IGNORECASE),
     # Issue #168 -- "Net Assets"/"Net Worth" is a real alternate wording
     # for the same figure (Assets - Liabilities) on simpler small-business
     # templates (real sample: "NET ASSETS (NET WORTH)"), not just "Total
@@ -324,6 +330,18 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
                     candidate = _resolve_value(table_rows, row_idx, row, i, 0)
                     if candidate is not None:
                         result[field] = candidate
+                continue
+
+            # Issue #180 -- real templates' own "Common Financial Ratio"
+            # section has formula-description labels like "Debt Ratio
+            # (Total Liabilities / Total Assets)". That literal substring
+            # matches _BALANCE_SHEET_LABEL_RE too, and picks up the RATIO
+            # VALUE (0.71, 0.91...) sitting next to it as if it were a
+            # dollar total -- worse than missing data, since it silently
+            # poisons the result with a plausible-looking wrong number.
+            # No real dollar-total label cell checked so far contains a
+            # "/" (division symbol); every formula description does.
+            if "/" in cell:
                 continue
 
             matches_in_cell = sorted(
