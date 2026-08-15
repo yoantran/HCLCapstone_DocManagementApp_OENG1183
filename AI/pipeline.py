@@ -10,6 +10,7 @@ import module2_text_extraction
 import module3_redaction
 import module4_loan_rules
 import income_normalization
+from field_extraction_en import extract_balance_sheet_fields_en
 from file_routing import detect_processing_path, render_pdf_first_page
 
 _EMPTY_RESULT = {
@@ -65,6 +66,25 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
         os.unlink(tmp_path)
 
     fields = text_result["fields"]
+
+    # Issue #170 -- pdfium has no table-structure recovery the way
+    # python-docx's table object model does, so a text-native PDF never
+    # got any balance-sheet totals. Keep pdfium's own text extraction
+    # (more accurate than re-OCR'ing a real text layer) but additionally
+    # render the page and reuse the already-proven OCR table pipeline
+    # (#171 hardened this exact path) just to harvest table structure --
+    # no new extraction technique, purely content-driven (a no-op if the
+    # PDF has no tables at all).
+    if ext == ".pdf":
+        image = render_pdf_first_page(file_bytes)
+        enhanced = module1_opencv.enhance(image)
+        ocr_doc = module2_ocr_extraction.ocr_document(enhanced["image"])
+        table_rows = [
+            row for html in ocr_doc["tables"] for row in module2_ocr_extraction.html_table_to_rows(html)
+        ]
+        if table_rows:
+            fields.update(extract_balance_sheet_fields_en(table_rows))
+
     spans = module3_redaction.find_sensitive_spans(text_result["text"], fields)
     redaction = {"type": "spans", "items": spans}
     return fields, redaction, None
