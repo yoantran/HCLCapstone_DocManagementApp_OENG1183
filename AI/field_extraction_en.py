@@ -189,8 +189,15 @@ _BALANCE_SHEET_LABEL_RE = {
     # Issue #168 -- "Net Assets"/"Net Worth" is a real alternate wording
     # for the same figure (Assets - Liabilities) on simpler small-business
     # templates (real sample: "NET ASSETS (NET WORTH)"), not just "Total
-    # (Owner's) Equity" style wording.
-    "total_equity": re.compile(r"Total\s*(?:Owner.?s?\s*)?Equity|Net\s*Assets|Net\s*Worth", re.IGNORECASE),
+    # (Owner's) Equity" style wording. Issue #177 -- "Shareholders' Equity"
+    # is another real alternate, seen on 2 more distinct real templates --
+    # apostrophe placement differs from "Owner's" (before the s) vs.
+    # "Shareholders'" (plural possessive, after the s), so both orders
+    # are covered explicitly rather than a single ".?s?" that only fits one.
+    "total_equity": re.compile(
+        r"Total\s*(?:(?:Owner|Shareholder)(?:'s|s'|'|s)?\s*)?Equity|Net\s*Assets|Net\s*Worth",
+        re.IGNORECASE,
+    ),
 }
 
 # Issue #167 -- one real template (samples/en_balance_sheet/Balance sheet
