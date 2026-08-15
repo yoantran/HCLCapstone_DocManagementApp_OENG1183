@@ -123,6 +123,21 @@ def parse_currency_amount(value: str) -> float | None:
     return float(digits)
 
 
+# Issue #185 -- a separate function, not an edit to parse_currency_amount
+# above. That one is also used for payslip income/salary parsing (already
+# benchmarked at 96.2% accuracy) and the validation-corpus scripts --
+# loosening its grouping regex for a balance-sheet-specific format risks
+# that unrelated, already-proven path. Real balance-sheet cells use
+# space-grouped thousands too ("165 000", "1 300 000"), not just commas,
+# confirmed on a real spreadsheet-screenshot template -- scoped here only.
+def parse_currency_amount_balance_sheet(value: str) -> float | None:
+    match = re.search(r"\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})?", value)
+    if match is None:
+        return None
+    digits = match.group(0).replace(",", "").replace(" ", "")
+    return float(digits)
+
+
 def extract_regex_fields_en(text: str) -> dict:
     return {
         "abn": ABN_RE.findall(text),
@@ -232,12 +247,24 @@ def _last_numeric_cell(cells: list[str]) -> float | None:
     column (e.g. PRIOR YEAR / CURRENT YEAR, FY1 / FY2). The rightmost
     parseable cell is the most recent period, which is what a
     loan-readiness check actually wants -- take the LAST match, not the
-    first, so a multi-period row doesn't silently return stale data."""
+    first, so a multi-period row doesn't silently return stale data.
+
+    Issue #184 -- stop at the first non-empty, non-numeric cell. A real
+    2-panel row ("Total Current Assets | $105,000 | | Total Long-Term
+    Assets | $320,000") has a genuinely different field's label and
+    value sitting later in the same row -- without stopping, this
+    would scan straight past the empty spacer into the OTHER field's
+    value. The stop check is deliberately generic (any real label
+    text, not just cells matching the 5 tracked patterns), since
+    "Total Long-Term Assets" itself doesn't match any of them."""
     result = None
     for cell in cells:
-        amount = parse_currency_amount(cell)
+        stripped = cell.strip()
+        amount = parse_currency_amount_balance_sheet(cell)
         if amount is not None:
             result = amount
+        elif stripped:
+            break
     return result
 
 
@@ -272,7 +299,7 @@ def _resolve_value(
         if next_row is not None:
             col = i + col_offset
             if col < len(next_row):
-                candidate = parse_currency_amount(next_row[col])
+                candidate = parse_currency_amount_balance_sheet(next_row[col])
     return candidate
 
 
