@@ -25,6 +25,7 @@ Real evidence this module's patterns are grounded in:
 """
 import re
 from datetime import datetime
+from difflib import SequenceMatcher
 
 from field_extraction import _clean_label_value as _clean_label_value_base
 
@@ -241,6 +242,46 @@ _OTHER_SECTION_HEADER_RE = re.compile(
 )
 _BARE_TOTAL_RE = re.compile(r"^Total$", re.IGNORECASE)
 
+# Issue #179 -- OCR sometimes recovers a table's STRUCTURE correctly but
+# misreads individual characters in the label text itself ("Total cument
+# ossets" for "Total current assets"). No amount of wording-alternative
+# regex (#168, #177) can close this -- it's character-level noise, not
+# wording/structure variance. Fuzzy fallback only, tried after every exact
+# match in the table has already been attempted (see the second pass in
+# extract_balance_sheet_fields_en) so an exact match anywhere always wins.
+_FUZZY_CANONICAL_LABELS = {
+    "total_current_assets": "Total Current Assets",
+    "total_assets": "Total Assets",
+    "total_current_liabilities": "Total Current Liabilities",
+    "total_liabilities": "Total Liabilities",
+    "total_equity": "Total Equity",
+}
+# Tuned against #179's real typos ("Total cument ossets" ~0.87, "Total
+# current lablttes" ~0.89, "Total Liabililies" ~0.94) while staying above
+# real distractor labels that must NOT match (a bare section header like
+# "Current Liabilities" scores ~0.86 against total_current_liabilities --
+# excluded structurally below, not by threshold alone; "Total Fixed
+# Assets" scores exactly 0.80 against total_assets, which is why the
+# threshold sits at 0.85, not 0.80 as first proposed).
+_FUZZY_THRESHOLD = 0.85
+_FUZZY_MARGIN = 0.05
+
+
+def _fuzzy_match_label(cell: str) -> str | None:
+    scores = sorted(
+        (
+            (SequenceMatcher(None, cell.lower(), canonical.lower()).ratio(), field)
+            for field, canonical in _FUZZY_CANONICAL_LABELS.items()
+        ),
+        reverse=True,
+    )
+    candidates = [(score, field) for score, field in scores if score >= _FUZZY_THRESHOLD]
+    if not candidates:
+        return None
+    if len(candidates) > 1 and candidates[0][0] - candidates[1][0] < _FUZZY_MARGIN:
+        return None  # ambiguous between two tracked fields -- skip rather than guess
+    return candidates[0][1]
+
 
 def _last_numeric_cell(cells: list[str]) -> float | None:
     """Issue #172 -- several real templates have more than one value
@@ -385,7 +426,39 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
                 candidate = _resolve_value(table_rows, row_idx, row, i, col_offset)
                 if candidate is not None:
                     result[field] = candidate
+
+    if any(v is None for v in result.values()):
+        _fuzzy_fill_remaining_fields(table_rows, result)
+
     return result
+
+
+def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict) -> None:
+    """Issue #179's fallback pass. Runs only after every exact match in the
+    table has already been tried, so an exact match anywhere always wins
+    over a fuzzy guess. Skips section-header and bare-"Total" cells (same
+    patterns pass one already carves out) -- those are structurally
+    different from a mislabeled totals cell and fuzzy-scoring them risks
+    exactly the false-positive collision #180/#181 already had to guard
+    against with exact matching. Only handles the single-label-per-cell
+    layout #179 was found on (col_offset=0) -- #171's merged-cell,
+    multi-label-per-cell ranking is exact-match-only, deliberately not
+    extended here."""
+    for row_idx, row in enumerate(table_rows):
+        for i, cell in enumerate(row):
+            cell = cell.strip()
+            if not cell or "/" in cell:
+                continue
+            if _BARE_TOTAL_RE.match(cell):
+                continue
+            if any(p.match(cell) for p in _SECTION_HEADER_TO_FIELD) or _OTHER_SECTION_HEADER_RE.match(cell):
+                continue
+            field = _fuzzy_match_label(cell)
+            if field is None or result.get(field) is not None:
+                continue
+            candidate = _resolve_value(table_rows, row_idx, row, i, 0)
+            if candidate is not None:
+                result[field] = candidate
 
 
 def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = None) -> dict:
