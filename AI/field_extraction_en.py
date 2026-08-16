@@ -283,12 +283,66 @@ def _fuzzy_match_label(cell: str) -> str | None:
     return candidates[0][1]
 
 
-def _last_numeric_cell(cells: list[str]) -> float | None:
+# Issue #182 -- #172's "rightmost = most recent" assumption is only true
+# for SOME real templates ("PRIOR YEAR" then "CURRENT YEAR", left to
+# right). At least one real template does the opposite ("CURRENT YR."
+# then "PRIOR YR."), and a third convention (Year 1/Year 2/Year 3,
+# ascending) happens to agree with rightmost by coincidence, not by the
+# same rule. Column position alone can't tell these apart -- the actual
+# header text can. "CURRENT"/"THIS" beats "PRIOR"/"PREVIOUS"/"LAST";
+# among "FYn"/"Year n" cells, the highest n wins.
+_CURRENT_PERIOD_RE = re.compile(r"\bCURRENT\b|\bTHIS\s*Y", re.IGNORECASE)
+_PRIOR_PERIOD_RE = re.compile(r"\bPRIOR\b|\bPREVIOUS\b|\bLAST\s*Y", re.IGNORECASE)
+_NUMBERED_PERIOD_RE = re.compile(r"\bF?Y\s*(\d+)\b", re.IGNORECASE)
+
+
+def _detect_current_period_column(table_rows: list[list[str]]) -> int | None:
+    """Scan for a header row (>=2 cells matching a period keyword) and
+    return the absolute column index of whichever cell represents the
+    most recent period. None if no real header is found -- callers fall
+    back to the old rightmost-wins behavior unchanged, so tables without
+    a recognizable header (most docx tables, single-value-column rows)
+    see no behavior change at all."""
+    for row in table_rows:
+        current_idx: int | None = None
+        prior_idx: int | None = None
+        numbered: list[tuple[int, int]] = []  # (period number, column index)
+        matches = 0
+        for idx, cell in enumerate(row):
+            cell = cell.strip()
+            if not cell:
+                continue
+            if _CURRENT_PERIOD_RE.search(cell):
+                current_idx = idx
+                matches += 1
+            elif _PRIOR_PERIOD_RE.search(cell):
+                prior_idx = idx
+                matches += 1
+            elif (m := _NUMBERED_PERIOD_RE.search(cell)) is not None:
+                numbered.append((int(m.group(1)), idx))
+                matches += 1
+        if matches < 2:
+            continue
+        if current_idx is not None:
+            return current_idx
+        if numbered:
+            return max(numbered)[1]  # highest period number = most recent
+        if prior_idx is not None:
+            continue  # a "prior" cell alone, no "current" counterpart -- ambiguous
+    return None
+
+
+def _last_numeric_cell(cells: list[str], start_col: int = 0, prefer_col: int | None = None) -> float | None:
     """Issue #172 -- several real templates have more than one value
-    column (e.g. PRIOR YEAR / CURRENT YEAR, FY1 / FY2). The rightmost
-    parseable cell is the most recent period, which is what a
-    loan-readiness check actually wants -- take the LAST match, not the
-    first, so a multi-period row doesn't silently return stale data.
+    column (e.g. PRIOR YEAR / CURRENT YEAR, FY1 / FY2). Take the LAST
+    parseable cell by default (rightmost -- the safe fallback when no
+    header was detected), so a multi-period row doesn't silently return
+    stale data.
+
+    Issue #182 -- when the caller HAS detected which absolute column is
+    the current period (prefer_col), that value wins over rightmost --
+    rightmost is only a proxy for "most recent," and a real template
+    exists where the proxy is backwards.
 
     Issue #184 -- stop at the first non-empty, non-numeric cell. A real
     2-panel row ("Total Current Assets | $105,000 | | Total Long-Term
@@ -299,14 +353,17 @@ def _last_numeric_cell(cells: list[str]) -> float | None:
     text, not just cells matching the 5 tracked patterns), since
     "Total Long-Term Assets" itself doesn't match any of them."""
     result = None
-    for cell in cells:
+    preferred = None
+    for offset, cell in enumerate(cells):
         stripped = cell.strip()
         amount = parse_currency_amount_balance_sheet(cell)
         if amount is not None:
             result = amount
+            if prefer_col is not None and start_col + offset == prefer_col:
+                preferred = amount
         elif stripped:
             break
-    return result
+    return preferred if preferred is not None else result
 
 
 def _next_nonempty_row(table_rows: list[list[str]], start_idx: int) -> list[str] | None:
@@ -332,9 +389,14 @@ def _row_has_other_numeric_cell(row: list[str], skip_index: int) -> bool:
 
 
 def _resolve_value(
-    table_rows: list[list[str]], row_idx: int, row: list[str], i: int, col_offset: int
+    table_rows: list[list[str]],
+    row_idx: int,
+    row: list[str],
+    i: int,
+    col_offset: int,
+    prefer_col: int | None = None,
 ) -> float | None:
-    candidate = _last_numeric_cell(row[i + 1:])
+    candidate = _last_numeric_cell(row[i + 1:], start_col=i + 1, prefer_col=prefer_col)
     if candidate is None:
         next_row = _next_nonempty_row(table_rows, row_idx + 1)
         if next_row is not None:
@@ -374,6 +436,7 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
     scanning; a bare "Total" row is attributed to it."""
     result: dict[str, float | None] = {field: None for field in _BALANCE_SHEET_LABEL_RE}
     current_section_field: str | None = None
+    prefer_col = _detect_current_period_column(table_rows)
     for row_idx, row in enumerate(table_rows):
         for i, cell in enumerate(row):
             cell = cell.strip()
@@ -395,7 +458,7 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
                 field = current_section_field
                 current_section_field = None  # only the first bare Total after a header counts
                 if result.get(field) is None:
-                    candidate = _resolve_value(table_rows, row_idx, row, i, 0)
+                    candidate = _resolve_value(table_rows, row_idx, row, i, 0, prefer_col)
                     if candidate is not None:
                         result[field] = candidate
                 continue
@@ -423,17 +486,17 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
                 if result.get(field) is not None:
                     continue
                 col_offset = within_cell_rank if len(matches_in_cell) > 1 else 0
-                candidate = _resolve_value(table_rows, row_idx, row, i, col_offset)
+                candidate = _resolve_value(table_rows, row_idx, row, i, col_offset, prefer_col)
                 if candidate is not None:
                     result[field] = candidate
 
     if any(v is None for v in result.values()):
-        _fuzzy_fill_remaining_fields(table_rows, result)
+        _fuzzy_fill_remaining_fields(table_rows, result, prefer_col)
 
     return result
 
 
-def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict) -> None:
+def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict, prefer_col: int | None = None) -> None:
     """Issue #179's fallback pass. Runs only after every exact match in the
     table has already been tried, so an exact match anywhere always wins
     over a fuzzy guess. Skips section-header and bare-"Total" cells (same
@@ -456,7 +519,7 @@ def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict) -> N
             field = _fuzzy_match_label(cell)
             if field is None or result.get(field) is not None:
                 continue
-            candidate = _resolve_value(table_rows, row_idx, row, i, 0)
+            candidate = _resolve_value(table_rows, row_idx, row, i, 0, prefer_col)
             if candidate is not None:
                 result[field] = candidate
 
