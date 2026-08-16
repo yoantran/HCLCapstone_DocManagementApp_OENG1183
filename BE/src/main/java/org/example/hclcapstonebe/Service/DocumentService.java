@@ -44,6 +44,7 @@ public class DocumentService {
     private final SupabaseStorageService supabaseStorageService;
     private final ClamAvScannerService clamAvScannerService;
     private final AiProcessingService aiProcessingService;
+    private final DocumentSanitizerService documentSanitizerService;
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
@@ -137,6 +138,15 @@ public class DocumentService {
             fileData = file.getBytes();
         } catch (IOException e) {
             throw new AppException("Failed to read file bytes: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        switch (format) {
+            case PDF -> documentSanitizerService.validatePdfStructure(fileData);
+            case DOCX -> documentSanitizerService.validateDocxStructure(fileData);
+            case PNG, JPG, JPEG -> fileData = documentSanitizerService.sanitizeImage(fileData, format.name());
+            case CSV -> {
+                // CSVs do not require structural validation
+            }
         }
 
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
