@@ -2,7 +2,11 @@ import sys
 
 sys.path.insert(0, ".")
 
-from field_extraction_en import extract_fields_from_text_en, parse_currency_amount
+from field_extraction_en import (
+    extract_balance_sheet_fields_en,
+    extract_fields_from_text_en,
+    parse_currency_amount,
+)
 
 
 def test_parse_currency_amount_with_cents():
@@ -134,6 +138,47 @@ def test_no_pay_period_returns_none():
     text = "Employee: Jo Worker"
     fields = extract_fields_from_text_en(text)
     assert fields["pay_period_days"] is None
+
+
+def test_balance_sheet_picks_current_column_when_current_is_leftmost():
+    # Issue #182's real template: header reads "CURRENT YR." then "[PRIOR",
+    # current year FIRST -- rightmost would silently return the older figure.
+    rows = [
+        ["", "CURRENT YR.", "[PRIOR"],
+        ["Total current assets", "$120,000.00", "$100,000.00"],
+    ]
+    fields = extract_balance_sheet_fields_en(rows)
+    assert fields["total_current_assets"] == 120000.0
+
+
+def test_balance_sheet_picks_current_column_when_current_is_rightmost():
+    # #172's original real template: "PRIOR YEAR" then "CURRENT YEAR" --
+    # rightmost happens to be correct here, must still work.
+    rows = [
+        ["", "PRIOR YEAR", "CURRENT YEAR"],
+        ["Total Assets", "$100,000.00", "$120,000.00"],
+    ]
+    fields = extract_balance_sheet_fields_en(rows)
+    assert fields["total_assets"] == 120000.0
+
+
+def test_balance_sheet_picks_highest_numbered_period_column():
+    # A third real convention (images (9).jpg): FY1/FY2/FY3, ascending --
+    # no "current"/"prior" wording at all, only period numbers.
+    rows = [
+        ["", "FY1", "FY2", "FY3"],
+        ["Total Liabilities", "$50,000.00", "$60,000.00", "$70,000.00"],
+    ]
+    fields = extract_balance_sheet_fields_en(rows)
+    assert fields["total_liabilities"] == 70000.0
+
+
+def test_balance_sheet_falls_back_to_rightmost_when_no_header_detected():
+    # No recognizable header row at all (most real docx tables) -- must
+    # keep #172's original rightmost behavior unchanged, no regression.
+    rows = [["Total Equity", "$1", "$2", "$3"]]
+    fields = extract_balance_sheet_fields_en(rows)
+    assert fields["total_equity"] == 3.0
 
 
 def run_all():
