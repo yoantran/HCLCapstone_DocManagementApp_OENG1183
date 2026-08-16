@@ -312,7 +312,13 @@ def _fuzzy_match_label(cell: str) -> str | None:
 # among "FYn"/"Year n" cells, the highest n wins.
 _CURRENT_PERIOD_RE = re.compile(r"\bCURRENT\b|\bTHIS\s*Y", re.IGNORECASE)
 _PRIOR_PERIOD_RE = re.compile(r"\bPRIOR\b|\bPREVIOUS\b|\bLAST\s*Y", re.IGNORECASE)
-_NUMBERED_PERIOD_RE = re.compile(r"\bF?Y\s*(\d+)\b", re.IGNORECASE)
+# Issue #192 -- the original pattern only matched "FYn"/"Y n" style
+# headers, not the literal "Year N" text real templates actually use
+# (confirmed on images (9).jpg and Balance sheet template.docx's "[Year
+# 1]".."[Year 5]" headers) -- "Year" starts with "Y" too, so the old
+# `F?Y` branch matched just the leading "Y" and then failed on the "ear"
+# that followed, never falling through to try the literal word.
+_NUMBERED_PERIOD_RE = re.compile(r"\b(?:F?Y|Year)\s*(\d+)\b", re.IGNORECASE)
 
 
 def _detect_current_period_column(table_rows: list[list[str]]) -> int | None:
