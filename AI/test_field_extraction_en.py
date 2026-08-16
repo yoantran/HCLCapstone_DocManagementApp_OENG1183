@@ -164,14 +164,26 @@ def test_balance_sheet_picks_current_column_when_current_is_rightmost():
 
 
 def test_balance_sheet_picks_highest_numbered_period_column():
-    # A third real convention (images (9).jpg): FY1/FY2/FY3, ascending --
-    # no "current"/"prior" wording at all, only period numbers.
+    # A third real convention: FY1/FY2/FY3, ascending -- no "current"/
+    # "prior" wording at all, only period numbers.
     rows = [
         ["", "FY1", "FY2", "FY3"],
         ["Total Liabilities", "$50,000.00", "$60,000.00", "$70,000.00"],
     ]
     fields = extract_balance_sheet_fields_en(rows)
     assert fields["total_liabilities"] == 70000.0
+
+
+def test_balance_sheet_picks_highest_year_n_column():
+    # Issue #192 -- images (9).jpg's ACTUAL real header text is "Year N"
+    # (spelled out), not "FYn". The original #182 regex only matched
+    # "FYn" and silently never detected this real header at all.
+    rows = [
+        ["", "Year 1", "Year 2", "Year 3"],
+        ["Total Assets", "$100,000.00", "$110,000.00", "$120,000.00"],
+    ]
+    fields = extract_balance_sheet_fields_en(rows)
+    assert fields["total_assets"] == 120000.0
 
 
 def test_parse_currency_amount_balance_sheet_period_separated_thousands():
