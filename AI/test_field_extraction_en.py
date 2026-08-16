@@ -6,6 +6,7 @@ from field_extraction_en import (
     extract_balance_sheet_fields_en,
     extract_fields_from_text_en,
     parse_currency_amount,
+    parse_currency_amount_balance_sheet,
 )
 
 
@@ -171,6 +172,19 @@ def test_balance_sheet_picks_highest_numbered_period_column():
     ]
     fields = extract_balance_sheet_fields_en(rows)
     assert fields["total_liabilities"] == 70000.0
+
+
+def test_parse_currency_amount_balance_sheet_period_separated_thousands():
+    # Issue #188 -- real OCR on some cells uses period as the
+    # thousands-group separator instead of comma/space.
+    assert parse_currency_amount_balance_sheet("$89.000.00") == 89000.0
+    assert parse_currency_amount_balance_sheet("$41.000.00") == 41000.0
+
+
+def test_parse_currency_amount_balance_sheet_period_thousands_does_not_break_cents():
+    # Must not regress real, already-correct comma/space parsing.
+    assert parse_currency_amount_balance_sheet("$1,500.00") == 1500.0
+    assert parse_currency_amount_balance_sheet("89 000.00") == 89000.0
 
 
 def test_balance_sheet_falls_back_to_rightmost_when_no_header_detected():

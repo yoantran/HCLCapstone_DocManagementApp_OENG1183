@@ -131,7 +131,26 @@ def parse_currency_amount(value: str) -> float | None:
 # that unrelated, already-proven path. Real balance-sheet cells use
 # space-grouped thousands too ("165 000", "1 300 000"), not just commas,
 # confirmed on a real spreadsheet-screenshot template -- scoped here only.
+# Issue #188 -- real OCR on some cells renders period as the
+# thousands-group separator ("$89.000.00") instead of comma/space, while
+# OTHER cells in the same real table use comma grouping correctly. Period
+# is ALSO the existing decimal/cents separator ("$1,500.00"), so this
+# can't just be added to the group-separator character class below --
+# that would break real, already-correct cents parsing. Disambiguate
+# instead: 2+ periods (one-or-more 3-digit groups, then a final 2-digit
+# cents group) is period-grouped thousands; anything with fewer periods
+# falls through to the existing comma/space-only logic, unchanged. A
+# bare single-period value with no cents suffix ("89.000") is genuinely
+# ambiguous and not seen in the real corpus -- deliberately left
+# unhandled rather than guessed at.
+_PERIOD_THOUSANDS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+\.\d{2}")
+
+
 def parse_currency_amount_balance_sheet(value: str) -> float | None:
+    period_match = _PERIOD_THOUSANDS_RE.search(value)
+    if period_match is not None:
+        digits = period_match.group(0).replace(".", "")
+        return float(digits[:-2] + "." + digits[-2:])
     match = re.search(r"\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})?", value)
     if match is None:
         return None
