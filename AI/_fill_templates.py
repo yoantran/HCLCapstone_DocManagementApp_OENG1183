@@ -6,6 +6,8 @@ from pathlib import Path
 import docx
 from faker import Faker
 
+from field_extraction_en import _BALANCE_SHEET_LABEL_RE
+
 fake = Faker("en_AU")
 
 AU_STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"]
@@ -132,6 +134,101 @@ def _set_paragraph_text(p, new_text: str) -> None:
         p.add_run(new_text)
 
 
+def _set_cell_text(cell, new_text: str) -> None:
+    _set_paragraph_text(cell.paragraphs[0], new_text)
+    for p in cell.paragraphs[1:]:
+        _set_paragraph_text(p, "")
+
+
+# samples/en_balance_sheet/CIC-Balance-Sheet-Template.docx -- 2 tables
+# (Assets, Liabilities+Equity), lettered A-S rows, single "$      "
+# blank-placeholder value cell per row (confirmed via direct inspection).
+# Only 4 of the 5 tracked fields have a fillable cell here -- this real
+# template's own "Total Current Assets" row has no "$" placeholder at
+# all, so total_current_assets can never be scored from this source
+# (matches what real-file testing already confirmed this session: this
+# exact template genuinely returns None for that field).
+_BLANK_DOLLAR_CELL_RE = re.compile(r"^\$[\s\xa0]*$")
+
+
+def fill_docx_balance_sheet_cic(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    if seed is not None:
+        random.seed(seed)
+        Faker.seed(seed)
+
+    doc = docx.Document(src_path)
+    filled = 0
+    ground_truth: dict[str, list[str]] = {}
+
+    for table in doc.tables:
+        for row in table.rows:
+            if len(row.cells) < 3:
+                continue
+            label = row.cells[1].text.strip()
+            value_cell = row.cells[2]
+            if not _BLANK_DOLLAR_CELL_RE.match(value_cell.text):
+                continue
+            field = next(
+                (f for f, pattern in _BALANCE_SHEET_LABEL_RE.items() if pattern.search(label)),
+                None,
+            )
+            if field is None:
+                continue
+            value = fake_dollar_thousands()
+            _set_cell_text(value_cell, value)
+            filled += 1
+            ground_truth[field] = [value]
+
+    Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(dst_path)
+    return filled, ground_truth
+
+
+# samples/en_balance_sheet/Balance sheet template.docx -- 1 table, 5
+# value columns per row ("[Year 1]".."[Year 5]", real detectable header
+# text -- #192 fixed the regex that reads it), bare "0" placeholder
+# cells (no "$" prefix). Row identification is positional, not
+# label-driven, because 2 of the 5 target rows use a bare "Total" label
+# disambiguated only by the preceding section header (same #167
+# section-tracking real extraction itself relies on) -- hardcoded
+# against this one specific real template's structure, confirmed via
+# direct inspection, not a generic solver (matches how CONTRACT_LABEL_
+# FILLERS/PAYSLIP_LABEL_FILLERS are already hardcoded per-template).
+_YEARS_TEMPLATE_TARGET_ROWS = {
+    9: "total_current_assets",  # bare "Total" under "Current assets"
+    20: "total_assets",  # "TOTAL ASSETS"
+    28: "total_current_liabilities",  # bare "Total" under "Current/short-term liabilities"
+    34: "total_liabilities",  # "TOTAL LIABILITIES"
+    35: "total_equity",  # "NET ASSETS (NET WORTH)"
+}
+_YEARS_TEMPLATE_VALUE_COLS = (3, 4, 5, 6, 7)  # Year 1..Year 5, ascending -- Year 5 is most recent
+
+
+def fill_docx_balance_sheet_years(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    if seed is not None:
+        random.seed(seed)
+        Faker.seed(seed)
+
+    doc = docx.Document(src_path)
+    table = doc.tables[0]
+    filled = 0
+    ground_truth: dict[str, list[str]] = {}
+
+    for row_idx, field in _YEARS_TEMPLATE_TARGET_ROWS.items():
+        row = table.rows[row_idx]
+        last_value = None
+        for col in _YEARS_TEMPLATE_VALUE_COLS:
+            value = fake_dollar_thousands()
+            _set_cell_text(row.cells[col], value)
+            filled += 1
+            last_value = value
+        ground_truth[field] = [last_value]  # Year 5 (rightmost) is most recent
+
+    Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(dst_path)
+    return filled, ground_truth
+
+
 # Vetted against field_extraction_en.py's actual LABEL_PATTERNS -- of the 8
 # downloaded en_contract templates with real placeholder blanks, only this
 # one uses a colon-anchored "Employee Name:"/"Employee Address:" convention
@@ -240,8 +337,13 @@ def fill_docx_payslip(src_path: str, dst_path: str, seed: int | None = None) -> 
 
 
 def fill_docx(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
-    if "en_pay_slip" in src_path.replace("\\", "/"):
+    normalized = src_path.replace("\\", "/")
+    if "en_pay_slip" in normalized:
         return fill_docx_payslip(src_path, dst_path, seed=seed)
+    if "CIC-Balance-Sheet-Template" in normalized:
+        return fill_docx_balance_sheet_cic(src_path, dst_path, seed=seed)
+    if "Balance sheet template" in normalized:
+        return fill_docx_balance_sheet_years(src_path, dst_path, seed=seed)
     return fill_docx_contract(src_path, dst_path, seed=seed)
 
 

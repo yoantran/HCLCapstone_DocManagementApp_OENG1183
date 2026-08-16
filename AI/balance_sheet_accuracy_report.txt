@@ -1,0 +1,12 @@
+Documents scored: 30
+
+Per-field accuracy (correct / total ground-truth values):
+  total_current_assets     :  15 /  15  (100.0%)
+  total_assets             :  30 /  30  (100.0%)
+  total_current_liabilities:  30 /  30  (100.0%)
+  total_liabilities        :  30 /  30  (100.0%)
+  total_equity             :  30 /  30  (100.0%)
+
+Overall: 135 / 135  (100.0%)
+
+Misses (0):
