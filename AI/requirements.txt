@@ -16,4 +16,17 @@ pypdfium2==5.10.1
 python-docx==1.2.0
 paddleocr==3.7.0
 paddlepaddle==3.3.1
-paddlex==3.7.2
+# PPStructureV3 requires paddlex's own "ocr" extras group, not bare
+# `paddlex` -- confirmed via the real traceback inside the container
+# (paddlex.utils.deps.DependencyError: "`PP-StructureV3` requires
+# additional dependencies... pip install \"paddlex[ocr]==<VERSION>\"").
+# Bare `paddlex==3.7.2` alone let the package import fine but failed at
+# actual pipeline construction on every real OCR request -- the
+# container's image/OCR path has been silently broken since PaddleOCR
+# was first added; only the text-native path (which never touches
+# PPStructureV3) ever got exercised against a real container build.
+# Adding onnxruntime alone (an earlier, incomplete attempt at this fix)
+# was necessary but not sufficient -- the extras group pulls in
+# everything actually required, not a manually-guessed subset.
+paddlex[ocr]==3.7.2
+onnxruntime==1.28.0
