@@ -22,6 +22,7 @@ _EMPTY_RESULT = {
     "balance_sheet_readiness": None,
     "quality": None,
     "preview_image_base64": None,
+    "sensitive_field_keys": [],
     "error": None,
 }
 
@@ -151,6 +152,7 @@ def process_document(
             "balance_sheet_readiness": balance_sheet_readiness,
             "quality": quality,
             "preview_image_base64": preview_image,
+            "sensitive_field_keys": sorted({item["field"] for item in redaction["items"]}),
             "error": None,
         }
     except Exception as e:

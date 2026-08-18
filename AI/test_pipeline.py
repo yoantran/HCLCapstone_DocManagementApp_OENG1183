@@ -61,6 +61,21 @@ def test_loan_readiness_populates_when_repayment_provided():
         assert result["loan_readiness"]["verdict"] == "INSUFFICIENT_DATA"
 
 
+def test_sensitive_field_keys_matches_redaction_items():
+    result = process_document("payslip.png", _IMAGE_BYTES)
+    assert result["error"] is None
+    item_fields = sorted({item["field"] for item in result["redaction"]["items"]})
+    assert result["sensitive_field_keys"] == item_fields
+
+
+def test_sensitive_field_keys_empty_when_no_items_detected():
+    result = process_document("notes.txt", b"just some text")
+    # unsupported extension -- error path, sensitive_field_keys must still
+    # be present (never a missing key) so BE's parser doesn't need a
+    # separate null-check for this specific field.
+    assert result["sensitive_field_keys"] == []
+
+
 def run_all():
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for test in tests:
