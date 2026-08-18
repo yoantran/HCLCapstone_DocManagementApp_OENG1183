@@ -1,3 +1,4 @@
+import base64
 import os
 import tempfile
 
@@ -20,6 +21,7 @@ _EMPTY_RESULT = {
     "loan_readiness": None,
     "balance_sheet_readiness": None,
     "quality": None,
+    "preview_image_base64": None,
     "error": None,
 }
 
@@ -35,7 +37,7 @@ _BALANCE_SHEET_FIELD_KEYS = (
 )
 
 
-def _run_ocr_path(filename: str, file_bytes: bytes) -> dict:
+def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = False) -> dict:
     ext = filename.lower().rsplit(".", 1)[-1]
     if ext == "pdf":
         image = render_pdf_first_page(file_bytes)
@@ -52,7 +54,20 @@ def _run_ocr_path(filename: str, file_bytes: bytes) -> dict:
     fields = ocr_result["fields"]
     boxes = module3_redaction.find_sensitive_boxes(enhanced["image"], fields)
     redaction = {"type": "boxes", "items": boxes}
-    return fields, redaction, quality
+
+    # Issue: redaction boxes are percentages relative to the ENHANCED image
+    # (post deskew/autocrop), not the raw upload -- autocrop alone can shrink
+    # dimensions by 20%+, so overlaying boxes on the original file is visibly
+    # wrong. Opt-in only (demo use) -- BE's real /process calls never set
+    # this, so production aiResult never carries an embedded image (would
+    # bloat the jsonb column on every document for no real benefit there).
+    preview_image_base64 = None
+    if include_preview:
+        ok, buf = cv2.imencode(".png", enhanced["image"])
+        if ok:
+            preview_image_base64 = base64.b64encode(buf.tobytes()).decode("ascii")
+
+    return fields, redaction, quality, preview_image_base64
 
 
 def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
@@ -87,7 +102,7 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
 
     spans = module3_redaction.find_sensitive_spans(text_result["text"], fields)
     redaction = {"type": "spans", "items": spans}
-    return fields, redaction, None
+    return fields, redaction, None, None
 
 
 def process_document(
@@ -95,6 +110,7 @@ def process_document(
     file_bytes: bytes,
     proposed_monthly_repayment: float | None = None,
     existing_monthly_debt: float | None = None,
+    include_preview: bool = False,
 ) -> dict:
     try:
         path = detect_processing_path(filename, file_bytes)
@@ -103,9 +119,9 @@ def process_document(
 
     try:
         if path == "ocr":
-            fields, redaction, quality = _run_ocr_path(filename, file_bytes)
+            fields, redaction, quality, preview_image = _run_ocr_path(filename, file_bytes, include_preview)
         else:
-            fields, redaction, quality = _run_text_native_path(filename, file_bytes)
+            fields, redaction, quality, preview_image = _run_text_native_path(filename, file_bytes)
 
         loan_readiness = None
         if proposed_monthly_repayment is not None:
@@ -134,6 +150,7 @@ def process_document(
             "loan_readiness": loan_readiness,
             "balance_sheet_readiness": balance_sheet_readiness,
             "quality": quality,
+            "preview_image_base64": preview_image,
             "error": None,
         }
     except Exception as e:

@@ -36,6 +36,7 @@ COPY field_extraction.py \
      file_routing.py \
      pipeline.py \
      main.py \
+     demo.py \
      ./
 
 EXPOSE 8000

@@ -2,7 +2,9 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
+from demo import DEMO_HTML
 from pipeline import process_document
 
 app = FastAPI()
@@ -20,11 +22,17 @@ app.add_middleware(
 )
 
 
+@app.get("/demo", response_class=HTMLResponse)
+async def demo() -> str:
+    return DEMO_HTML
+
+
 @app.post("/process")
 async def process(
     file: UploadFile = File(...),
     proposed_monthly_repayment: Optional[float] = Form(None),
     existing_monthly_debt: Optional[float] = Form(None),
+    include_preview: bool = Form(False),
 ) -> dict:
     file_bytes = await file.read()
     return process_document(
@@ -32,4 +40,5 @@ async def process(
         file_bytes=file_bytes,
         proposed_monthly_repayment=proposed_monthly_repayment,
         existing_monthly_debt=existing_monthly_debt,
+        include_preview=include_preview,
     )
