@@ -366,12 +366,6 @@ public class DocumentService {
             } else if (fieldsNode != null) {
                 rootObj.putNull("fields");
             }
-            // sensitive_field_keys itself names which fields were classified
-            // sensitive -- a non-owner has no legitimate use for that list
-            // (it's only consumed server-side to decide what to strip above),
-            // so drop it from the response rather than let it echo the
-            // redacted field names back out verbatim.
-            rootObj.remove("sensitive_field_keys");
             return objectMapper.writeValueAsString(rootObj);
         } catch (JsonProcessingException e) {
             return null;

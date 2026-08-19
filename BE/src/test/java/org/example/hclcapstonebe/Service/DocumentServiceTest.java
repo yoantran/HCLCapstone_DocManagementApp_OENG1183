@@ -1,5 +1,7 @@
 package org.example.hclcapstonebe.Service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
 import org.example.hclcapstonebe.Entities.Department;
 import org.example.hclcapstonebe.Entities.Document;
@@ -48,6 +50,14 @@ class DocumentServiceTest {
              "sensitive_field_keys":["applicant_name","bsb"],
              "redaction":{"type":"boxes","items":[]}}
             """;
+
+    private static JsonNode readTree(String json) {
+        try {
+            return new ObjectMapper().readTree(json);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     private Document buildDoc(UUID uploaderId, UUID departmentId, String aiResult) {
         User uploader = new User();
@@ -107,9 +117,15 @@ class DocumentServiceTest {
 
         assertFalse(response.isRequesterIsOwner());
         assertNull(response.getSignedUrl());
-        assertFalse(response.getAiResult().contains("applicant_name"));
-        assertFalse(response.getAiResult().contains("bsb"));
-        assertTrue(response.getAiResult().contains("salary")); // not in sensitive_field_keys -- stays
+
+        JsonNode result = readTree(response.getAiResult());
+        JsonNode fields = result.get("fields");
+        assertFalse(fields.has("applicant_name"));
+        assertFalse(fields.has("bsb"));
+        assertTrue(fields.has("salary")); // not in sensitive_field_keys -- stays
+        // sensitive_field_keys is metadata (field labels only, never values) --
+        // it stays in the non-owner response
+        assertTrue(result.has("sensitive_field_keys"));
     }
 
     @Test
