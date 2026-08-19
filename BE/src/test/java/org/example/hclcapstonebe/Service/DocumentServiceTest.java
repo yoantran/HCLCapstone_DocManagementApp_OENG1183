@@ -59,7 +59,8 @@ class DocumentServiceTest {
     private static final String AI_RESULT_JSON = """
             {"fields":{"applicant_name":"Jo Worker","bsb":"123-456","salary":5000},
              "sensitive_field_keys":["applicant_name","bsb"],
-             "redaction":{"type":"boxes","items":[]}}
+             "redaction":{"type":"boxes","items":[{"field":"bsb","value":"123-456","x_pct":0.1,"y_pct":0.1,"w_pct":0.2,"h_pct":0.1}]},
+             "loan_readiness":{"checks":{"min_income":{"value":5000,"pass":true}}}}
             """;
 
     private static JsonNode readTree(String json) {
@@ -137,6 +138,14 @@ class DocumentServiceTest {
         // sensitive_field_keys is metadata (field labels only, never values) --
         // it stays in the non-owner response
         assertTrue(result.has("sensitive_field_keys"));
+
+        // The stripped value must not be reachable elsewhere in the blob --
+        // redaction.items[].value used to carry the exact same literal.
+        assertFalse(response.getAiResult().contains("123-456"));
+        assertFalse(result.has("redaction"));
+        assertFalse(result.has("loan_readiness"));
+        assertFalse(result.has("balance_sheet_readiness"));
+        assertFalse(result.has("preview_image_base64"));
     }
 
     @Test
@@ -151,7 +160,8 @@ class DocumentServiceTest {
         managerDept.setId(deptId);
         manager.setDepartment(managerDept);
 
-        String legacyAiResult = "{\"fields\":{\"applicant_name\":\"Jo Worker\"},\"redaction\":{\"type\":\"boxes\",\"items\":[]}}";
+        String legacyAiResult = "{\"fields\":{\"applicant_name\":\"Jo Worker\"},"
+                + "\"redaction\":{\"type\":\"boxes\",\"items\":[{\"field\":\"applicant_name\",\"value\":\"Jo Worker\"}]}}";
         Document doc = buildDoc(otherStaffId, deptId, legacyAiResult);
 
         when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
@@ -161,6 +171,9 @@ class DocumentServiceTest {
         DocumentResponse response = documentService.getDepartmentDocumentById(doc.getId().toString(), "manager1@hcl.com");
 
         assertFalse(response.getAiResult().contains("applicant_name"));
+        assertFalse(response.getAiResult().contains("Jo Worker"));
+        JsonNode result = readTree(response.getAiResult());
+        assertFalse(result.has("redaction"));
     }
 
     @Test

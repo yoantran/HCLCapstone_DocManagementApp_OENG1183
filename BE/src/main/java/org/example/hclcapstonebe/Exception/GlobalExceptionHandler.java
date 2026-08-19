@@ -22,4 +22,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleConflict(ConflictException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
     }
+
+    @ExceptionHandler(AppException.class)
+    public ResponseEntity<Map<String, String>> handleAppException(AppException ex) {
+        return ResponseEntity.status(ex.getStatus()).body(Map.of("error", ex.getMessage()));
+    }
 }

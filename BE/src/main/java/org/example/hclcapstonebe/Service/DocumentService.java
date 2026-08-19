@@ -269,12 +269,16 @@ public class DocumentService {
     /**
      * Returns a redacted rendering of the document for a non-owner viewer.
      * Never falls back to the raw original -- fails closed if the format
-     * isn't image-based (PDF/DOCX text-native redaction is backlog, #<issue>)
+     * isn't image-based (PDF/DOCX text-native redaction is backlog, #199)
      * or if redaction.items is missing/empty.
      */
     public byte[] getRedactedPreview(String docId, String currentUserEmail) {
         User requester = getUserByEmail(currentUserEmail);
         Document doc = getDocumentOrThrow(docId);
+
+        if (!isAccessible(doc)) {
+            throw new AppException("Document is not accessible", HttpStatus.FORBIDDEN);
+        }
 
         boolean isOwner = doc.getUploader().getId().equals(requester.getId());
         boolean sameDepartment = !isOwner
@@ -443,6 +447,14 @@ public class DocumentService {
      * (older aiResult predating this contract) or the JSON can't be parsed,
      * strips the entire fields object rather than risk leaking an unknown
      * raw value.
+     *
+     * Also removes redaction, loan_readiness, balance_sheet_readiness, and
+     * preview_image_base64 wholesale (whitelist, not blacklist) -- these
+     * carry the exact same raw values that fields is being scrubbed of
+     * (redaction.items[].value is the literal matched string per detected
+     * region; loan_readiness/balance_sheet_readiness re-derive from the same
+     * income/balance-sheet data), so selectively stripping fields alone left
+     * the same leak reachable through a sibling key.
      */
     private String stripSensitiveFields(String aiResultJson) {
         if (aiResultJson == null) {
@@ -463,6 +475,7 @@ public class DocumentService {
             } else if (fieldsNode != null) {
                 rootObj.putNull("fields");
             }
+            rootObj.remove(List.of("redaction", "loan_readiness", "balance_sheet_readiness", "preview_image_base64"));
             return objectMapper.writeValueAsString(rootObj);
         } catch (JsonProcessingException e) {
             return null;
