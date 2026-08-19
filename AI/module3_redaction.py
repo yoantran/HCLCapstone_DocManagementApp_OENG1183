@@ -17,6 +17,15 @@ _REGEX_LIST_FIELDS = {
     "salary": SALARY_RE,
 }
 
+# Field keys Module 3 is configured to detect and redact -- derived from
+# the detectors themselves (not detection results), so a real detection
+# miss on a given document degrades to a missing black box rather than
+# silently reporting the field as "safe to show raw." annual_salary has
+# no dedicated regex/label detector but is still a real sensitive field
+# extracted by field_extraction_en.py -- included explicitly so it's
+# never silently omitted.
+SENSITIVE_FIELD_KEYS = sorted(set(_REGEX_LIST_FIELDS) | set(LABEL_PATTERNS) | {"income", "annual_salary"})
+
 
 def _cleaned_span(match: re.Match) -> tuple[str, int, int] | None:
     """Given a match whose group(1) is a raw label-anchored capture, return

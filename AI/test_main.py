@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from fastapi.testclient import TestClient
 
+import module1_opencv
 from main import app
 
 client = TestClient(app)
@@ -90,15 +91,30 @@ def test_apply_redaction_blacks_out_region():
     assert arr[y, x].tolist() == [0, 0, 0]
 
 
-def test_apply_redaction_no_items_returns_original_dimensions():
+def test_apply_redaction_empty_items_is_422():
     response = client.post(
         "/apply-redaction",
         files={"file": ("payslip.png", _IMAGE_BYTES, "image/png")},
         data={"items": "[]"},
     )
+    assert response.status_code == 422
+
+
+def test_apply_redaction_uses_enhanced_not_raw_dimensions():
+    raw = cv2.imdecode(np.frombuffer(_IMAGE_BYTES, dtype=np.uint8), cv2.IMREAD_COLOR)
+    expected = module1_opencv.enhance(raw)["image"]
+
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("payslip.png", _IMAGE_BYTES, "image/png")},
+        data={"items": '[{"field": "bsb", "value": "x", "x_pct": 0.1, "y_pct": 0.1, "w_pct": 0.1, "h_pct": 0.1}]'},
+    )
     assert response.status_code == 200
     arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
-    assert arr.shape[0] > 0 and arr.shape[1] > 0
+    assert arr.shape[:2] == expected.shape[:2]
+    # sanity: this must actually be a DIFFERENT shape than the raw upload,
+    # or this test can't tell enhanced from raw at all on this fixture
+    assert arr.shape[:2] != raw.shape[:2]
 
 
 def test_apply_redaction_bad_items_json_is_422():

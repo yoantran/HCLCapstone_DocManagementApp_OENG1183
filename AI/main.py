@@ -49,7 +49,7 @@ async def process(
     )
 
 
-@app.post("/apply-redaction")
+@app.post("/apply-redaction", responses={200: {"content": {"image/png": {}}}})
 async def apply_redaction(
     file: UploadFile = File(...),
     items: str = Form(...),
@@ -58,7 +58,13 @@ async def apply_redaction(
     try:
         redaction_items = json.loads(items)
     except json.JSONDecodeError:
-        raise HTTPException(status_code=422, detail="items must be valid JSON")
+        raise HTTPException(status_code=422, detail="items must be valid JSON") from None
+
+    if not isinstance(redaction_items, list) or not redaction_items:
+        raise HTTPException(status_code=422, detail="items must be a non-empty list of redaction boxes")
+    if not all(isinstance(item, dict) and {"x_pct", "y_pct", "w_pct", "h_pct"} <= item.keys()
+               for item in redaction_items):
+        raise HTTPException(status_code=422, detail="each item must have x_pct, y_pct, w_pct, h_pct")
 
     image = cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
