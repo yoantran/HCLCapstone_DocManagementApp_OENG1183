@@ -19,6 +19,9 @@ with open("samples/en_contract/part-time-employment-contract.docx", "rb") as f:
 with open("samples/en_pay_slip/Screenshot 2026-07-28 152419.png", "rb") as f:
     _IMAGE_BYTES = f.read()
 
+with open("samples/en_balance_sheet/Machias_Balance-sheet-template.pdf", "rb") as f:
+    _PDF_BYTES = f.read()
+
 
 def test_docx_upload_returns_text_native_result():
     response = client.post(
@@ -122,6 +125,36 @@ def test_apply_redaction_bad_items_json_is_422():
         "/apply-redaction",
         files={"file": ("payslip.png", _IMAGE_BYTES, "image/png")},
         data={"items": "not json"},
+    )
+    assert response.status_code == 422
+
+
+def test_apply_redaction_accepts_pdf_via_render_first_page():
+    # Issue #207 -- a scanned PDF already has real box coordinates
+    # (computed via the same OCR path an image takes), so the endpoint
+    # must render and redact it too, not just PNG/JPG/JPEG. This fixture
+    # happens to route "text_native" in file_routing's own classification
+    # (no genuinely scanned PDF exists in the current sample corpus), but
+    # that distinction is BE's gate to enforce -- this endpoint itself
+    # doesn't discriminate scanned vs text-native PDFs, it just renders
+    # whatever PDF bytes it's given and draws boxes on page 1.
+    items = json.dumps([{"field": "bsb", "value": "x", "x_pct": 0.1, "y_pct": 0.1, "w_pct": 0.1, "h_pct": 0.1}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("balance-sheet.pdf", _PDF_BYTES, "application/pdf")},
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert arr.shape[0] > 0 and arr.shape[1] > 0
+
+
+def test_apply_redaction_undecodable_pdf_is_422():
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("fake.pdf", b"not a real pdf", "application/pdf")},
+        data={"items": '[{"field": "bsb", "value": "x", "x_pct": 0.1, "y_pct": 0.1, "w_pct": 0.1, "h_pct": 0.1}]'},
     )
     assert response.status_code == 422
 
