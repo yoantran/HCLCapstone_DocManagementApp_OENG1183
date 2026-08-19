@@ -66,6 +66,15 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
             if result is None:
                 continue
             cleaned, start, end = result
+            # Issue #205 -- redact every occurrence of the real value (a
+            # repeated name/address/bsb/account_number on a payslip header
+            # AND footer both need a box), not just the first. Safe because
+            # _matches_accepted_value is an exact string compare against
+            # fields[field] -- a different real value that happens to match
+            # the same label pattern elsewhere in the document is rejected,
+            # not redacted.
+            if not _matches_accepted_value(field, cleaned, fields):
+                continue
             spans.append(
                 {
                     "field": field,
@@ -75,9 +84,17 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
                     "detection_method": "regex",
                 }
             )
-            break
 
     if fields.get("income") is not None:
+        # income's fields value is a parsed float, not the raw printed
+        # string, so (unlike the fields above) there's no exact-match check
+        # available to safely redact every occurrence -- a different dollar
+        # figure elsewhere in the document (a subtotal, a prior period) can
+        # match the same label pattern and would be false-positive-redacted
+        # without one. Keep the existing first-match-only behavior here
+        # deliberately; fixing this for real needs Module 2 to expose which
+        # match it actually parsed the accepted value from, out of scope
+        # for #205.
         pattern = INCOME_LABEL_PATTERNS.get(fields.get("income_basis"))
         if pattern is not None:
             for match in pattern.finditer(text):
@@ -164,7 +181,11 @@ def find_sensitive_boxes(image, fields: dict) -> list[dict]:
                 continue
             overlapping = _words_overlapping_span(word_spans, start, end)
             if not overlapping:
-                break
+                # No OCR word boxes overlap this occurrence specifically --
+                # continue, not break: a LATER occurrence of the same real
+                # value (#205) may still have overlapping word boxes even
+                # though this one doesn't.
+                continue
             boxes.append(
                 {
                     "field": field,
@@ -173,7 +194,6 @@ def find_sensitive_boxes(image, fields: dict) -> list[dict]:
                     "detection_method": "regex",
                 }
             )
-            break
 
     if fields.get("income") is not None:
         # income's fields value is a parsed float, not the raw printed
@@ -252,6 +272,37 @@ if __name__ == "__main__":
         assert address_spans[0]["value"] == "42 Example Street, Melbourne VIC 3000"
         expected_start = text.index("42 Example Street")
         assert address_spans[0]["start"] == expected_start
+
+    def test_label_anchored_field_redacts_every_occurrence():
+        # Issue #205 -- a repeated address (header + footer) must get a
+        # span for BOTH occurrences, not just the first.
+        text = (
+            "Employee Address: 42 Example Street, Melbourne VIC 3000\n"
+            "Some other line in between.\n"
+            "Employee Address: 42 Example Street, Melbourne VIC 3000"
+        )
+        fields = {"address": "42 Example Street, Melbourne VIC 3000"}
+        spans = find_sensitive_spans(text, fields)
+        address_spans = [s for s in spans if s["field"] == "address"]
+        assert len(address_spans) == 2
+        starts = {s["start"] for s in address_spans}
+        assert starts == {text.index("42 Example Street"), text.rindex("42 Example Street")}
+
+    def test_label_anchored_field_does_not_redact_a_different_value():
+        # A second "Employee Address:" line with a genuinely different
+        # address (not the accepted fields.address value) must NOT get a
+        # span -- _matches_accepted_value is what keeps #205's fix from
+        # over-redacting a different real value that happens to match the
+        # same label pattern elsewhere in the document.
+        text = (
+            "Employee Address: 42 Example Street, Melbourne VIC 3000\n"
+            "Employee Address: 1 Other Street, Sydney NSW 2000"
+        )
+        fields = {"address": "42 Example Street, Melbourne VIC 3000"}
+        spans = find_sensitive_spans(text, fields)
+        address_spans = [s for s in spans if s["field"] == "address"]
+        assert len(address_spans) == 1
+        assert address_spans[0]["value"] == "42 Example Street, Melbourne VIC 3000"
 
     def test_absent_field_produces_no_span():
         text = "Employee: Jo Worker"
@@ -344,6 +395,8 @@ if __name__ == "__main__":
         test_single_occurrence_regex_field,
         test_multiple_occurrences_regex_field,
         test_label_anchored_skips_rejected_candidate,
+        test_label_anchored_field_redacts_every_occurrence,
+        test_label_anchored_field_does_not_redact_a_different_value,
         test_absent_field_produces_no_span,
         test_income_field_uses_matching_basis_pattern,
         test_all_spans_satisfy_text_slice_invariant,
