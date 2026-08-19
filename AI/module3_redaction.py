@@ -1,4 +1,6 @@
 import re
+import cv2
+import numpy as np
 
 from field_extraction_en import (
     ABN_RE,
@@ -14,6 +16,15 @@ _REGEX_LIST_FIELDS = {
     "phone": PHONE_RE,
     "salary": SALARY_RE,
 }
+
+# Field keys Module 3 is configured to detect and redact -- derived from
+# the detectors themselves (not detection results), so a real detection
+# miss on a given document degrades to a missing black box rather than
+# silently reporting the field as "safe to show raw." annual_salary has
+# no dedicated regex/label detector but is still a real sensitive field
+# extracted by field_extraction_en.py -- included explicitly so it's
+# never silently omitted.
+SENSITIVE_FIELD_KEYS = sorted(set(_REGEX_LIST_FIELDS) | set(LABEL_PATTERNS) | {"income", "annual_salary"})
 
 
 def _cleaned_span(match: re.Match) -> tuple[str, int, int] | None:
@@ -193,6 +204,22 @@ def find_sensitive_boxes(image, fields: dict) -> list[dict]:
     return boxes
 
 
+def apply_redaction_image(image: np.ndarray, items: list[dict]) -> np.ndarray:
+    """Burns filled black rectangles over each item's box. Coordinates are
+    percentages of `image`'s own dimensions -- caller must pass the same
+    enhanced image the coordinates were originally computed against
+    (module1_opencv.enhance() output), never the raw upload."""
+    img_h, img_w = image.shape[:2]
+    redacted = image.copy()
+    for item in items:
+        x1 = int(item["x_pct"] * img_w)
+        y1 = int(item["y_pct"] * img_h)
+        x2 = int((item["x_pct"] + item["w_pct"]) * img_w)
+        y2 = int((item["y_pct"] + item["h_pct"]) * img_h)
+        cv2.rectangle(redacted, (x1, y1), (x2, y2), (0, 0, 0), thickness=-1)
+    return redacted
+
+
 if __name__ == "__main__":
     def test_single_occurrence_regex_field():
         text = "ABN: 12 345 978 910\nEmployee: Jo Worker"
@@ -297,6 +324,22 @@ if __name__ == "__main__":
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
         assert [b for b in boxes if b["field"] == "account_number"] == []
 
+    def test_apply_redaction_image_blacks_out_region_only():
+        image = np.full((100, 200, 3), 255, dtype=np.uint8)  # all white
+        items = [{"field": "bsb", "value": "x", "x_pct": 0.25, "y_pct": 0.25, "w_pct": 0.25, "h_pct": 0.25}]
+        redacted = apply_redaction_image(image, items)
+        # inside the box (x in [50,100), y in [25,50)) -> black
+        assert redacted[35, 70].tolist() == [0, 0, 0]
+        # outside the box -> untouched white
+        assert redacted[5, 5].tolist() == [255, 255, 255]
+        # input not mutated
+        assert image[35, 70].tolist() == [255, 255, 255]
+
+    def test_apply_redaction_image_no_items_returns_unchanged_copy():
+        image = np.full((50, 50, 3), 200, dtype=np.uint8)
+        redacted = apply_redaction_image(image, [])
+        assert np.array_equal(redacted, image)
+
     tests = [
         test_single_occurrence_regex_field,
         test_multiple_occurrences_regex_field,
@@ -307,6 +350,8 @@ if __name__ == "__main__":
         test_single_word_box,
         test_absent_field_no_box,
         test_value_not_in_fields_produces_no_box,
+        test_apply_redaction_image_blacks_out_region_only,
+        test_apply_redaction_image_no_items_returns_unchanged_copy,
     ]
     for test in tests:
         test()

@@ -22,6 +22,7 @@ _EMPTY_RESULT = {
     "balance_sheet_readiness": None,
     "quality": None,
     "preview_image_base64": None,
+    "sensitive_field_keys": [],
     "error": None,
 }
 
@@ -115,7 +116,7 @@ def process_document(
     try:
         path = detect_processing_path(filename, file_bytes)
     except ValueError as e:
-        return {**_EMPTY_RESULT, "error": str(e)}
+        return {**_EMPTY_RESULT, "sensitive_field_keys": [], "error": str(e)}
 
     try:
         if path == "ocr":
@@ -151,7 +152,8 @@ def process_document(
             "balance_sheet_readiness": balance_sheet_readiness,
             "quality": quality,
             "preview_image_base64": preview_image,
+            "sensitive_field_keys": list(module3_redaction.SENSITIVE_FIELD_KEYS),
             "error": None,
         }
     except Exception as e:
-        return {**_EMPTY_RESULT, "processing_path": path, "error": str(e)}
+        return {**_EMPTY_RESULT, "processing_path": path, "sensitive_field_keys": [], "error": str(e)}
