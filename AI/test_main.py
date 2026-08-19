@@ -135,6 +135,22 @@ def test_apply_redaction_undecodable_file_is_422():
     assert response.status_code == 422
 
 
+def test_apply_redaction_undecodable_file_with_valid_items_is_422():
+    # Issue #200 -- the test above sends items="[]", so it trips the
+    # empty-items check (main.py) before ever reaching the undecodable-
+    # image check (cv2.imdecode returning None), leaving that branch with
+    # no real coverage. This test sends well-formed, non-empty items so
+    # the request actually reaches the image-decode step and exercises
+    # the `image is None` guard specifically.
+    items = json.dumps([{"field": "bsb", "value": "x", "x_pct": 0.1, "y_pct": 0.1, "w_pct": 0.1, "h_pct": 0.1}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("fake.png", b"not a real image", "image/png")},
+        data={"items": items},
+    )
+    assert response.status_code == 422
+
+
 def run_all():
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for test in tests:
