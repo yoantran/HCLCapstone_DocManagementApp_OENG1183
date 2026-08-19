@@ -7,6 +7,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 
+import file_routing
 import module1_opencv
 import module3_redaction
 from demo import DEMO_HTML
@@ -66,7 +67,19 @@ async def apply_redaction(
                for item in redaction_items):
         raise HTTPException(status_code=422, detail="each item must have x_pct, y_pct, w_pct, h_pct")
 
-    image = cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+    # Issue #207 -- a scanned PDF (no real text layer) already went
+    # through the OCR/image path at upload time and has real box
+    # coordinates, so it deserves a preview too, not just PNG/JPG/JPEG.
+    # A genuinely text-native PDF (or docx) has no image to draw boxes
+    # on at all -- that's #208, a different problem, not handled here.
+    filename = (file.filename or "").lower()
+    if filename.endswith(".pdf"):
+        try:
+            image = file_routing.render_pdf_first_page(file_bytes)
+        except Exception:
+            raise HTTPException(status_code=422, detail="file is not a decodable PDF") from None
+    else:
+        image = cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise HTTPException(status_code=422, detail="file is not a decodable image")
 

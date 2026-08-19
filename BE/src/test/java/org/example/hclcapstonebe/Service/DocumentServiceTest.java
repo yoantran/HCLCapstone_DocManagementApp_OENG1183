@@ -374,6 +374,80 @@ class DocumentServiceTest {
     }
 
     @Test
+    void getRedactedPreview_scannedPdf_returnsRedactedBytes() {
+        // Issue #207 -- a scanned PDF (processing_path == "ocr") already
+        // has real box coordinates from the OCR path at upload time, so
+        // it must get a preview too, same as PNG/JPG/JPEG.
+        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
+
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID otherStaffId = UUID.randomUUID();
+
+        User manager = new User();
+        manager.setId(managerId);
+        Department managerDept = new Department();
+        managerDept.setId(deptId);
+        manager.setDepartment(managerDept);
+
+        String scannedPdfResult = """
+                {"processing_path":"ocr",
+                 "fields":{"bsb":"123-456"},
+                 "sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"boxes","items":[{"field":"bsb","value":"123-456","x_pct":0.1,"y_pct":0.1,"w_pct":0.2,"h_pct":0.1}]}}
+                """;
+        Document doc = buildDoc(otherStaffId, deptId, scannedPdfResult);
+        doc.setFormat(DocumentFormatEnum.PDF);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
+        byte[] redactedBytes = "redacted-bytes".getBytes();
+        when(restTemplate.exchange(
+                eq("http://ai-service:8000/apply-redaction"),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(byte[].class)
+        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
+
+        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com");
+
+        assertArrayEquals(redactedBytes, result);
+    }
+
+    @Test
+    void getRedactedPreview_textNativePdf_stillFailsClosedNotImplemented() {
+        // A real text-native PDF (processing_path == "text_native") has
+        // no image to draw boxes on -- #207 only widens the gate for
+        // scanned PDFs, this case stays 501 same as before (#208 backlog).
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID otherStaffId = UUID.randomUUID();
+
+        User manager = new User();
+        manager.setId(managerId);
+        Department managerDept = new Department();
+        managerDept.setId(deptId);
+        manager.setDepartment(managerDept);
+
+        String textNativePdfResult = """
+                {"processing_path":"text_native",
+                 "fields":{"bsb":"123-456"},
+                 "sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"spans","items":[{"field":"bsb","value":"123-456","start":10,"end":17}]}}
+                """;
+        Document doc = buildDoc(otherStaffId, deptId, textNativePdfResult);
+        doc.setFormat(DocumentFormatEnum.PDF);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        AppException ex = assertThrows(AppException.class, () ->
+                documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com"));
+        assertEquals(HttpStatus.NOT_IMPLEMENTED, ex.getStatus());
+    }
+
+    @Test
     void getRedactedPreview_noRedactionItems_failsClosedUnprocessable() {
         UUID deptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();

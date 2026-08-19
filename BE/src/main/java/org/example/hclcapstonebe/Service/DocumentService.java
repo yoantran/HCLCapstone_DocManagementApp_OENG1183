@@ -269,8 +269,15 @@ public class DocumentService {
     /**
      * Returns a redacted rendering of the document for a non-owner viewer.
      * Never falls back to the raw original -- fails closed if the format
-     * isn't image-based (PDF/DOCX text-native redaction is backlog, #199)
-     * or if redaction.items is missing/empty.
+     * isn't image-based (real text-native PDF/DOCX redaction is backlog,
+     * #208) or if redaction.items is missing/empty.
+     *
+     * A PDF gets a preview too (issue #207) if -- and only if -- it went
+     * through the OCR path at upload time (aiResult.processing_path ==
+     * "ocr", a genuinely scanned PDF with no text layer), since only that
+     * case has real box coordinates computed against a renderable page. A
+     * real text-native PDF (processing_path == "text_native") has no image
+     * to draw boxes on and still 501s, same as DOCX/CSV.
      */
     public byte[] getRedactedPreview(String docId, String currentUserEmail) {
         User requester = getUserByEmail(currentUserEmail);
@@ -288,9 +295,12 @@ public class DocumentService {
             throw new AppException("Access denied", HttpStatus.FORBIDDEN);
         }
 
-        if (doc.getFormat() != DocumentFormatEnum.PNG
-                && doc.getFormat() != DocumentFormatEnum.JPG
-                && doc.getFormat() != DocumentFormatEnum.JPEG) {
+        boolean isImageFormat = doc.getFormat() == DocumentFormatEnum.PNG
+                || doc.getFormat() == DocumentFormatEnum.JPG
+                || doc.getFormat() == DocumentFormatEnum.JPEG;
+        boolean isScannedPdf = doc.getFormat() == DocumentFormatEnum.PDF
+                && "ocr".equals(extractProcessingPath(doc.getAiResult()));
+        if (!isImageFormat && !isScannedPdf) {
             throw new AppException(
                     "Redacted preview not yet implemented for " + doc.getFormat() + " documents",
                     HttpStatus.NOT_IMPLEMENTED
@@ -314,6 +324,19 @@ public class DocumentService {
             JsonNode root = objectMapper.readTree(aiResultJson);
             JsonNode redaction = root.get("redaction");
             return redaction != null ? redaction.get("items") : null;
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private String extractProcessingPath(String aiResultJson) {
+        if (aiResultJson == null) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(aiResultJson);
+            JsonNode processingPath = root.get("processing_path");
+            return processingPath != null && processingPath.isTextual() ? processingPath.asText() : null;
         } catch (JsonProcessingException e) {
             return null;
         }
