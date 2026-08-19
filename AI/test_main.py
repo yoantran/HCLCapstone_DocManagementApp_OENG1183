@@ -2,6 +2,10 @@ import sys
 
 sys.path.insert(0, ".")
 
+import json
+
+import cv2
+import numpy as np
 from fastapi.testclient import TestClient
 
 from main import app
@@ -69,6 +73,50 @@ def test_repayment_amount_populates_loan_readiness():
     assert body["error"] is None
     assert body["loan_readiness"] is not None
     assert body["loan_readiness"]["verdict"] in ("READY", "NOT_READY", "INSUFFICIENT_DATA")
+
+
+def test_apply_redaction_blacks_out_region():
+    items = json.dumps([{"field": "bsb", "value": "x", "x_pct": 0.1, "y_pct": 0.1, "w_pct": 0.3, "h_pct": 0.1}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("payslip.png", _IMAGE_BYTES, "image/png")},
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    h, w = arr.shape[:2]
+    y, x = int(0.15 * h), int(0.2 * w)
+    assert arr[y, x].tolist() == [0, 0, 0]
+
+
+def test_apply_redaction_no_items_returns_original_dimensions():
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("payslip.png", _IMAGE_BYTES, "image/png")},
+        data={"items": "[]"},
+    )
+    assert response.status_code == 200
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert arr.shape[0] > 0 and arr.shape[1] > 0
+
+
+def test_apply_redaction_bad_items_json_is_422():
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("payslip.png", _IMAGE_BYTES, "image/png")},
+        data={"items": "not json"},
+    )
+    assert response.status_code == 422
+
+
+def test_apply_redaction_undecodable_file_is_422():
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("fake.png", b"not a real image", "image/png")},
+        data={"items": "[]"},
+    )
+    assert response.status_code == 422
 
 
 def run_all():
