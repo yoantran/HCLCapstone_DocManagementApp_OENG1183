@@ -143,9 +143,86 @@ class DocumentServiceTest {
         // redaction.items[].value used to carry the exact same literal.
         assertFalse(response.getAiResult().contains("123-456"));
         assertFalse(result.has("redaction"));
-        assertFalse(result.has("loan_readiness"));
-        assertFalse(result.has("balance_sheet_readiness"));
         assertFalse(result.has("preview_image_base64"));
+
+        // Issue #203 -- loan_readiness stays (Manager has a legitimate
+        // reason to see the verdict), but checks.*.value is nulled since
+        // it re-derives from the same income data fields was scrubbed of.
+        assertTrue(result.has("loan_readiness"));
+        JsonNode minIncomeCheck = result.get("loan_readiness").get("checks").get("min_income");
+        assertTrue(minIncomeCheck.get("value").isNull());
+        assertTrue(minIncomeCheck.get("pass").asBoolean());
+
+        // Not present in this fixture at all -- stays absent, not an empty
+        // object (nothing to scrub if the key was never there).
+        assertFalse(result.has("balance_sheet_readiness"));
+    }
+
+    @Test
+    void getDepartmentDocumentById_nonOwnerGetsBalanceSheetVerdictWithValuesScrubbed() {
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID otherStaffId = UUID.randomUUID();
+
+        User manager = new User();
+        manager.setId(managerId);
+        Department managerDept = new Department();
+        managerDept.setId(deptId);
+        manager.setDepartment(managerDept);
+
+        String balanceSheetJson = """
+                {"fields":{"total_assets":87500},
+                 "sensitive_field_keys":[],
+                 "balance_sheet_readiness":{"verdict":"READY","checks":{
+                     "current_ratio":{"value":2.5,"pass":true,"threshold":1.0},
+                     "debt_to_equity":{"value":0.8,"pass":true,"threshold":2.0}}}}
+                """;
+        Document doc = buildDoc(otherStaffId, deptId, balanceSheetJson);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+        when(documentMapper.toResponse(doc)).thenReturn(new DocumentResponse());
+
+        DocumentResponse response = documentService.getDepartmentDocumentById(doc.getId().toString(), "manager1@hcl.com");
+
+        JsonNode result = readTree(response.getAiResult());
+        JsonNode readiness = result.get("balance_sheet_readiness");
+        assertTrue(readiness.has("verdict"));
+        assertEquals("READY", readiness.get("verdict").asText());
+        assertTrue(readiness.get("checks").get("current_ratio").get("value").isNull());
+        assertTrue(readiness.get("checks").get("current_ratio").get("pass").asBoolean());
+        assertTrue(readiness.get("checks").get("debt_to_equity").get("value").isNull());
+    }
+
+    @Test
+    void getDepartmentDocumentById_malformedReadinessShape_failsClosedRemovesWholeObject() {
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID otherStaffId = UUID.randomUUID();
+
+        User manager = new User();
+        manager.setId(managerId);
+        Department managerDept = new Department();
+        managerDept.setId(deptId);
+        manager.setDepartment(managerDept);
+
+        // "checks" is a string, not an object -- a shape this method
+        // doesn't recognize. Must remove loan_readiness entirely rather
+        // than risk leaving a raw value un-scrubbed in an unexpected shape.
+        String malformedJson = """
+                {"fields":{},"sensitive_field_keys":[],
+                 "loan_readiness":{"verdict":"READY","checks":"not an object"}}
+                """;
+        Document doc = buildDoc(otherStaffId, deptId, malformedJson);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+        when(documentMapper.toResponse(doc)).thenReturn(new DocumentResponse());
+
+        DocumentResponse response = documentService.getDepartmentDocumentById(doc.getId().toString(), "manager1@hcl.com");
+
+        JsonNode result = readTree(response.getAiResult());
+        assertFalse(result.has("loan_readiness"));
     }
 
     @Test

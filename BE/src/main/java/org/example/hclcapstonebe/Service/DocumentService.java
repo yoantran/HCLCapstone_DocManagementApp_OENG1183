@@ -448,13 +448,20 @@ public class DocumentService {
      * strips the entire fields object rather than risk leaking an unknown
      * raw value.
      *
-     * Also removes redaction, loan_readiness, balance_sheet_readiness, and
-     * preview_image_base64 wholesale (whitelist, not blacklist) -- these
-     * carry the exact same raw values that fields is being scrubbed of
-     * (redaction.items[].value is the literal matched string per detected
-     * region; loan_readiness/balance_sheet_readiness re-derive from the same
-     * income/balance-sheet data), so selectively stripping fields alone left
-     * the same leak reachable through a sibling key.
+     * redaction and preview_image_base64 are removed wholesale -- FE has no
+     * legitimate use for either (redaction.items[].value is the literal
+     * matched string per detected region; preview_image_base64, when ever
+     * populated, is the unredacted enhanced document) and BE already reads
+     * redaction server-side inside getRedactedPreview.
+     *
+     * loan_readiness/balance_sheet_readiness are kept (issue #203) -- a
+     * Manager reviewing a colleague's document has a legitimate reason to
+     * see the READY/NOT_READY verdict -- but every checks.*.value is
+     * nulled out first, since those values re-derive from the exact same
+     * income/balance-sheet data fields is being scrubbed of. Unexpected
+     * shape (missing/malformed "checks") fails closed by removing the
+     * whole readiness object rather than risk leaving a raw value in a
+     * shape this method doesn't recognize.
      */
     private String stripSensitiveFields(String aiResultJson) {
         if (aiResultJson == null) {
@@ -475,10 +482,37 @@ public class DocumentService {
             } else if (fieldsNode != null) {
                 rootObj.putNull("fields");
             }
-            rootObj.remove(List.of("redaction", "loan_readiness", "balance_sheet_readiness", "preview_image_base64"));
+            rootObj.remove(List.of("redaction", "preview_image_base64"));
+            scrubReadinessCheckValues(rootObj, "loan_readiness");
+            scrubReadinessCheckValues(rootObj, "balance_sheet_readiness");
             return objectMapper.writeValueAsString(rootObj);
         } catch (JsonProcessingException e) {
             return null;
+        }
+    }
+
+    /**
+     * Nulls every checks.*.value inside root[key] (loan_readiness or
+     * balance_sheet_readiness), keeping verdict/pass/threshold intact.
+     * Fails closed on an unexpected shape: removes the whole object
+     * rather than risk leaving a raw value un-scrubbed.
+     */
+    private void scrubReadinessCheckValues(ObjectNode root, String key) {
+        JsonNode node = root.get(key);
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (!(node instanceof ObjectNode readinessObj) || !(readinessObj.get("checks") instanceof ObjectNode checksObj)) {
+            root.remove(key);
+            return;
+        }
+        for (JsonNode checkNode : checksObj) {
+            if (checkNode instanceof ObjectNode checkObj) {
+                checkObj.putNull("value");
+            } else {
+                root.remove(key);
+                return;
+            }
         }
     }
 
