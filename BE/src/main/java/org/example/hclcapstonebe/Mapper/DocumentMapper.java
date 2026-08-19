@@ -1,4 +1,4 @@
-package org.example.hclcapstonebe.Mapper;
+﻿package org.example.hclcapstonebe.Mapper;
 
 
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
@@ -16,6 +16,7 @@ public interface DocumentMapper {
     @Mapping(source = "type",            target = "type",   qualifiedByName = "enumToString")
     @Mapping(source = "format",          target = "format", qualifiedByName = "enumToString")
     @Mapping(target = "signedUrl",       ignore = true)
+    @Mapping(target = "requesterIsOwner", ignore = true)
     @Mapping(target = "accessible",    ignore = true)
     DocumentResponse toResponse(Document document);
 
