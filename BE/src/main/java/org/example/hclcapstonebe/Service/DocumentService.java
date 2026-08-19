@@ -15,10 +15,24 @@ import org.example.hclcapstonebe.Mapper.DocumentMapper;
 import org.example.hclcapstonebe.Repository.DocumentRepository;
 import org.example.hclcapstonebe.Repository.NotificationRepository;
 import org.example.hclcapstonebe.Repository.UserRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.BufferedInputStream;
@@ -44,6 +58,11 @@ public class DocumentService {
     private final SupabaseStorageService supabaseStorageService;
     private final ClamAvScannerService clamAvScannerService;
     private final AiProcessingService aiProcessingService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${ai.service.url}")
+    private String aiServiceUrl;
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
@@ -64,7 +83,7 @@ public class DocumentService {
         User uploader = getUserByEmail(currentUserEmail);
         Document doc = buildAndSaveDocument(file, type, uploader, proposedRepaymentAmount);
         sendNotificationToManager(doc, uploader);
-        return toDocumentResponse(doc);
+        return toDocumentResponse(doc, uploader.getId());
     }
 
     public List<DocumentResponse> uploadMany(List<MultipartFile> files, String type,
@@ -83,7 +102,7 @@ public class DocumentService {
         return files.stream().map(file -> {
             Document doc = buildAndSaveDocument(file, type, uploader, proposedRepaymentAmount);
             sendNotificationToManager(doc, uploader);
-            return toDocumentResponse(doc);
+            return toDocumentResponse(doc, uploader.getId());
         }).collect(Collectors.toList());
     }
 
@@ -204,7 +223,7 @@ public class DocumentService {
         User user = getUserByEmail(currentUserEmail);
         return documentRepository.findByUploaderIdAndIsDeletedFalse(user.getId())
                 .stream()
-                .map(this::toDocumentResponse)
+                .map(doc -> toDocumentResponse(doc, user.getId()))
                 .collect(Collectors.toList());
     }
 
@@ -218,7 +237,7 @@ public class DocumentService {
 
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
-        return toDocumentResponse(doc);
+        return toDocumentResponse(doc, user.getId());
     }
 
     // ─── VIEW: BOSS ONLY (department docs) ────────────────
@@ -228,7 +247,7 @@ public class DocumentService {
         return documentRepository
                 .findByDepartmentIdAndIsDeletedFalse(boss.getDepartment().getId())
                 .stream()
-                .map(this::toDocumentResponse)
+                .map(doc -> toDocumentResponse(doc, boss.getId()))
                 .collect(Collectors.toList());
     }
 
@@ -242,7 +261,96 @@ public class DocumentService {
 
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
-        return toDocumentResponse(doc);
+        return toDocumentResponse(doc, boss.getId());
+    }
+
+    // ─── REDACTED PREVIEW: NON-OWNER VIEWING ──────────────
+
+    /**
+     * Returns a redacted rendering of the document for a non-owner viewer.
+     * Never falls back to the raw original -- fails closed if the format
+     * isn't image-based (PDF/DOCX text-native redaction is backlog, #199)
+     * or if redaction.items is missing/empty.
+     */
+    public byte[] getRedactedPreview(String docId, String currentUserEmail) {
+        User requester = getUserByEmail(currentUserEmail);
+        Document doc = getDocumentOrThrow(docId);
+
+        if (!isAccessible(doc)) {
+            throw new AppException("Document is not accessible", HttpStatus.FORBIDDEN);
+        }
+
+        boolean isOwner = doc.getUploader().getId().equals(requester.getId());
+        boolean sameDepartment = !isOwner
+                && requester.getDepartment() != null
+                && doc.getDepartment().getId().equals(requester.getDepartment().getId());
+        if (!isOwner && !sameDepartment) {
+            throw new AppException("Access denied", HttpStatus.FORBIDDEN);
+        }
+
+        if (doc.getFormat() != DocumentFormatEnum.PNG
+                && doc.getFormat() != DocumentFormatEnum.JPG
+                && doc.getFormat() != DocumentFormatEnum.JPEG) {
+            throw new AppException(
+                    "Redacted preview not yet implemented for " + doc.getFormat() + " documents",
+                    HttpStatus.NOT_IMPLEMENTED
+            );
+        }
+
+        JsonNode redactionItems = extractRedactionItems(doc.getAiResult());
+        if (redactionItems == null || !redactionItems.isArray() || redactionItems.isEmpty()) {
+            throw new AppException("Document has no redaction data yet", HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+
+        byte[] originalBytes = supabaseStorageService.downloadFile(BUCKET, doc.getDocumentLink());
+        return callApplyRedaction(originalBytes, doc.getName(), redactionItems);
+    }
+
+    private JsonNode extractRedactionItems(String aiResultJson) {
+        if (aiResultJson == null) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(aiResultJson);
+            JsonNode redaction = root.get("redaction");
+            return redaction != null ? redaction.get("items") : null;
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private byte[] callApplyRedaction(byte[] fileBytes, String filename, JsonNode redactionItems) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new ByteArrayResource(fileBytes) {
+            @Override
+            public String getFilename() {
+                return filename;
+            }
+        });
+        try {
+            body.add("items", objectMapper.writeValueAsString(redactionItems));
+        } catch (JsonProcessingException e) {
+            throw new AppException("Failed to serialize redaction items", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+        try {
+            ResponseEntity<byte[]> response = restTemplate.exchange(
+                    aiServiceUrl + "/apply-redaction", HttpMethod.POST, request, byte[].class
+            );
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                throw new AppException("AI apply-redaction failed: " + response.getStatusCode(),
+                        HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+            return response.getBody();
+        } catch (AppException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AppException("AI apply-redaction error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 
     // ─── DELETE: BOSS ONLY ────────────────────────────────
@@ -303,21 +411,75 @@ public class DocumentService {
      * The signed URL lets the FE read the file directly from Supabase for
      * SIGNED_URL_TTL seconds.
      */
-    private DocumentResponse toDocumentResponse(Document doc) {
+    private DocumentResponse toDocumentResponse(Document doc, UUID requesterId) {
         DocumentResponse response = documentMapper.toResponse(doc);
         response.setScanStatus(doc.getScanStatus());
 
         boolean accessible = isAccessible(doc);
         response.setAccessible(accessible);
 
-        // only expose signed URL for accessible documents
-        if (accessible) {
+        boolean isOwner = doc.getUploader().getId().equals(requesterId);
+        response.setRequesterIsOwner(isOwner);
+
+        // Only the owner gets a real signed URL to the unredacted original --
+        // non-owner (e.g. a Manager reviewing a department document) uses
+        // /documents/{id}/redacted-preview instead.
+        if (accessible && isOwner) {
             String signedUrl = supabaseStorageService.generateSignedUrl(
                     BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL
             );
             response.setSignedUrl(signedUrl);
         }
+
+        // Set explicitly for both branches -- don't rely on documentMapper's
+        // implicit same-name passthrough for the owner case, so this method's
+        // behavior doesn't depend on mapper internals (and is directly unit
+        // -testable with a mocked documentMapper, which returns an empty
+        // DocumentResponse and therefore never carries doc.aiResult on its own).
+        response.setAiResult(isOwner ? doc.getAiResult() : stripSensitiveFields(doc.getAiResult()));
+
         return response;
+    }
+
+    /**
+     * Removes sensitive_field_keys-listed keys from aiResult.fields for a
+     * non-owner viewer. Fails closed: if sensitive_field_keys is missing
+     * (older aiResult predating this contract) or the JSON can't be parsed,
+     * strips the entire fields object rather than risk leaking an unknown
+     * raw value.
+     *
+     * Also removes redaction, loan_readiness, balance_sheet_readiness, and
+     * preview_image_base64 wholesale (whitelist, not blacklist) -- these
+     * carry the exact same raw values that fields is being scrubbed of
+     * (redaction.items[].value is the literal matched string per detected
+     * region; loan_readiness/balance_sheet_readiness re-derive from the same
+     * income/balance-sheet data), so selectively stripping fields alone left
+     * the same leak reachable through a sibling key.
+     */
+    private String stripSensitiveFields(String aiResultJson) {
+        if (aiResultJson == null) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(aiResultJson);
+            if (!(root instanceof ObjectNode rootObj)) {
+                return null;
+            }
+            JsonNode fieldsNode = rootObj.get("fields");
+            JsonNode sensitiveKeysNode = rootObj.get("sensitive_field_keys");
+            if (fieldsNode instanceof ObjectNode fieldsObj
+                    && sensitiveKeysNode != null && sensitiveKeysNode.isArray()) {
+                for (JsonNode keyNode : sensitiveKeysNode) {
+                    fieldsObj.remove(keyNode.asText());
+                }
+            } else if (fieldsNode != null) {
+                rootObj.putNull("fields");
+            }
+            rootObj.remove(List.of("redaction", "loan_readiness", "balance_sheet_readiness", "preview_image_base64"));
+            return objectMapper.writeValueAsString(rootObj);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
     }
 
     private boolean isAccessible(Document doc) {

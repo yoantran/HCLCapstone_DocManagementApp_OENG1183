@@ -16,6 +16,7 @@ public class DocumentResponse {
     private String scanMessage;
     private LocalDateTime scannedAt;
     private boolean isAccessible;
+    private boolean requesterIsOwner;
     private String signedUrl;
     private String type;
     private String format;

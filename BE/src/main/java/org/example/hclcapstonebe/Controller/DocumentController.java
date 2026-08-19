@@ -247,6 +247,34 @@ public class DocumentController {
     }
 
     @Operation(
+            summary = "Get redacted preview for non-owner viewing",
+            description = """
+                Returns a redacted PNG rendering of the document for someone who is
+                NOT the uploader (e.g. a Manager reviewing a department document).
+                Never returns the raw original. PDF/DOCX redaction isn't implemented
+                yet -- returns 501 rather than falling back to the unredacted file.
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Redacted image bytes (image/png)"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department"),
+            @ApiResponse(responseCode = "404", description = "Document not found"),
+            @ApiResponse(responseCode = "422", description = "Document has no redaction data yet"),
+            @ApiResponse(responseCode = "501", description = "Not implemented for this document's format (PDF/DOCX)")
+    })
+    @GetMapping("/{id}/redacted-preview")
+    @AuditAction("Viewed redacted preview '{documentId}'")
+    public ResponseEntity<byte[]> getRedactedPreview(
+            @Parameter(description = "UUID of the document", example = "doc-uuid-001")
+            @PathVariable("id") String documentId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        byte[] preview = documentService.getRedactedPreview(documentId, userDetails.getUsername());
+        return ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .body(preview);
+    }
+
+    @Operation(
             summary = "Delete a document",
             description = "manager ONLY — Soft deletes a document in the manager's department. Sets isDeleted=true, document is NOT permanently removed."
     )
