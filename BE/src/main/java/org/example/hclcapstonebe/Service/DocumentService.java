@@ -15,10 +15,15 @@ import org.example.hclcapstonebe.Mapper.DocumentMapper;
 import org.example.hclcapstonebe.Repository.DocumentRepository;
 import org.example.hclcapstonebe.Repository.NotificationRepository;
 import org.example.hclcapstonebe.Repository.UserRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.BufferedInputStream;
@@ -44,6 +49,8 @@ public class DocumentService {
     private final SupabaseStorageService supabaseStorageService;
     private final ClamAvScannerService clamAvScannerService;
     private final AiProcessingService aiProcessingService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
@@ -64,7 +71,7 @@ public class DocumentService {
         User uploader = getUserByEmail(currentUserEmail);
         Document doc = buildAndSaveDocument(file, type, uploader, proposedRepaymentAmount);
         sendNotificationToManager(doc, uploader);
-        return toDocumentResponse(doc);
+        return toDocumentResponse(doc, uploader.getId());
     }
 
     public List<DocumentResponse> uploadMany(List<MultipartFile> files, String type,
@@ -83,7 +90,7 @@ public class DocumentService {
         return files.stream().map(file -> {
             Document doc = buildAndSaveDocument(file, type, uploader, proposedRepaymentAmount);
             sendNotificationToManager(doc, uploader);
-            return toDocumentResponse(doc);
+            return toDocumentResponse(doc, uploader.getId());
         }).collect(Collectors.toList());
     }
 
@@ -204,7 +211,7 @@ public class DocumentService {
         User user = getUserByEmail(currentUserEmail);
         return documentRepository.findByUploaderIdAndIsDeletedFalse(user.getId())
                 .stream()
-                .map(this::toDocumentResponse)
+                .map(doc -> toDocumentResponse(doc, user.getId()))
                 .collect(Collectors.toList());
     }
 
@@ -218,7 +225,7 @@ public class DocumentService {
 
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
-        return toDocumentResponse(doc);
+        return toDocumentResponse(doc, user.getId());
     }
 
     // ─── VIEW: BOSS ONLY (department docs) ────────────────
@@ -228,7 +235,7 @@ public class DocumentService {
         return documentRepository
                 .findByDepartmentIdAndIsDeletedFalse(boss.getDepartment().getId())
                 .stream()
-                .map(this::toDocumentResponse)
+                .map(doc -> toDocumentResponse(doc, boss.getId()))
                 .collect(Collectors.toList());
     }
 
@@ -242,7 +249,7 @@ public class DocumentService {
 
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
-        return toDocumentResponse(doc);
+        return toDocumentResponse(doc, boss.getId());
     }
 
     // ─── DELETE: BOSS ONLY ────────────────────────────────
@@ -303,21 +310,72 @@ public class DocumentService {
      * The signed URL lets the FE read the file directly from Supabase for
      * SIGNED_URL_TTL seconds.
      */
-    private DocumentResponse toDocumentResponse(Document doc) {
+    private DocumentResponse toDocumentResponse(Document doc, UUID requesterId) {
         DocumentResponse response = documentMapper.toResponse(doc);
         response.setScanStatus(doc.getScanStatus());
 
         boolean accessible = isAccessible(doc);
         response.setAccessible(accessible);
 
-        // only expose signed URL for accessible documents
-        if (accessible) {
+        boolean isOwner = doc.getUploader().getId().equals(requesterId);
+        response.setRequesterIsOwner(isOwner);
+
+        // Only the owner gets a real signed URL to the unredacted original --
+        // non-owner (e.g. a Manager reviewing a department document) uses
+        // /documents/{id}/redacted-preview instead.
+        if (accessible && isOwner) {
             String signedUrl = supabaseStorageService.generateSignedUrl(
                     BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL
             );
             response.setSignedUrl(signedUrl);
         }
+
+        // Set explicitly for both branches -- don't rely on documentMapper's
+        // implicit same-name passthrough for the owner case, so this method's
+        // behavior doesn't depend on mapper internals (and is directly unit
+        // -testable with a mocked documentMapper, which returns an empty
+        // DocumentResponse and therefore never carries doc.aiResult on its own).
+        response.setAiResult(isOwner ? doc.getAiResult() : stripSensitiveFields(doc.getAiResult()));
+
         return response;
+    }
+
+    /**
+     * Removes sensitive_field_keys-listed keys from aiResult.fields for a
+     * non-owner viewer. Fails closed: if sensitive_field_keys is missing
+     * (older aiResult predating this contract) or the JSON can't be parsed,
+     * strips the entire fields object rather than risk leaking an unknown
+     * raw value.
+     */
+    private String stripSensitiveFields(String aiResultJson) {
+        if (aiResultJson == null) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(aiResultJson);
+            if (!(root instanceof ObjectNode rootObj)) {
+                return null;
+            }
+            JsonNode fieldsNode = rootObj.get("fields");
+            JsonNode sensitiveKeysNode = rootObj.get("sensitive_field_keys");
+            if (fieldsNode instanceof ObjectNode fieldsObj
+                    && sensitiveKeysNode != null && sensitiveKeysNode.isArray()) {
+                for (JsonNode keyNode : sensitiveKeysNode) {
+                    fieldsObj.remove(keyNode.asText());
+                }
+            } else if (fieldsNode != null) {
+                rootObj.putNull("fields");
+            }
+            // sensitive_field_keys itself names which fields were classified
+            // sensitive -- a non-owner has no legitimate use for that list
+            // (it's only consumed server-side to decide what to strip above),
+            // so drop it from the response rather than let it echo the
+            // redacted field names back out verbatim.
+            rootObj.remove("sensitive_field_keys");
+            return objectMapper.writeValueAsString(rootObj);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
     }
 
     private boolean isAccessible(Document doc) {
