@@ -202,6 +202,41 @@ class DocumentServiceTest {
     }
 
     @Test
+    void getRedactedPreview_ownerWithNoDepartment_succeeds() {
+        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
+
+        UUID deptId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+
+        User owner = new User();
+        owner.setId(ownerId);
+        // owner.department left null -- e.g. ADMIN, or STAFF not yet assigned a department
+
+        String aiResultWithItems = """
+                {"fields":{"bsb":"123-456"},
+                 "sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"boxes","items":[{"field":"bsb","value":"123-456","x_pct":0.1,"y_pct":0.1,"w_pct":0.2,"h_pct":0.1}]}}
+                """;
+        Document doc = buildDoc(ownerId, deptId, aiResultWithItems);
+        doc.setFormat(DocumentFormatEnum.PNG);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("owner1@hcl.com")).thenReturn(Optional.of(owner));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
+        byte[] redactedBytes = "redacted-bytes".getBytes();
+        when(restTemplate.exchange(
+                eq("http://ai-service:8000/apply-redaction"),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(byte[].class)
+        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
+
+        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "owner1@hcl.com");
+
+        assertArrayEquals(redactedBytes, result);
+    }
+
+    @Test
     void getRedactedPreview_wrongDepartment_isForbidden() {
         UUID deptId = UUID.randomUUID();
         UUID otherDeptId = UUID.randomUUID();

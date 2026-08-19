@@ -277,7 +277,9 @@ public class DocumentService {
         Document doc = getDocumentOrThrow(docId);
 
         boolean isOwner = doc.getUploader().getId().equals(requester.getId());
-        boolean sameDepartment = doc.getDepartment().getId().equals(requester.getDepartment().getId());
+        boolean sameDepartment = !isOwner
+                && requester.getDepartment() != null
+                && doc.getDepartment().getId().equals(requester.getDepartment().getId());
         if (!isOwner && !sameDepartment) {
             throw new AppException("Access denied", HttpStatus.FORBIDDEN);
         }
