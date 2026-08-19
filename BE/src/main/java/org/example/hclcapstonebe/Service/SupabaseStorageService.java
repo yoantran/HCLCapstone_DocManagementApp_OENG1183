@@ -113,6 +113,42 @@ public class SupabaseStorageService {
         }
     }
 
+    // ─── DOWNLOAD ─────────────────────────────────────────────────────────────
+
+    /**
+     * Downloads raw file bytes from the given Supabase bucket.
+     *
+     * @param bucket       "documents" or "images"
+     * @param storagePath  the path returned by uploadFile()
+     * @return             the raw file bytes
+     */
+    public byte[] downloadFile(String bucket, String storagePath) {
+        String downloadUrl = supabaseUrl
+                + "/storage/v1/object/"
+                + bucket + "/"
+                + storagePath;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + serviceRoleKey);
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        try {
+            ResponseEntity<byte[]> response = restTemplate.exchange(
+                    downloadUrl, HttpMethod.GET, entity, byte[].class
+            );
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                throw new AppException("Supabase download failed: " + response.getStatusCode(),
+                        HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+            return response.getBody();
+        } catch (AppException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AppException("Supabase download error: " + e.getMessage(),
+                    HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
     // ─── DELETE ───────────────────────────────────────────────────────────────
 
     /**
