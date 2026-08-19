@@ -20,9 +20,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -51,6 +60,9 @@ public class DocumentService {
     private final AiProcessingService aiProcessingService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${ai.service.url}")
+    private String aiServiceUrl;
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
@@ -250,6 +262,89 @@ public class DocumentService {
         doc.setLatestViewedDateTime(LocalDateTime.now());
         documentRepository.save(doc);
         return toDocumentResponse(doc, boss.getId());
+    }
+
+    // ─── REDACTED PREVIEW: NON-OWNER VIEWING ──────────────
+
+    /**
+     * Returns a redacted rendering of the document for a non-owner viewer.
+     * Never falls back to the raw original -- fails closed if the format
+     * isn't image-based (PDF/DOCX text-native redaction is backlog, #<issue>)
+     * or if redaction.items is missing/empty.
+     */
+    public byte[] getRedactedPreview(String docId, String currentUserEmail) {
+        User requester = getUserByEmail(currentUserEmail);
+        Document doc = getDocumentOrThrow(docId);
+
+        boolean isOwner = doc.getUploader().getId().equals(requester.getId());
+        boolean sameDepartment = doc.getDepartment().getId().equals(requester.getDepartment().getId());
+        if (!isOwner && !sameDepartment) {
+            throw new AppException("Access denied", HttpStatus.FORBIDDEN);
+        }
+
+        if (doc.getFormat() != DocumentFormatEnum.PNG
+                && doc.getFormat() != DocumentFormatEnum.JPG
+                && doc.getFormat() != DocumentFormatEnum.JPEG) {
+            throw new AppException(
+                    "Redacted preview not yet implemented for " + doc.getFormat() + " documents",
+                    HttpStatus.NOT_IMPLEMENTED
+            );
+        }
+
+        JsonNode redactionItems = extractRedactionItems(doc.getAiResult());
+        if (redactionItems == null || !redactionItems.isArray() || redactionItems.isEmpty()) {
+            throw new AppException("Document has no redaction data yet", HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+
+        byte[] originalBytes = supabaseStorageService.downloadFile(BUCKET, doc.getDocumentLink());
+        return callApplyRedaction(originalBytes, doc.getName(), redactionItems);
+    }
+
+    private JsonNode extractRedactionItems(String aiResultJson) {
+        if (aiResultJson == null) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(aiResultJson);
+            JsonNode redaction = root.get("redaction");
+            return redaction != null ? redaction.get("items") : null;
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private byte[] callApplyRedaction(byte[] fileBytes, String filename, JsonNode redactionItems) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new ByteArrayResource(fileBytes) {
+            @Override
+            public String getFilename() {
+                return filename;
+            }
+        });
+        try {
+            body.add("items", objectMapper.writeValueAsString(redactionItems));
+        } catch (JsonProcessingException e) {
+            throw new AppException("Failed to serialize redaction items", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+        try {
+            ResponseEntity<byte[]> response = restTemplate.exchange(
+                    aiServiceUrl + "/apply-redaction", HttpMethod.POST, request, byte[].class
+            );
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                throw new AppException("AI apply-redaction failed: " + response.getStatusCode(),
+                        HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+            return response.getBody();
+        } catch (AppException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new AppException("AI apply-redaction error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 
     // ─── DELETE: BOSS ONLY ────────────────────────────────
