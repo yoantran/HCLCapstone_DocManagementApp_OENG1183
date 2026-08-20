@@ -8,6 +8,7 @@ from field_extraction_en import (
     SALARY_RE,
     LABEL_PATTERNS,
     INCOME_LABEL_PATTERNS,
+    BALANCE_SHEET_VALUE_PATTERNS,
     _clean_label_value,
 )
 
@@ -24,7 +25,12 @@ _REGEX_LIST_FIELDS = {
 # no dedicated regex/label detector but is still a real sensitive field
 # extracted by field_extraction_en.py -- included explicitly so it's
 # never silently omitted.
-SENSITIVE_FIELD_KEYS = sorted(set(_REGEX_LIST_FIELDS) | set(LABEL_PATTERNS) | {"income", "annual_salary"})
+SENSITIVE_FIELD_KEYS = sorted(
+    set(_REGEX_LIST_FIELDS)
+    | set(LABEL_PATTERNS)
+    | set(BALANCE_SHEET_VALUE_PATTERNS)
+    | {"income", "annual_salary"}
+)
 
 
 def _cleaned_span(match: re.Match) -> tuple[str, int, int] | None:
@@ -112,6 +118,30 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
                     }
                 )
                 break
+
+    for field, pattern in BALANCE_SHEET_VALUE_PATTERNS.items():
+        if fields.get(field) is None:
+            continue
+        # Same limitation as income above -- fields[field] is a parsed
+        # float with no fixed printed string form ("$87,500.00", "87,500",
+        # "87500" are all possible depending on the cell), so there's no
+        # exact-match cross-check available. First clean match only, same
+        # accepted trade-off (#214).
+        for match in pattern.finditer(text):
+            result = _cleaned_span(match)
+            if result is None:
+                continue
+            cleaned, start, end = result
+            spans.append(
+                {
+                    "field": field,
+                    "value": cleaned,
+                    "start": start,
+                    "end": end,
+                    "detection_method": "regex",
+                }
+            )
+            break
 
     return spans
 
@@ -220,6 +250,27 @@ def find_sensitive_boxes(image, fields: dict) -> list[dict]:
                         }
                     )
                 break
+
+    for field, pattern in BALANCE_SHEET_VALUE_PATTERNS.items():
+        if fields.get(field) is None:
+            continue
+        # Same limitation as income above (#214).
+        for match in pattern.finditer(text):
+            result = _cleaned_span(match)
+            if result is None:
+                continue
+            cleaned, start, end = result
+            overlapping = _words_overlapping_span(word_spans, start, end)
+            if overlapping:
+                boxes.append(
+                    {
+                        "field": field,
+                        "value": cleaned,
+                        **_box_pct(_union_box(overlapping), img_h, img_w),
+                        "detection_method": "regex",
+                    }
+                )
+            break
 
     return boxes
 
@@ -391,6 +442,64 @@ if __name__ == "__main__":
         redacted = apply_redaction_image(image, [])
         assert np.array_equal(redacted, image)
 
+    def test_balance_sheet_totals_are_sensitive_field_keys():
+        # #214 -- the fail-safe half of the fix: even if a specific
+        # occurrence is never found in text (box or span), stripSensitiveFields
+        # (BE) still nulls these out of aiResult.fields for non-owners.
+        for key in ("total_current_assets", "total_assets", "total_current_liabilities", "total_liabilities", "total_equity"):
+            assert key in SENSITIVE_FIELD_KEYS
+
+    def test_balance_sheet_field_finds_value_on_docx_joined_row():
+        # module2_text_extraction.py space-joins a docx table row onto one
+        # line, no colon -- this is what that line looks like in practice.
+        text = "Total Assets  $87,500.00\nTotal Current Assets  $45,000.00"
+        fields = {"total_assets": 87500.0, "total_current_assets": 45000.0}
+        spans = find_sensitive_spans(text, fields)
+        assets_spans = [s for s in spans if s["field"] == "total_assets"]
+        current_spans = [s for s in spans if s["field"] == "total_current_assets"]
+        assert len(assets_spans) == 1
+        assert assets_spans[0]["value"] == "$87,500.00"
+        assert len(current_spans) == 1
+        assert current_spans[0]["value"] == "$45,000.00"
+
+    def test_balance_sheet_field_skips_parenthetical_alternate_name():
+        # Real filled template (#215): "NET ASSETS (NET WORTH) $45,000" --
+        # the parenthetical alternate-name sits between label and value.
+        # Without skipping it, _clean_label_value rejects the value
+        # (starts with "(") and the whole span silently drops.
+        text = "NET ASSETS (NET WORTH) $45,000"
+        fields = {"total_equity": 45000.0}
+        spans = find_sensitive_spans(text, fields)
+        equity_spans = [s for s in spans if s["field"] == "total_equity"]
+        assert len(equity_spans) == 1
+        assert equity_spans[0]["value"] == "$45,000"
+
+    def test_balance_sheet_field_absent_produces_no_span():
+        text = "Total Assets  $87,500.00"
+        fields = {"total_assets": None}
+        spans = find_sensitive_spans(text, fields)
+        assert [s for s in spans if s["field"] == "total_assets"] == []
+
+    def _fake_balance_sheet_word_reconstruction(*args, **kwargs):
+        text = "Total Assets 87500"
+        word_spans = [
+            {"word": "Total", "box": (10, 20, 50, 35), "start": 0, "end": 5},
+            {"word": "Assets", "box": (55, 20, 100, 35), "start": 6, "end": 12},
+            {"word": "87500", "box": (105, 20, 150, 35), "start": 13, "end": 18},
+        ]
+        return text, word_spans
+
+    def test_balance_sheet_field_box_found_on_same_ocr_line():
+        with patch(
+            "module2_ocr_extraction.build_word_reconstruction",
+            side_effect=_fake_balance_sheet_word_reconstruction,
+        ):
+            fields = {"total_assets": 87500.0}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        assets_boxes = [b for b in boxes if b["field"] == "total_assets"]
+        assert len(assets_boxes) == 1
+        assert assets_boxes[0]["value"] == "87500"
+
     tests = [
         test_single_occurrence_regex_field,
         test_multiple_occurrences_regex_field,
@@ -405,6 +514,11 @@ if __name__ == "__main__":
         test_value_not_in_fields_produces_no_box,
         test_apply_redaction_image_blacks_out_region_only,
         test_apply_redaction_image_no_items_returns_unchanged_copy,
+        test_balance_sheet_totals_are_sensitive_field_keys,
+        test_balance_sheet_field_finds_value_on_docx_joined_row,
+        test_balance_sheet_field_skips_parenthetical_alternate_name,
+        test_balance_sheet_field_absent_produces_no_span,
+        test_balance_sheet_field_box_found_on_same_ocr_line,
     ]
     for test in tests:
         test()
