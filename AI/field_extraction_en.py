@@ -275,6 +275,52 @@ _BALANCE_SHEET_LABEL_RE = {
     ),
 }
 
+# Issue #214 -- balance-sheet totals were never redacted: no value-capture
+# pattern existed for them, only the label-only regexes above (built for
+# extract_balance_sheet_fields_en's table-cell pairing, which doesn't need
+# one). Same shape problem as income (float value, no fixed printed string
+# form) -- same fix, a "trailing value" suffix like INCOME_LABEL_PATTERNS
+# uses. Verified reliable for the docx path: module2_text_extraction.py
+# space-joins each table row onto one line ("Total Assets  $87,500.00", no
+# colon needed since \s* already matches it), so label and value are
+# always adjacent in `text`. NOT verified for the image/OCR path --
+# module2_ocr_extraction.py's `text` comes from PPStructureV3's own line
+# detection (lines_to_text), independent of its table HTML/table_rows, so
+# whether a wide table's label and value land on the same OCR-detected
+# line is unconfirmed; a miss there degrades to no box (same failure mode
+# find_sensitive_boxes already accepts for income). Wrapping each label
+# regex in a non-capturing group before appending the suffix matters:
+# total_equity's pattern is `A|B|C` with no grouping of its own, so
+# appending unwrapped would silently apply the value capture only to the
+# last alternative ("Net Worth"), losing it on "Total Equity"/"Net Assets"
+# matches. Verified against a real filled template (#215): its equity row
+# prints "NET ASSETS (NET WORTH) $135,000 ... $45,000" -- a parenthetical
+# alternate-name aside sits between the matched label ("Net Assets") and
+# the value, same shape as ANNUAL_SALARY_RE's bracketed-aside case above.
+# Without skipping it, the value capture starts with "(NET WORTH) ...",
+# which _clean_label_value rejects as bracket-cruft and the whole span is
+# silently dropped -- caught by running this against real data, not
+# assumed safe from the regex alone.
+#
+# Swept all 30 real docx files in samples/en_balance_sheet/ after the fix:
+# total_assets, total_liabilities, total_equity redact 30/30 whenever
+# fields[key] is set. total_current_assets redacts 0/15, and
+# total_current_liabilities 15/30 -- both misses are the SAME real
+# structural gap: the #167-family templates print a bare "Total" row
+# under a "Current assets"/"Current liabilities" section header instead
+# of literal "Total Current Assets" text, which _BALANCE_SHEET_LABEL_RE
+# (by design -- see #167 below) can't match directly; extraction only
+# gets these via _SECTION_HEADER_TO_FIELD's section tracking, which this
+# regex-only approach doesn't replicate. Same accepted degradation class
+# as income above (falls back to no span/box, not a wrong one) --
+# SENSITIVE_FIELD_KEYS still strips both fields from aiResult.fields for
+# non-owners unconditionally regardless. Porting section-tracking into
+# this module is real, separate scope, not taken on here.
+BALANCE_SHEET_VALUE_PATTERNS = {
+    key: re.compile(rf"(?:{pattern.pattern})\s*:?[ \t]*(?:\([^()]*\)\s*)?([^\[\n]*)", re.IGNORECASE)
+    for key, pattern in _BALANCE_SHEET_LABEL_RE.items()
+}
+
 # Issue #167 -- one real template (samples/en_balance_sheet/Balance sheet
 # template.docx) never writes "Total Current Assets"/"Total Current
 # Liabilities" as combined literal text at all. "Current" only appears in
