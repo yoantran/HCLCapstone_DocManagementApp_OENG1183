@@ -199,6 +199,39 @@ def test_parse_currency_amount_balance_sheet_period_thousands_does_not_break_cen
     assert parse_currency_amount_balance_sheet("89 000.00") == 89000.0
 
 
+def test_parse_currency_amount_balance_sheet_dot_thousands_no_cents():
+    # Issue #186 -- confirmed real on samples/en_balance_sheet/images (9).jpg
+    # and the original bug report. A dot followed by exactly 3 digits can
+    # never validly be a decimal point (AUD cents are always 2 digits), so
+    # this is unconditionally thousands, not the ambiguous case #188
+    # originally assumed.
+    assert parse_currency_amount_balance_sheet("120.000") == 120000.0
+    assert parse_currency_amount_balance_sheet("165.000") == 165000.0
+    assert parse_currency_amount_balance_sheet("657.897") == 657897.0
+
+
+def test_parse_currency_amount_balance_sheet_bare_digit_run_not_truncated():
+    # Issue #186 -- previously truncated to the first 3 digits since the
+    # grouped alternative requires a literal comma/space to keep matching.
+    assert parse_currency_amount_balance_sheet("165000") == 165000.0
+    assert parse_currency_amount_balance_sheet("45000") == 45000.0
+    assert parse_currency_amount_balance_sheet("614800") == 614800.0
+    assert parse_currency_amount_balance_sheet("5234202.00") == 5234202.0
+
+
+def test_parse_currency_amount_balance_sheet_dot_and_bare_do_not_regress_existing_cases():
+    # Must not regress real, already-correct comma/space/period-with-cents
+    # parsing, or the plain 2-digit-cents case.
+    assert parse_currency_amount_balance_sheet("$1,500.00") == 1500.0
+    assert parse_currency_amount_balance_sheet("89 000.00") == 89000.0
+    assert parse_currency_amount_balance_sheet("$89.000.00") == 89000.0
+    assert parse_currency_amount_balance_sheet("$637.89") == 637.89
+    # Confirmed unsafe to fix generally (regex backtracking corrupts this
+    # common case if the dot-thousands regex's separator class is widened
+    # to also accept comma/space) -- must keep parsing correctly as-is.
+    assert parse_currency_amount_balance_sheet("$435,879,843.89") == 435879843.89
+
+
 def test_balance_sheet_falls_back_to_rightmost_when_no_header_detected():
     # No recognizable header row at all (most real docx tables) -- must
     # keep #172's original rightmost behavior unchanged, no regression.
