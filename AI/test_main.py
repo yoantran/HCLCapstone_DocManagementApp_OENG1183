@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from fastapi.testclient import TestClient
 
+import file_routing
 import module1_opencv
 from main import app
 
@@ -21,6 +22,9 @@ with open("samples/en_pay_slip/Screenshot 2026-07-28 152419.png", "rb") as f:
 
 with open("samples/en_balance_sheet/Machias_Balance-sheet-template.pdf", "rb") as f:
     _PDF_BYTES = f.read()
+
+with open("samples/en_contract/part-time-employment-contract-FILLED-100.docx", "rb") as f:
+    _FILLED_DOCX_BYTES = f.read()
 
 
 def test_docx_upload_returns_text_native_result():
@@ -148,6 +152,124 @@ def test_apply_redaction_accepts_pdf_via_render_first_page():
     assert response.headers["content-type"] == "image/png"
     arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
     assert arr.shape[0] > 0 and arr.shape[1] > 0
+
+
+def test_apply_redaction_span_item_resolves_box_from_pdf_text():
+    # Issue #208 -- a real, unconverted PDF's own text layer. Confirms the
+    # "each item must have x_pct... or value" validation relaxation
+    # actually reaches resolve_item_boxes_via_pdf_text, and that it finds
+    # a real, known-present string via pdfium's own search.
+    items = json.dumps([{"field": "misc", "value": "BALANCE SHEET"}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("balance-sheet.pdf", _PDF_BYTES, "application/pdf")},
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+
+
+def test_apply_redaction_span_item_not_found_returns_unredacted_200():
+    # A value absent from the PDF's text layer is dropped, not an error --
+    # same accepted "skip, don't fabricate a box" degradation
+    # module3_redaction.find_sensitive_boxes already has for OCR word-box
+    # misses.
+    items = json.dumps([{"field": "misc", "value": "this string does not appear anywhere"}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("balance-sheet.pdf", _PDF_BYTES, "application/pdf")},
+        data={"items": items},
+    )
+    assert response.status_code == 200
+
+
+def test_apply_redaction_item_without_coords_or_value_is_422():
+    items = json.dumps([{"field": "bsb"}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("payslip.png", _IMAGE_BYTES, "image/png")},
+        data={"items": items},
+    )
+    assert response.status_code == 422
+
+
+def test_apply_redaction_accepts_docx_via_libreoffice_conversion():
+    # Issue #208 -- real docx bytes, real LibreOffice conversion, real
+    # pdfium text search -- not mocked. "Steven Wood" is this fixture's
+    # real Employee Name value (confirmed directly against the file, not
+    # assumed).
+    items = json.dumps([{"field": "name", "value": "Steven Wood"}])
+    response = client.post(
+        "/apply-redaction",
+        files={
+            "file": (
+                "contract.docx",
+                _FILLED_DOCX_BYTES,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert arr.shape[0] > 0 and arr.shape[1] > 0
+
+
+def test_apply_redaction_docx_box_lands_at_resolved_location_not_enhanced():
+    # Issue #208 regression -- caught via actually viewing a real redacted
+    # output image, not status/shape assertions alone: a text-native
+    # item's box is resolved against pdfium's RAW rendered page geometry,
+    # but module1_opencv.enhance()'s deskew+autocrop shift content
+    # relative to that raw geometry. Drawing on the enhanced image put the
+    # box on the ADDRESS line instead of the NAME line, even though search
+    # correctly found "Steven Wood" -- main.py now skips enhance() for
+    # text-native items specifically (see its own comment) to keep the
+    # coordinate space consistent.
+    #
+    # Expected pixel location is derived by calling
+    # resolve_item_boxes_via_pdf_text directly (same as production code
+    # does) rather than a hardcoded magic percentage -- LibreOffice's
+    # exact layout output can differ slightly by version/platform, so a
+    # hardcoded number would be a flaky test tied to this one environment.
+    pdf_bytes = file_routing.convert_docx_to_pdf_bytes(_FILLED_DOCX_BYTES)
+    name_resolved = file_routing.resolve_item_boxes_via_pdf_text(
+        pdf_bytes, [{"field": "name", "value": "Steven Wood"}]
+    )
+    address_resolved = file_routing.resolve_item_boxes_via_pdf_text(
+        pdf_bytes, [{"field": "address", "value": "Martin Spur"}]
+    )
+    assert len(name_resolved) == 1
+    assert len(address_resolved) == 1
+    name_box = name_resolved[0]
+    address_box = address_resolved[0]
+
+    items = json.dumps([{"field": "name", "value": "Steven Wood"}])
+    response = client.post(
+        "/apply-redaction",
+        files={
+            "file": (
+                "contract.docx",
+                _FILLED_DOCX_BYTES,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    h, w = arr.shape[:2]
+
+    name_cx = int((name_box["x_pct"] + name_box["w_pct"] / 2) * w)
+    name_cy = int((name_box["y_pct"] + name_box["h_pct"] / 2) * h)
+    assert arr[name_cy, name_cx].tolist() == [0, 0, 0]
+
+    # The exact real bug: this address-line pixel is where the box
+    # wrongly landed before the fix. Only "name" was requested, so it
+    # must stay unredacted.
+    address_cx = int((address_box["x_pct"] + address_box["w_pct"] / 2) * w)
+    address_cy = int((address_box["y_pct"] + address_box["h_pct"] / 2) * h)
+    assert arr[address_cy, address_cx].tolist() != [0, 0, 0]
 
 
 def test_apply_redaction_undecodable_pdf_is_422():
