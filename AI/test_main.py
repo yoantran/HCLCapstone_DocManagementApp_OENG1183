@@ -22,6 +22,9 @@ with open("samples/en_pay_slip/Screenshot 2026-07-28 152419.png", "rb") as f:
 with open("samples/en_balance_sheet/Machias_Balance-sheet-template.pdf", "rb") as f:
     _PDF_BYTES = f.read()
 
+with open("samples/en_contract/part-time-employment-contract-FILLED-100.docx", "rb") as f:
+    _FILLED_DOCX_BYTES = f.read()
+
 
 def test_docx_upload_returns_text_native_result():
     response = client.post(
@@ -142,6 +145,68 @@ def test_apply_redaction_accepts_pdf_via_render_first_page():
     response = client.post(
         "/apply-redaction",
         files={"file": ("balance-sheet.pdf", _PDF_BYTES, "application/pdf")},
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert arr.shape[0] > 0 and arr.shape[1] > 0
+
+
+def test_apply_redaction_span_item_resolves_box_from_pdf_text():
+    # Issue #208 -- a real, unconverted PDF's own text layer. Confirms the
+    # "each item must have x_pct... or value" validation relaxation
+    # actually reaches resolve_item_boxes_via_pdf_text, and that it finds
+    # a real, known-present string via pdfium's own search.
+    items = json.dumps([{"field": "misc", "value": "BALANCE SHEET"}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("balance-sheet.pdf", _PDF_BYTES, "application/pdf")},
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+
+
+def test_apply_redaction_span_item_not_found_returns_unredacted_200():
+    # A value absent from the PDF's text layer is dropped, not an error --
+    # same accepted "skip, don't fabricate a box" degradation
+    # module3_redaction.find_sensitive_boxes already has for OCR word-box
+    # misses.
+    items = json.dumps([{"field": "misc", "value": "this string does not appear anywhere"}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("balance-sheet.pdf", _PDF_BYTES, "application/pdf")},
+        data={"items": items},
+    )
+    assert response.status_code == 200
+
+
+def test_apply_redaction_item_without_coords_or_value_is_422():
+    items = json.dumps([{"field": "bsb"}])
+    response = client.post(
+        "/apply-redaction",
+        files={"file": ("payslip.png", _IMAGE_BYTES, "image/png")},
+        data={"items": items},
+    )
+    assert response.status_code == 422
+
+
+def test_apply_redaction_accepts_docx_via_libreoffice_conversion():
+    # Issue #208 -- real docx bytes, real LibreOffice conversion, real
+    # pdfium text search -- not mocked. "Steven Wood" is this fixture's
+    # real Employee Name value (confirmed directly against the file, not
+    # assumed).
+    items = json.dumps([{"field": "name", "value": "Steven Wood"}])
+    response = client.post(
+        "/apply-redaction",
+        files={
+            "file": (
+                "contract.docx",
+                _FILLED_DOCX_BYTES,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
         data={"items": items},
     )
     assert response.status_code == 200

@@ -63,21 +63,38 @@ async def apply_redaction(
 
     if not isinstance(redaction_items, list) or not redaction_items:
         raise HTTPException(status_code=422, detail="items must be a non-empty list of redaction boxes")
-    if not all(isinstance(item, dict) and {"x_pct", "y_pct", "w_pct", "h_pct"} <= item.keys()
-               for item in redaction_items):
-        raise HTTPException(status_code=422, detail="each item must have x_pct, y_pct, w_pct, h_pct")
+    # Issue #208 -- a text-native document's stored items are spans (no
+    # x_pct/etc, see pipeline.py's _run_text_native_path), resolved to real
+    # boxes below via resolve_item_boxes_via_pdf_text. Only `value` is
+    # required for those; the OCR/scanned-PDF shape (#207) still requires
+    # real coordinates since nothing here re-resolves them.
+    if not all(isinstance(item, dict) and (
+        {"x_pct", "y_pct", "w_pct", "h_pct"} <= item.keys() or "value" in item
+    ) for item in redaction_items):
+        raise HTTPException(status_code=422, detail="each item must have x_pct/y_pct/w_pct/h_pct or a value")
 
     # Issue #207 -- a scanned PDF (no real text layer) already went
     # through the OCR/image path at upload time and has real box
     # coordinates, so it deserves a preview too, not just PNG/JPG/JPEG.
-    # A genuinely text-native PDF (or docx) has no image to draw boxes
-    # on at all -- that's #208, a different problem, not handled here.
+    # Issue #208 -- a genuinely text-native PDF, or a docx (converted to
+    # PDF first via LibreOffice so it can reuse the exact same render +
+    # text-search machinery), also gets one now: resolve_item_boxes_via_
+    # pdf_text finds each span's box by searching the rendered page's own
+    # text layer, so no coordinates need to have existed ahead of time.
     filename = (file.filename or "").lower()
+    if filename.endswith(".docx"):
+        try:
+            file_bytes = file_routing.convert_docx_to_pdf_bytes(file_bytes)
+        except Exception:
+            raise HTTPException(status_code=422, detail="file is not a convertible docx") from None
+        filename = filename[:-len(".docx")] + ".pdf"
+
     if filename.endswith(".pdf"):
         try:
             image = file_routing.render_pdf_first_page(file_bytes)
         except Exception:
             raise HTTPException(status_code=422, detail="file is not a decodable PDF") from None
+        redaction_items = file_routing.resolve_item_boxes_via_pdf_text(file_bytes, redaction_items)
     else:
         image = cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:

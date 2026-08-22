@@ -269,15 +269,17 @@ public class DocumentService {
     /**
      * Returns a redacted rendering of the document for a non-owner viewer.
      * Never falls back to the raw original -- fails closed if the format
-     * isn't image-based (real text-native PDF/DOCX redaction is backlog,
-     * #208) or if redaction.items is missing/empty.
+     * has no renderable page (CSV) or if redaction.items is missing/empty.
      *
-     * A PDF gets a preview too (issue #207) if -- and only if -- it went
-     * through the OCR path at upload time (aiResult.processing_path ==
-     * "ocr", a genuinely scanned PDF with no text layer), since only that
-     * case has real box coordinates computed against a renderable page. A
-     * real text-native PDF (processing_path == "text_native") has no image
-     * to draw boxes on and still 501s, same as DOCX/CSV.
+     * A PDF gets a preview if it went through the OCR path at upload time
+     * (aiResult.processing_path == "ocr", a genuinely scanned PDF -- issue
+     * #207) since that case already has real box coordinates. A PDF or
+     * DOCX that went through the text-native path (issue #208) also gets a
+     * preview now -- AI's /apply-redaction renders the page itself (via
+     * LibreOffice for DOCX) and resolves each stored span's box by
+     * searching the rendered page's own text layer, so no box coordinates
+     * need to exist ahead of time. CSV still 501s -- no renderable page
+     * exists for a spreadsheet at all.
      */
     public byte[] getRedactedPreview(String docId, String currentUserEmail) {
         User requester = getUserByEmail(currentUserEmail);
@@ -300,7 +302,10 @@ public class DocumentService {
                 || doc.getFormat() == DocumentFormatEnum.JPEG;
         boolean isScannedPdf = doc.getFormat() == DocumentFormatEnum.PDF
                 && "ocr".equals(extractProcessingPath(doc.getAiResult()));
-        if (!isImageFormat && !isScannedPdf) {
+        boolean isTextNativeRenderable = (doc.getFormat() == DocumentFormatEnum.PDF
+                || doc.getFormat() == DocumentFormatEnum.DOCX)
+                && "text_native".equals(extractProcessingPath(doc.getAiResult()));
+        if (!isImageFormat && !isScannedPdf && !isTextNativeRenderable) {
             throw new AppException(
                     "Redacted preview not yet implemented for " + doc.getFormat() + " documents",
                     HttpStatus.NOT_IMPLEMENTED
