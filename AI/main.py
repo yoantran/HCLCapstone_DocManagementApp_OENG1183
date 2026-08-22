@@ -81,6 +81,22 @@ async def apply_redaction(
     # text-search machinery), also gets one now: resolve_item_boxes_via_
     # pdf_text finds each span's box by searching the rendered page's own
     # text layer, so no coordinates need to have existed ahead of time.
+    # Caught by actually viewing a real redacted output image, not just a
+    # 200 status code: a text-native item's box (below) is computed
+    # against pdfium's RAW rendered page geometry. module1_opencv.enhance()
+    # deskews (rotates) and autocrops (trims to content, non-uniformly)
+    # -- either one shifts content relative to a percentage computed
+    # against the pre-enhance image, so drawing a text-native box onto the
+    # enhanced image silently redacts the wrong region. The #207
+    # scanned-PDF/OCR path doesn't have this problem: its box percentages
+    # are computed by find_sensitive_boxes AFTER enhance() already ran, at
+    # upload time -- enhance() is deterministic, so re-running it here on
+    # the same bytes reproduces the same crop/rotation those percentages
+    # already assume. A vector-rendered PDF page also has no real scan
+    # skew/noise to correct in the first place, so skipping enhance() for
+    # a text-native item isn't a workaround, it's the correct behavior.
+    is_text_native_item_shape = any("x_pct" not in item for item in redaction_items)
+
     filename = (file.filename or "").lower()
     if filename.endswith(".docx"):
         try:
@@ -100,8 +116,11 @@ async def apply_redaction(
     if image is None:
         raise HTTPException(status_code=422, detail="file is not a decodable image")
 
-    enhanced = module1_opencv.enhance(image)
-    redacted = module3_redaction.apply_redaction_image(enhanced["image"], redaction_items)
+    if is_text_native_item_shape and filename.endswith(".pdf"):
+        final_image = image
+    else:
+        final_image = module1_opencv.enhance(image)["image"]
+    redacted = module3_redaction.apply_redaction_image(final_image, redaction_items)
     ok, buf = cv2.imencode(".png", redacted)
     if not ok:
         raise HTTPException(status_code=500, detail="failed to encode redacted image")

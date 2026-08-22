@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from fastapi.testclient import TestClient
 
+import file_routing
 import module1_opencv
 from main import app
 
@@ -213,6 +214,62 @@ def test_apply_redaction_accepts_docx_via_libreoffice_conversion():
     assert response.headers["content-type"] == "image/png"
     arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
     assert arr.shape[0] > 0 and arr.shape[1] > 0
+
+
+def test_apply_redaction_docx_box_lands_at_resolved_location_not_enhanced():
+    # Issue #208 regression -- caught via actually viewing a real redacted
+    # output image, not status/shape assertions alone: a text-native
+    # item's box is resolved against pdfium's RAW rendered page geometry,
+    # but module1_opencv.enhance()'s deskew+autocrop shift content
+    # relative to that raw geometry. Drawing on the enhanced image put the
+    # box on the ADDRESS line instead of the NAME line, even though search
+    # correctly found "Steven Wood" -- main.py now skips enhance() for
+    # text-native items specifically (see its own comment) to keep the
+    # coordinate space consistent.
+    #
+    # Expected pixel location is derived by calling
+    # resolve_item_boxes_via_pdf_text directly (same as production code
+    # does) rather than a hardcoded magic percentage -- LibreOffice's
+    # exact layout output can differ slightly by version/platform, so a
+    # hardcoded number would be a flaky test tied to this one environment.
+    pdf_bytes = file_routing.convert_docx_to_pdf_bytes(_FILLED_DOCX_BYTES)
+    name_resolved = file_routing.resolve_item_boxes_via_pdf_text(
+        pdf_bytes, [{"field": "name", "value": "Steven Wood"}]
+    )
+    address_resolved = file_routing.resolve_item_boxes_via_pdf_text(
+        pdf_bytes, [{"field": "address", "value": "Martin Spur"}]
+    )
+    assert len(name_resolved) == 1
+    assert len(address_resolved) == 1
+    name_box = name_resolved[0]
+    address_box = address_resolved[0]
+
+    items = json.dumps([{"field": "name", "value": "Steven Wood"}])
+    response = client.post(
+        "/apply-redaction",
+        files={
+            "file": (
+                "contract.docx",
+                _FILLED_DOCX_BYTES,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    h, w = arr.shape[:2]
+
+    name_cx = int((name_box["x_pct"] + name_box["w_pct"] / 2) * w)
+    name_cy = int((name_box["y_pct"] + name_box["h_pct"] / 2) * h)
+    assert arr[name_cy, name_cx].tolist() == [0, 0, 0]
+
+    # The exact real bug: this address-line pixel is where the box
+    # wrongly landed before the fix. Only "name" was requested, so it
+    # must stay unredacted.
+    address_cx = int((address_box["x_pct"] + address_box["w_pct"] / 2) * w)
+    address_cy = int((address_box["y_pct"] + address_box["h_pct"] / 2) * h)
+    assert arr[address_cy, address_cx].tolist() != [0, 0, 0]
 
 
 def test_apply_redaction_undecodable_pdf_is_422():
