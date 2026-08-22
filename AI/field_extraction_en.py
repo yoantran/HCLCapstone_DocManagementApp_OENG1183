@@ -636,5 +636,16 @@ def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = 
     fields["annual_salary"] = extract_annual_salary_en(text)
     fields["pay_period_days"] = extract_pay_period_days_en(text)
     if table_rows:
-        fields.update(extract_balance_sheet_fields_en(table_rows))
+        balance_sheet_fields = extract_balance_sheet_fields_en(table_rows)
+        # Issue #219 -- SALARY_RE is payslip-domain (a single colon-anchored
+        # dollar figure); a table containing real balance-sheet totals means
+        # this is balance-sheet-shaped, where every dollar amount is a false
+        # "salary" match. Gating on `table_rows` presence alone (any table)
+        # over-suppressed: a DOCX payslip's own line-item table has no
+        # balance-sheet labels, so this checks the actual detection result,
+        # not merely a table's existence -- caught auditing #219 itself,
+        # real repro on Pay-slip-template-sts-FILLED-118.docx.
+        if any(v is not None for v in balance_sheet_fields.values()):
+            fields["salary"] = []
+        fields.update(balance_sheet_fields)
     return fields
