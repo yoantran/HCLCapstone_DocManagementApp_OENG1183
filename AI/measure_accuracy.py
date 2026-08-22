@@ -19,6 +19,9 @@ LIST_FIELDS = {"abn", "salary"}
 
 CONTRACT_SRC = "samples/en_contract/part-time-employment-contract.docx"
 PAYSLIP_SRC = "samples/en_pay_slip/Pay-slip-template-sts.docx"
+# Issue #216 -- balance-sheet counterpart to CONTRACT_SRC/PAYSLIP_SRC, same
+# "one vetted template, synthetic-filled via build_manifest()" convention.
+BALANCE_SHEET_SRC = "samples/en_balance_sheet/Balance sheet template.docx"
 REPS_PER_TEMPLATE = 18
 # #77's epic success criterion calls for 50+ synthetic extraction docs;
 # the original 18+18=36 batch was short. Appended at the tail (seeds
@@ -57,6 +60,16 @@ def build_manifest() -> list[tuple[str, str, int]]:
     for _ in range(EXTRA_REPS_PER_TEMPLATE):
         dst = f"samples/en_pay_slip/Pay-slip-template-sts-FILLED-{seed}.docx"
         manifest.append((PAYSLIP_SRC, dst, seed))
+        seed += 1
+
+    # Issue #216 -- fresh seed range (300+), clear of both the 100-149
+    # range above and the pre-existing ad hoc Balance-sheet-template-
+    # FILLED-{215..229}.docx files on disk (generated one-off during
+    # #214's own verification, not part of this systematic manifest).
+    seed = 300
+    for _ in range(REPS_PER_TEMPLATE):
+        dst = f"samples/en_balance_sheet/Balance-sheet-template-FILLED-{seed}.docx"
+        manifest.append((BALANCE_SHEET_SRC, dst, seed))
         seed += 1
 
     return manifest
