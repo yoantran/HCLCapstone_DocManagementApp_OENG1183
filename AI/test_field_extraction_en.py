@@ -174,6 +174,21 @@ def test_balance_sheet_picks_highest_numbered_period_column():
     assert fields["total_liabilities"] == 70000.0
 
 
+def test_salary_field_suppressed_on_balance_sheet_input():
+    # Issue #219 -- SALARY_RE previously ran unconditionally and matched
+    # every dollar figure in a balance-sheet table as spurious "salary".
+    text = "Total Current Assets $7,850.00\nTotal Assets $4,900.00"
+    rows = [["Total Current Assets", "$7,850.00"], ["Total Assets", "$4,900.00"]]
+    fields = extract_fields_from_text_en(text, table_rows=rows)
+    assert fields["salary"] == []
+
+
+def test_salary_field_still_populated_on_payslip_input():
+    text = "Total gross payment: $27.81"
+    fields = extract_fields_from_text_en(text)
+    assert fields["salary"] == ["$27.81"]
+
+
 def test_balance_sheet_picks_highest_year_n_column():
     # Issue #192 -- images (9).jpg's ACTUAL real header text is "Year N"
     # (spelled out), not "FYn". The original #182 regex only matched

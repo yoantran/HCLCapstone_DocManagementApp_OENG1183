@@ -636,5 +636,11 @@ def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = 
     fields["annual_salary"] = extract_annual_salary_en(text)
     fields["pay_period_days"] = extract_pay_period_days_en(text)
     if table_rows:
+        # Issue #219 -- SALARY_RE is payslip-domain (a single colon-anchored
+        # dollar figure); a grid table means this is balance-sheet-shaped
+        # input (same table_rows signal already used below), where every
+        # dollar amount in the table is a false "salary" match, not a real
+        # pay figure. Document type itself isn't an explicit input here.
+        fields["salary"] = []
         fields.update(extract_balance_sheet_fields_en(table_rows))
     return fields
