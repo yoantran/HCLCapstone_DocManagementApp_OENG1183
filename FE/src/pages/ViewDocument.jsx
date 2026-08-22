@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PublicViewer } from "../components/documentProcess/view"
 import { DocInfo } from "../components/documentProcess/view/docInfo/DocInfo";
-import { getRequest } from "../api/apiHelpers";
+import { getRequest, getBlobRequest } from "../api/apiHelpers";
 import { DeleteAction } from "../components/action/DeleteAction.jsx";
 import { DownloadButton } from "../components/documentTable/modal/DownloadButton";
 import { Alert } from "flowbite-react";
@@ -30,6 +30,11 @@ export default function ViewDocument() {
 
     const { documentId } = useParams();
     const [document, setDocument] = useState(null);
+
+    const [parsedAiResult, setParsedAiResult] = useState(null);
+    const [redactedPreviewUrl, setRedactedPreviewUrl] = useState(null);
+    const [previewError, setPreviewError] = useState(null);
+
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -38,9 +43,45 @@ export default function ViewDocument() {
             : `/documents/mine/${documentId}`;
 
         getRequest({ url })
-            .then((response) => setDocument(response))
-            .catch((error) => console.error("Error fetching document:", error));
-    }, [documentId]);
+            .then((response) => {
+                setDocument(response);
+
+                // parse aiResult if available
+                if (response.aiProcessed && response.aiResult) {
+                    try {
+                        const parsed = JSON.parse(response.aiResult);
+                        setParsedAiResult(parsed);
+                    } catch (e) {
+                        console.error("Failed to parse aiResult:", e);
+                    }
+                }
+
+                // fetch redacted preview for non-owners viewing image documents
+                if (response.aiProcessed && response.requesterIsOwner === false) {
+                    const imageFormats = ['png', 'jpg', 'jpeg'];
+                    if (imageFormats.includes(response.format?.toLowerCase())) {
+                        getBlobRequest({ url: `/documents/${documentId}/redacted-preview` })
+                            .then(setRedactedPreviewUrl)
+                            .catch((err) => {
+                                console.error("Failed to fetch redacted preview:", err);
+                                setPreviewError(err.response?.status ?? null);
+                            });
+                    } else {
+                        setPreviewError(501); // PDF/DOCX/CSV not supported yet
+                    }
+                }
+            })
+            .catch((error) =>
+                console.error("Error fetching document:", error));
+    }, [documentId, isManager]);
+
+    useEffect(() => {
+        return () => {
+            if (redactedPreviewUrl) {
+                URL.revokeObjectURL(redactedPreviewUrl);
+            }
+        };
+    }, [redactedPreviewUrl]);
 
     if (!document) return null;
     const canView = document.accessible;
@@ -55,27 +96,63 @@ export default function ViewDocument() {
                         navigate("../documents");
                     }}
                 />
-                <DownloadButton
-                    className="bg-(--bg) border"
-                    file={document}
-                />
+                {
+                    <DownloadButton
+                        className="bg-(--bg) border"
+                        file={document}
+                        redactedPreviewUrl={
+                            document.requesterIsOwner === false
+                                ? redactedPreviewUrl
+                                : null
+                        }
+                        isDownloadAllowed={
+                            document.requesterIsOwner
+                                ? Boolean(document.signedUrl)
+                                : Boolean(redactedPreviewUrl)
+                        }
+                    />
+                }
             </div>
 
-            <DocInfo document={document} />
+            <DocInfo document={document} aiResult={parsedAiResult} />
+
+            <div className="border-gray-700 border-b px-6 py-5 my-3">
+                <h3 className="text-lg font-bold">
+                    Document Preview
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                    {document.requesterIsOwner
+                        ? "Preview of the uploaded document"
+                        : "Redacted preview with sensitive information protected"}
+                </p>
+            </div>
 
             {canView ? (
                 <div className="flex justify-center bg-gray-100 p-6">
-                    <div className="w-full max-w-6xl rounded-lg bg-white shadow">
-                        <PublicViewer
-                            fileUrl={document.signedUrl}
-                            fileType={document.format?.toLowerCase()}
-                        />
+                    <div className="w-full max-w-6xl rounded-lg bg-white shadow italic">
+                        {document.requesterIsOwner === false ? (
+                            // non-owner: show redacted preview
+                            previewError === 501 ? (
+                                <p className="p-6 text-gray-500 text-sm">Preview not available for this format.</p>
+                            ) : previewError === 422 ? (
+                                <p className="p-6 text-gray-500 text-sm">AI processing not complete yet. Check back shortly.</p>
+                            ) : redactedPreviewUrl ? (
+                                <img src={redactedPreviewUrl} alt="Redacted preview" className="w-full rounded-lg" />
+                            ) : (
+                                <p className="p-6 text-gray-500 text-sm">Preview is not available</p>
+                            )
+                        ) : (
+                            // owner: show original via signedUrl as before
+                            <PublicViewer
+                                fileUrl={document.signedUrl}
+                                fileType={document.format?.toLowerCase()}
+                            />
+                        )}
                     </div>
                 </div>
             ) : (
                 <DocumentBlocked document={document} />
             )}
-
         </>
     )
 }
