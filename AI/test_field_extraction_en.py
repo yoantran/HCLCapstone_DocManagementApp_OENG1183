@@ -189,6 +189,16 @@ def test_salary_field_still_populated_on_payslip_input():
     assert fields["salary"] == ["$27.81"]
 
 
+def test_salary_field_not_suppressed_by_non_balance_sheet_table():
+    # Real regression found auditing #219 on Pay-slip-template-sts-FILLED-118.docx:
+    # a DOCX payslip's own line-item table has table_rows but no balance-sheet
+    # labels, so gating on table_rows presence alone wrongly zeroed out salary.
+    text = "Ordinary hours $798.36\nOvertime $551.28\nTotal gross payment: $798.36"
+    rows = [["Ordinary hours", "$798.36"], ["Overtime", "$551.28"]]
+    fields = extract_fields_from_text_en(text, table_rows=rows)
+    assert fields["salary"] == ["$798.36", "$551.28", "$798.36"]
+
+
 def test_balance_sheet_picks_highest_year_n_column():
     # Issue #192 -- images (9).jpg's ACTUAL real header text is "Year N"
     # (spelled out), not "FYn". The original #182 regex only matched
