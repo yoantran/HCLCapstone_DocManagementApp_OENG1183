@@ -170,6 +170,10 @@ _DOT_THOUSANDS_NO_CENTS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+(?!\.\d{2})(?!\d)")
 
 
 def parse_currency_amount_balance_sheet(value: str) -> float | None:
+    # Issue #226 -- despace first so OCR's mid-number word-wrap artifacts
+    # ("$106 ,000") parse the same as their clean docx-native equivalent
+    # ("$106,000"); a no-op on already-clean input.
+    value = _despace(value)
     period_match = _PERIOD_THOUSANDS_RE.search(value)
     if period_match is not None:
         digits = period_match.group(0).replace(".", "")
@@ -328,18 +332,38 @@ BALANCE_SHEET_VALUE_PATTERNS = {
 # row following later in that same section -- the same bare "Total" text
 # also appears for Fixed Assets/Long-Term Liabilities subtotals we don't
 # want, so which section we're currently in has to be tracked.
+# Issue #226 -- `\s*` not `\s+`: matched against a DESPACED cell (see
+# `_despace`/its call sites below), which has zero internal whitespace by
+# construction. PPStructureV3 word-wraps this template's narrow label
+# column mid-word ("Current assets" -> "Curr ent asset S"), which no
+# amount of wording-alternative regex can survive -- despacing both the
+# cell and the pattern's separator (`\s+` -> `\s*`, matching zero spaces)
+# is what makes "CurrentassetS" match "^CurrentAssets$" case-insensitively.
 _SECTION_HEADER_TO_FIELD = {
-    re.compile(r"^Current\s+Assets$", re.IGNORECASE): "total_current_assets",
-    re.compile(r"^Current(?:/short-term)?\s+Liabilities$", re.IGNORECASE): "total_current_liabilities",
+    re.compile(r"^Current\s*Assets$", re.IGNORECASE): "total_current_assets",
+    re.compile(r"^Current(?:/short-term)?\s*Liabilities$", re.IGNORECASE): "total_current_liabilities",
 }
 # Other section headers seen in the real template -- encountering one of
 # these resets the tracked section so ITS bare "Total" row isn't
 # misattributed to whichever current-asset/liability section came before.
 _OTHER_SECTION_HEADER_RE = re.compile(
-    r"^(?:Fixed\s+Assets|Long-Term\s+Liabilities|Intermediate\s+Liabilities)$",
+    r"^(?:Fixed\s*Assets|Long-Term\s*Liabilities|Intermediate\s*Liabilities)$",
     re.IGNORECASE,
 )
 _BARE_TOTAL_RE = re.compile(r"^Total$", re.IGNORECASE)
+
+
+def _despace(cell: str) -> str:
+    """Issue #226 -- PPStructureV3 recovers this template's narrow label
+    column with mid-word spaces from its own word-wrap ("Bala nce shee t
+    for..." for "Balance sheet for..."), including inside numbers
+    ("$106 ,000" for "$106,000"). Removing all whitespace before matching
+    is safe for `_BALANCE_SHEET_LABEL_RE`'s own patterns unchanged (they
+    already use `\\s*`, tolerating the fully-concatenated result), and for
+    parse_currency_amount_balance_sheet's separator regexes (which never
+    expect a literal space mid-number on the clean docx-native path this
+    despacing is a no-op for)."""
+    return re.sub(r"\s+", "", cell)
 
 # Issue #179 -- OCR sometimes recovers a table's STRUCTURE correctly but
 # misreads individual characters in the label text itself ("Total cument
@@ -547,19 +571,20 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
             cell = cell.strip()
             if not cell:
                 continue
+            despaced_cell = _despace(cell)
 
             if not _row_has_other_numeric_cell(row, i):
                 section_field = next(
-                    (f for p, f in _SECTION_HEADER_TO_FIELD.items() if p.match(cell)), None
+                    (f for p, f in _SECTION_HEADER_TO_FIELD.items() if p.match(despaced_cell)), None
                 )
                 if section_field is not None:
                     current_section_field = section_field
                     continue
-                if _OTHER_SECTION_HEADER_RE.match(cell):
+                if _OTHER_SECTION_HEADER_RE.match(despaced_cell):
                     current_section_field = None
                     continue
 
-            if _BARE_TOTAL_RE.match(cell) and current_section_field is not None:
+            if _BARE_TOTAL_RE.match(despaced_cell) and current_section_field is not None:
                 field = current_section_field
                 current_section_field = None  # only the first bare Total after a header counts
                 if result.get(field) is None:
@@ -584,7 +609,7 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
                 (match.start(), field)
                 for field, pattern in _BALANCE_SHEET_LABEL_RE.items()
                 if result.get(field) is None
-                for match in [pattern.search(cell)]
+                for match in [pattern.search(despaced_cell)]
                 if match is not None
             )
             for within_cell_rank, (_, field) in enumerate(matches_in_cell):
@@ -617,9 +642,10 @@ def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict, pref
             cell = cell.strip()
             if not cell or "/" in cell:
                 continue
-            if _BARE_TOTAL_RE.match(cell):
+            despaced_cell = _despace(cell)
+            if _BARE_TOTAL_RE.match(despaced_cell):
                 continue
-            if any(p.match(cell) for p in _SECTION_HEADER_TO_FIELD) or _OTHER_SECTION_HEADER_RE.match(cell):
+            if any(p.match(despaced_cell) for p in _SECTION_HEADER_TO_FIELD) or _OTHER_SECTION_HEADER_RE.match(despaced_cell):
                 continue
             field = _fuzzy_match_label(cell)
             if field is None or result.get(field) is not None:
