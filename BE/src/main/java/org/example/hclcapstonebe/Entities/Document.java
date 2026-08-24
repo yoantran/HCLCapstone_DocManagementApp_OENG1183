@@ -70,6 +70,20 @@ public class Document {
     @Builder.Default
     private boolean aiProcessed = false;
 
+    // Issue #222 -- AI processing failure (e.g. a RestTemplate read timeout
+    // on AI's synchronous /process call) used to leave aiProcessed silently
+    // false forever, with no way for the uploader or anyone else to tell
+    // "still processing" apart from "permanently stuck." Set alongside
+    // aiProcessed=false in AiProcessingService's own catch block -- the
+    // same code path that already reliably observes the failure, no
+    // separate polling/reconciliation job needed.
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean aiProcessingFailed = false;
+
+    @Column(length = 500)
+    private String aiFailureReason;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private String aiResult;
