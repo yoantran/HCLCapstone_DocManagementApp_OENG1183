@@ -251,8 +251,11 @@ public class DocumentController {
             description = """
                 Returns a redacted PNG rendering of the document for someone who is
                 NOT the uploader (e.g. a Manager reviewing a department document).
-                Never returns the raw original. PDF/DOCX redaction isn't implemented
-                yet -- returns 501 rather than falling back to the unredacted file.
+                Never returns the raw original. Supports image formats (PNG/JPG/JPEG),
+                scanned PDFs (OCR processing path), and text-native PDF/DOCX (rendered
+                and redacted server-side via AI's /apply-redaction). CSV has no
+                renderable page and returns 501 -- never falls back to the unredacted
+                file.
                 """
     )
     @ApiResponses({
@@ -260,7 +263,7 @@ public class DocumentController {
             @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department"),
             @ApiResponse(responseCode = "404", description = "Document not found"),
             @ApiResponse(responseCode = "422", description = "Document has no redaction data yet"),
-            @ApiResponse(responseCode = "501", description = "Not implemented for this document's format (PDF/DOCX)")
+            @ApiResponse(responseCode = "501", description = "Not implemented for this document's format (e.g. CSV — no renderable page)")
     })
     @GetMapping("/{id}/redacted-preview")
     @AuditAction("Viewed redacted preview '{documentId}'")
