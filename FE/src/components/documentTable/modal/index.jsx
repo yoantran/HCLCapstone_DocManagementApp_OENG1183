@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from '../../../context/AuthContext.jsx';
 import {
     Modal,
@@ -25,57 +25,70 @@ export const DocumentModal = ({
     const { user } = useAuth();
     const isManager = user.role?.toUpperCase() === "MANAGER";
 
-    const [redactedPreviewUrl, setRedactedPreviewUrl] = useState(null);
+    const [redactedPreview, setRedactedPreview] = useState({
+        documentId: null,
+        url: null,
+    });
+
+    const redactedPreviewUrl =
+        redactedPreview.documentId === document?.id
+            ? redactedPreview.url
+            : null;
+
     const [previewError, setPreviewError] = useState(null);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-    const redactedPreviewUrlRef = useRef(null);
 
     const navigate = useNavigate();
 
     // background fetch when modal opens for non-owner image docs
     useEffect(() => {
-        if (!show) {
-            // reset everything when modal closes
-            if (redactedPreviewUrlRef.current) {
-                URL.revokeObjectURL(redactedPreviewUrlRef.current);
-                redactedPreviewUrlRef.current = null;
-            }
-            setTimeout(() => {
-                setRedactedPreviewUrl(null);
-                setPreviewError(null);
-                setIsLoadingPreview(false);
-            }, 0);
-            return;
-        }
-
-        if (!document) return;
-        if (document.requesterIsOwner !== false) return;
+        if (!show || !document) return;
         if (!document.aiProcessed) return;
 
+        let cancelled = false;
+        let fetchedUrl = null;
+
         setTimeout(() => {
-            setRedactedPreviewUrl(null);
-            setPreviewError(null);
             setIsLoadingPreview(true);
         }, 0);
 
-        getBlobRequest({ url: `/documents/${document.id}/redacted-preview` })
+        getBlobRequest({
+            url: `/documents/${document.id}/redacted-preview`,
+        })
             .then((url) => {
-                redactedPreviewUrlRef.current = url;
-                setRedactedPreviewUrl(url);
+                if (cancelled) {
+                    URL.revokeObjectURL(url);
+                    return;
+                }
+                fetchedUrl = url;
+
+                setRedactedPreview({
+                    documentId: document.id,
+                    url,
+                });
+
                 setIsLoadingPreview(false);
             })
             .catch((err) => {
+                if (cancelled) return;
+
                 setPreviewError(err.response?.status ?? null);
                 setIsLoadingPreview(false);
             });
 
         return () => {
-            if (redactedPreviewUrlRef.current) {
-                URL.revokeObjectURL(redactedPreviewUrlRef.current);
-                redactedPreviewUrlRef.current = null;
+            cancelled = true;
+
+            if (fetchedUrl) {
+                URL.revokeObjectURL(fetchedUrl);
             }
         };
-    }, [show, document?.id]);
+    }, [
+        show,
+        document?.id,
+        document?.requesterIsOwner,
+        document?.aiProcessed,
+    ]);
 
     const handleViewDocument = () => {
         navigate(`../view-document/${document.id}`);
@@ -148,7 +161,7 @@ export const DocumentModal = ({
                                 isDownloadAllowed={
                                     document.requesterIsOwner
                                         ? document.scanStatus === "CLEAN" || document.scanStatus === "NOT_SCANNED"
-                                        : Boolean(redactedPreviewUrl)   // ← enables once blob is ready
+                                        : Boolean(redactedPreviewUrl)
                                 }
                                 redactedPreviewUrl={
                                     document.requesterIsOwner === false ? redactedPreviewUrl : null
