@@ -1,4 +1,6 @@
+import asyncio
 import json
+import threading
 from typing import Optional
 
 import cv2
@@ -14,6 +16,28 @@ from demo import DEMO_HTML
 from pipeline import process_document
 
 app = FastAPI()
+
+# Issue #195 -- /process is declared async but calls process_document()
+# synchronously with no await/offload, blocking uvicorn's single event
+# loop for the whole OCR-bound duration; confirmed via docker logs that a
+# second request isn't even accepted/logged until the first finishes.
+# Offloading to a thread (asyncio.to_thread) frees the event loop so
+# FastAPI accepts/queues other requests instead of stalling at the
+# connection level -- the real fix this unblocks without any GPU/budget
+# decision. The lock below keeps actual processing serialized: module2_
+# ocr_extraction.py caches ONE shared PPStructureV3/PaddleOCR instance per
+# language at module scope, reused across every call, and there's no
+# confirmed evidence Paddle's inference predictors are safe for
+# concurrent .predict() calls on the same instance from multiple threads
+# -- getting that wrong risks silent wrong OCR output, not just a crash,
+# so this doesn't add real throughput (matches the issue's own "doesn't
+# add true parallelism" framing) until that's verified safe to remove.
+_process_lock = threading.Lock()
+
+
+def _process_document_serialized(**kwargs) -> dict:
+    with _process_lock:
+        return process_document(**kwargs)
 
 # Permissive local-dev CORS -- lets a standalone local HTML demo page (or
 # any other local tool) call this API from a different origin (including
@@ -41,7 +65,8 @@ async def process(
     include_preview: bool = Form(False),
 ) -> dict:
     file_bytes = await file.read()
-    return process_document(
+    return await asyncio.to_thread(
+        _process_document_serialized,
         filename=file.filename,
         file_bytes=file_bytes,
         proposed_monthly_repayment=proposed_monthly_repayment,
