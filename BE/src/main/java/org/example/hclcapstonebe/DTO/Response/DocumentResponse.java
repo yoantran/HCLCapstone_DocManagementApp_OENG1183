@@ -28,6 +28,8 @@ public class DocumentResponse {
     private LocalDateTime uploadedDateTime;
     private LocalDateTime latestViewedDateTime;
     private boolean aiProcessed;
+    private boolean aiProcessingFailed;
+    private String aiFailureReason;
     private String aiResult; // raw JSON text as stored -- FE JSON.parse()s it
     private BigDecimal proposedRepaymentAmount;
 }
