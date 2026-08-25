@@ -75,6 +75,14 @@ def _get_pipeline(lang: str) -> PPStructureV3:
         _pipelines[lang] = PPStructureV3(
             lang=lang,
             use_table_recognition=True,
+            # PPStructureV3 loads formula recognition by default -- real
+            # model weights loaded on every cold start for zero benefit,
+            # none of this pipeline's document types (payslip, balance
+            # sheet, contract) ever contain math formulas. Disabling cuts
+            # real weight-loading time off every cold start (local CPU and
+            # Modal GPU both), found while chasing Modal cold-start latency
+            # for the live demo.
+            use_formula_recognition=False,
             text_detection_model_name="PP-OCRv6_medium_det",
             text_recognition_model_name="PP-OCRv6_medium_rec",
             enable_mkldnn=False,
