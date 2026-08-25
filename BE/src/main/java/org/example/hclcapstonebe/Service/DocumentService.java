@@ -76,6 +76,21 @@ public class DocumentService {
             DocumentFormatEnum.JPEG, new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}
     );
 
+    // Storage MIME type keyed off the magic-byte-validated format, never the
+    // client-supplied Content-Type header -- a client sending a generic
+    // application/octet-stream (curl, Postman, some non-browser clients)
+    // otherwise gets rejected by Supabase Storage's bucket mime allowlist
+    // with a raw leaked-upstream 500, even though the file itself is a
+    // genuinely valid DOCX/PDF/etc per the signature check above.
+    private static final Map<DocumentFormatEnum, String> MIME_TYPES = Map.of(
+            DocumentFormatEnum.PDF,  "application/pdf",
+            DocumentFormatEnum.DOCX, "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            DocumentFormatEnum.CSV,  "text/csv",
+            DocumentFormatEnum.PNG,  "image/png",
+            DocumentFormatEnum.JPEG, "image/jpeg",
+            DocumentFormatEnum.JPG,  "image/jpeg"
+    );
+
     // ─── UPLOAD ───────────────────────────────────────────
 
     public DocumentResponse uploadOne(MultipartFile file, String type, String currentUserEmail,
@@ -160,7 +175,7 @@ public class DocumentService {
 
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
         String storagePath = UUID.randomUUID() + "_" + originalName;
-        String uploadedPath = supabaseStorageService.uploadFile(BUCKET, fileData, storagePath, file.getContentType());
+        String uploadedPath = supabaseStorageService.uploadFile(BUCKET, fileData, storagePath, MIME_TYPES.get(format));
 
         Document doc = Document.builder()
                 .name(finalName)
