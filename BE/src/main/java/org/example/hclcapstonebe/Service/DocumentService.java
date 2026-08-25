@@ -57,6 +57,7 @@ public class DocumentService {
     private final DocumentMapper documentMapper;
     private final SupabaseStorageService supabaseStorageService;
     private final ClamAvScannerService clamAvScannerService;
+    private final DocumentSanitizerService documentSanitizerService;
     private final AiProcessingService aiProcessingService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -171,6 +172,15 @@ public class DocumentService {
             fileData = file.getBytes();
         } catch (IOException e) {
             throw new AppException("Failed to read file bytes: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        // ── Structural validation (#247, non-mutating half of be/add-CDR) ──
+        switch (format) {
+            case PDF -> documentSanitizerService.validatePdfStructure(fileData);
+            case DOCX -> documentSanitizerService.validateDocxStructure(fileData);
+            default -> {
+                // no structural validation for this format
+            }
         }
 
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
