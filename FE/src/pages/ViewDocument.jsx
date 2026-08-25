@@ -56,19 +56,14 @@ export default function ViewDocument() {
                     }
                 }
 
-                // fetch redacted preview for non-owners viewing image documents
+                // fetch redacted preview for non-owners viewing documents
                 if (response.aiProcessed && response.requesterIsOwner === false) {
-                    const imageFormats = ['png', 'jpg', 'jpeg'];
-                    if (imageFormats.includes(response.format?.toLowerCase())) {
-                        getBlobRequest({ url: `/documents/${documentId}/redacted-preview` })
-                            .then(setRedactedPreviewUrl)
-                            .catch((err) => {
-                                console.error("Failed to fetch redacted preview:", err);
-                                setPreviewError(err.response?.status ?? null);
-                            });
-                    } else {
-                        setPreviewError(501); // PDF/DOCX/CSV not supported yet
-                    }
+                    getBlobRequest({ url: `/documents/${documentId}/redacted-preview` })
+                        .then(setRedactedPreviewUrl)
+                        .catch((err) => {
+                            console.error("Failed to fetch redacted preview:", err);
+                            setPreviewError(err.response?.status ?? null);    // only CSV unsupported
+                        });
                 }
             })
             .catch((error) =>

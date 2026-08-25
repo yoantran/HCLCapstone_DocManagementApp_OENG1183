@@ -20,16 +20,19 @@ export const DownloadButton = ({
                 downloadFile = await getRequest({ url: detailUrl });
 
                 if (downloadFile.requesterIsOwner === false) {
-                    const imageFormats = ["png", "jpg", "jpeg"];
-
-                    if (!imageFormats.includes(downloadFile.format?.toLowerCase())) {
-                        toast.error("Redacted download is not available for this format.");
+                    try {
+                        redactedUrl = await getBlobRequest({
+                            url: `/documents/${downloadFile.id}/redacted-preview`
+                        });
+                    } catch (err) {
+                        const status = err.response?.status;
+                        if (status === 501) {
+                            toast.error("Redacted download is not available for this format.");
+                        } else {
+                            toast.error("Redacted download is not available.");
+                        }
                         return;
                     }
-
-                    redactedUrl = await getBlobRequest({
-                        url: `/documents/${downloadFile.id}/redacted-preview`
-                    });
                 }
             }
 
