@@ -1,10 +1,5 @@
 FROM python:3.12-slim
 
-# tesseract-ocr: the OCR engine itself (native binary, not a pip package).
-# tesseract-ocr-vie/-eng: language packs -- apt installs these into
-# Tesseract's own default tessdata location, which module2_ocr_tesseract.py
-# now relies on by default in any non-Windows environment (see its
-# TESSERACT_CMD/TESSDATA_PREFIX env-var handling).
 # libgl1/libglib2.0-0: opencv-python's runtime shared-library dependencies,
 # not present in the slim base image.
 # libreoffice-writer: issue #208 -- text-native docx redacted previews
@@ -13,10 +8,14 @@ FROM python:3.12-slim
 # offline benchmark script (measure_accuracy_image.py) already does.
 # writer-only component, not the full libreoffice suite -- smaller image,
 # and nothing else in this pipeline touches Calc/Impress documents.
+#
+# No tesseract-ocr/-vie/-eng here -- the only file that ever called the
+# tesseract binary (module2_ocr_tesseract.py, the pre-#127 Vietnamese path)
+# is explicitly excluded from the COPY list below and was never shipped in
+# this image. Confirmed zero `pytesseract.*` calls across every file that
+# IS shipped -- these apt packages were pure dead weight in every built
+# image since PPStructureV3 became the production OCR engine (#129).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    tesseract-ocr-vie \
-    tesseract-ocr-eng \
     libgl1 \
     libglib2.0-0 \
     libreoffice-writer \
