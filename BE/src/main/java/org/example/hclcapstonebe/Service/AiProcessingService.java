@@ -29,9 +29,17 @@ import java.util.UUID;
 
 /**
  * Fires the AI /process call after upload has already returned to the client.
- * Failure here (AI service down/slow/error) never surfaces to the uploader --
- * aiProcessed just stays false. Graceful degradation: the core upload flow
- * doesn't depend on this succeeding.
+ * Graceful degradation: the core upload flow doesn't depend on this
+ * succeeding. Failure (AI service down/slow/timeout -- issue #222's own
+ * marginal-timeout case included) is persisted visibly on the document
+ * (aiProcessingFailed/aiFailureReason) and pushed to the uploader as a
+ * notification, rather than leaving aiProcessed silently false forever with
+ * no way to tell "still processing" apart from "permanently stuck."
+ * Deliberately does NOT auto-retry -- AI's /process is fully synchronous,
+ * one request at a time (#195); a blind retry would just queue a second
+ * request against an already-overloaded service. Recovery today is a
+ * manual re-upload; a safe automatic retry needs #195's concurrency
+ * limit addressed first.
  */
 @Service
 @RequiredArgsConstructor
@@ -63,12 +71,27 @@ public class AiProcessingService {
             }
             doc.setAiResult(objectMapper.writeValueAsString(result));
             doc.setAiProcessed(true);
+            doc.setAiProcessingFailed(false);
+            doc.setAiFailureReason(null);
             documentRepository.save(doc);
 
-            notifyUploader(doc, uploaderEmail);
+            notifyUploader(doc, uploaderEmail, "AI processing complete for " + doc.getName());
         } catch (Exception e) {
             log.warn("AI processing failed for document {}: {}", documentId, e.getMessage());
+            markFailed(documentId, uploaderEmail, e.getMessage());
         }
+    }
+
+    private void markFailed(UUID documentId, String uploaderEmail, String reason) {
+        Document doc = documentRepository.findById(documentId).orElse(null);
+        if (doc == null) {
+            return;
+        }
+        doc.setAiProcessingFailed(true);
+        doc.setAiFailureReason(reason);
+        documentRepository.save(doc);
+
+        notifyUploader(doc, uploaderEmail, "AI processing failed for " + doc.getName() + " -- try re-uploading");
     }
 
     private Map<?, ?> callAiService(byte[] fileBytes, String filename, BigDecimal proposedRepaymentAmount) {
@@ -90,13 +113,12 @@ public class AiProcessingService {
         return restTemplate.postForObject(aiServiceUrl + "/process", request, Map.class);
     }
 
-    private void notifyUploader(Document doc, String uploaderEmail) {
+    private void notifyUploader(Document doc, String uploaderEmail, String content) {
         User uploader = userRepository.findByEmailAndIsDeletedFalse(uploaderEmail).orElse(null);
         if (uploader == null) {
             return;
         }
 
-        String content = "AI processing complete for " + doc.getName();
         Notification notification = Notification.builder()
                 .triggeredDocument(doc)
                 .content(content)

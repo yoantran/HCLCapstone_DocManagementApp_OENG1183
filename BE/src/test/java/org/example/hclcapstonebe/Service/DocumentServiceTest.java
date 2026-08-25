@@ -416,10 +416,16 @@ class DocumentServiceTest {
     }
 
     @Test
-    void getRedactedPreview_textNativePdf_stillFailsClosedNotImplemented() {
-        // A real text-native PDF (processing_path == "text_native") has
-        // no image to draw boxes on -- #207 only widens the gate for
-        // scanned PDFs, this case stays 501 same as before (#208 backlog).
+    void getRedactedPreview_textNativePdf_returnsRedactedBytes() {
+        // Issue #208 -- a real text-native PDF (processing_path ==
+        // "text_native") now gets a preview too: AI's /apply-redaction
+        // renders the page itself and resolves each stored span's box by
+        // searching the rendered page's own text layer, so BE doesn't
+        // need real box coordinates to already exist -- it just passes
+        // the stored span items straight through, same as any other
+        // format.
+        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
+
         UUID deptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
         UUID otherStaffId = UUID.randomUUID();
@@ -438,6 +444,88 @@ class DocumentServiceTest {
                 """;
         Document doc = buildDoc(otherStaffId, deptId, textNativePdfResult);
         doc.setFormat(DocumentFormatEnum.PDF);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
+        byte[] redactedBytes = "redacted-bytes".getBytes();
+        when(restTemplate.exchange(
+                eq("http://ai-service:8000/apply-redaction"),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(byte[].class)
+        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
+
+        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com");
+
+        assertArrayEquals(redactedBytes, result);
+    }
+
+    @Test
+    void getRedactedPreview_textNativeDocx_returnsRedactedBytes() {
+        // Issue #208 -- same as the PDF case above, but for a docx.
+        // AI converts docx->pdf via LibreOffice before rendering/searching;
+        // BE's own gate just needs to allow DOCX + "text_native" through.
+        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
+
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID otherStaffId = UUID.randomUUID();
+
+        User manager = new User();
+        manager.setId(managerId);
+        Department managerDept = new Department();
+        managerDept.setId(deptId);
+        manager.setDepartment(managerDept);
+
+        String textNativeDocxResult = """
+                {"processing_path":"text_native",
+                 "fields":{"bsb":"123-456"},
+                 "sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"spans","items":[{"field":"bsb","value":"123-456","start":10,"end":17}]}}
+                """;
+        Document doc = buildDoc(otherStaffId, deptId, textNativeDocxResult);
+        doc.setFormat(DocumentFormatEnum.DOCX);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
+        byte[] redactedBytes = "redacted-bytes".getBytes();
+        when(restTemplate.exchange(
+                eq("http://ai-service:8000/apply-redaction"),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(byte[].class)
+        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
+
+        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com");
+
+        assertArrayEquals(redactedBytes, result);
+    }
+
+    @Test
+    void getRedactedPreview_textNativeCsv_stillFailsClosedNotImplemented() {
+        // Issue #208 explicitly scopes the widened gate to PDF/DOCX only
+        // -- a CSV has no renderable page at all, so it must keep 501ing
+        // even with a real text_native processing_path and real spans.
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID otherStaffId = UUID.randomUUID();
+
+        User manager = new User();
+        manager.setId(managerId);
+        Department managerDept = new Department();
+        managerDept.setId(deptId);
+        manager.setDepartment(managerDept);
+
+        String textNativeCsvResult = """
+                {"processing_path":"text_native",
+                 "fields":{"bsb":"123-456"},
+                 "sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"spans","items":[{"field":"bsb","value":"123-456","start":10,"end":17}]}}
+                """;
+        Document doc = buildDoc(otherStaffId, deptId, textNativeCsvResult);
+        doc.setFormat(DocumentFormatEnum.CSV);
 
         when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));

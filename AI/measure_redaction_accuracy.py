@@ -20,7 +20,12 @@ from module3_redaction import find_sensitive_boxes
 
 IOU_THRESHOLD = 0.5
 IMAGE_DIR = Path("samples/_redaction_annotation")
-FIELDS = ("name", "address", "abn", "bsb", "account_number", "income", "salary")
+FIELDS = (
+    "name", "address", "abn", "bsb", "account_number", "income", "salary",
+    # Issue #216 -- balance-sheet totals, ground-truth boxes not yet drawn.
+    "total_current_assets", "total_assets",
+    "total_current_liabilities", "total_liabilities", "total_equity",
+)
 
 
 def compute_iou(box_a: dict, box_b: dict) -> float:

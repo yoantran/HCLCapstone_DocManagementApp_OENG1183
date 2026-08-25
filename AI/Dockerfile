@@ -7,12 +7,19 @@ FROM python:3.12-slim
 # TESSERACT_CMD/TESSDATA_PREFIX env-var handling).
 # libgl1/libglib2.0-0: opencv-python's runtime shared-library dependencies,
 # not present in the slim base image.
+# libreoffice-writer: issue #208 -- text-native docx redacted previews
+# convert docx->pdf via `soffice --headless` (file_routing.py's
+# convert_docx_to_pdf_bytes) before rendering/searching, same as the
+# offline benchmark script (measure_accuracy_image.py) already does.
+# writer-only component, not the full libreoffice suite -- smaller image,
+# and nothing else in this pipeline touches Calc/Impress documents.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-vie \
     tesseract-ocr-eng \
     libgl1 \
     libglib2.0-0 \
+    libreoffice-writer \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

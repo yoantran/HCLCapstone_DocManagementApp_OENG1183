@@ -29,9 +29,17 @@ services:
     container_name: TCO-DMS-AI
     ports:
       - "8000:8000"
-#    volumes:
-#      - clamav:/var/lib/clamav
+    # Issue #221 -- PaddleOCR/PPStructureV3 model weights re-download on
+    # every container recreate without this, since the Dockerfile runs as
+    # root (no USER set) and PaddleX's default cache is ~/.paddlex. A cold
+    # start took ~6.5min in a real repro, blowing past BE's 180s timeout
+    # and leaving the document permanently stuck at aiProcessed=false.
+    volumes:
+      - paddlex_models:/root/.paddlex
 #    platform: linux/amd64
 #
 #volumes:
 #  clamav:
+
+volumes:
+  paddlex_models:

@@ -1,4 +1,4 @@
-Documents scored: 50
+Documents scored: 68
 
 Per-field accuracy (correct / total ground-truth values):
   name           :  50 /  50  (100.0%)

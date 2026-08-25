@@ -76,6 +76,21 @@ public class DocumentService {
             DocumentFormatEnum.JPEG, new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}
     );
 
+    // Storage MIME type keyed off the magic-byte-validated format, never the
+    // client-supplied Content-Type header -- a client sending a generic
+    // application/octet-stream (curl, Postman, some non-browser clients)
+    // otherwise gets rejected by Supabase Storage's bucket mime allowlist
+    // with a raw leaked-upstream 500, even though the file itself is a
+    // genuinely valid DOCX/PDF/etc per the signature check above.
+    private static final Map<DocumentFormatEnum, String> MIME_TYPES = Map.of(
+            DocumentFormatEnum.PDF,  "application/pdf",
+            DocumentFormatEnum.DOCX, "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            DocumentFormatEnum.CSV,  "text/csv",
+            DocumentFormatEnum.PNG,  "image/png",
+            DocumentFormatEnum.JPEG, "image/jpeg",
+            DocumentFormatEnum.JPG,  "image/jpeg"
+    );
+
     // ─── UPLOAD ───────────────────────────────────────────
 
     public DocumentResponse uploadOne(MultipartFile file, String type, String currentUserEmail,
@@ -160,7 +175,7 @@ public class DocumentService {
 
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
         String storagePath = UUID.randomUUID() + "_" + originalName;
-        String uploadedPath = supabaseStorageService.uploadFile(BUCKET, fileData, storagePath, file.getContentType());
+        String uploadedPath = supabaseStorageService.uploadFile(BUCKET, fileData, storagePath, MIME_TYPES.get(format));
 
         Document doc = Document.builder()
                 .name(finalName)
@@ -269,15 +284,17 @@ public class DocumentService {
     /**
      * Returns a redacted rendering of the document for a non-owner viewer.
      * Never falls back to the raw original -- fails closed if the format
-     * isn't image-based (real text-native PDF/DOCX redaction is backlog,
-     * #208) or if redaction.items is missing/empty.
+     * has no renderable page (CSV) or if redaction.items is missing/empty.
      *
-     * A PDF gets a preview too (issue #207) if -- and only if -- it went
-     * through the OCR path at upload time (aiResult.processing_path ==
-     * "ocr", a genuinely scanned PDF with no text layer), since only that
-     * case has real box coordinates computed against a renderable page. A
-     * real text-native PDF (processing_path == "text_native") has no image
-     * to draw boxes on and still 501s, same as DOCX/CSV.
+     * A PDF gets a preview if it went through the OCR path at upload time
+     * (aiResult.processing_path == "ocr", a genuinely scanned PDF -- issue
+     * #207) since that case already has real box coordinates. A PDF or
+     * DOCX that went through the text-native path (issue #208) also gets a
+     * preview now -- AI's /apply-redaction renders the page itself (via
+     * LibreOffice for DOCX) and resolves each stored span's box by
+     * searching the rendered page's own text layer, so no box coordinates
+     * need to exist ahead of time. CSV still 501s -- no renderable page
+     * exists for a spreadsheet at all.
      */
     public byte[] getRedactedPreview(String docId, String currentUserEmail) {
         User requester = getUserByEmail(currentUserEmail);
@@ -300,7 +317,10 @@ public class DocumentService {
                 || doc.getFormat() == DocumentFormatEnum.JPEG;
         boolean isScannedPdf = doc.getFormat() == DocumentFormatEnum.PDF
                 && "ocr".equals(extractProcessingPath(doc.getAiResult()));
-        if (!isImageFormat && !isScannedPdf) {
+        boolean isTextNativeRenderable = (doc.getFormat() == DocumentFormatEnum.PDF
+                || doc.getFormat() == DocumentFormatEnum.DOCX)
+                && "text_native".equals(extractProcessingPath(doc.getAiResult()));
+        if (!isImageFormat && !isScannedPdf && !isTextNativeRenderable) {
             throw new AppException(
                     "Redacted preview not yet implemented for " + doc.getFormat() + " documents",
                     HttpStatus.NOT_IMPLEMENTED

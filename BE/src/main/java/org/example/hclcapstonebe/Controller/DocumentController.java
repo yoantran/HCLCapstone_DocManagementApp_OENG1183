@@ -39,14 +39,22 @@ public class DocumentController {
                 Security & Validation Pipeline:
                 - Allowed formats: PDF, DOCX, CSV, PNG, JPEG, JPG (Max file size: 10MB)
                 - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
-                - ClamAV Virus/Malware Scanning: Scans the uploaded file stream prior to storage
+                - ClamAV Virus/Malware Scanning: Scans the uploaded file stream prior to storage.
+                  A positive match does NOT reject the upload (still 201) -- the document is
+                  saved with scanStatus="INFECTED" and accessible=false in the response body,
+                  and no signed URL/redacted-preview access is ever granted for it. This keeps
+                  the flagged upload visible for a future admin review flow instead of silently
+                  discarding it.
                 - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
                 """
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "201",
-                    description = "Document uploaded successfully",
+                    description = """
+                Document uploaded successfully. Check `scanStatus`/`accessible` in the body --
+                a malware-flagged file still returns 201 with scanStatus="INFECTED" and
+                accessible=false rather than a distinct error status.""",
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(value = """
@@ -61,6 +69,8 @@ public class DocumentController {
                     "departmentId": "dept-uuid-123",
                     "uploadedDateTime": "2026-04-20T10:30:00",
                     "latestViewedDateTime": null,
+                    "scanStatus": "CLEAN",
+                    "accessible": true,
                     "signedUrl": "https://pkbwoortbtsvbcggybia.supabase.co/storage/v1/object/sign/documents/uuid_Q1_Report.pdf?token=eyJ..."
                 }
             """)
@@ -68,8 +78,7 @@ public class DocumentController {
             ),
             @ApiResponse(responseCode = "400", description = "Invalid file format/extension, invalid document type, file exceeds 10MB, or invalid structural file signature match detected (magic bytes mismatch)"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions"),
-            @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
     })
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
     @AuditAction("Uploaded document '{file}'")
@@ -102,14 +111,20 @@ public class DocumentController {
                 Security & Validation Pipeline (per file):
                 - Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG (Max file size per file: 10MB, Max batch limit: 10 files)
                 - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
-                - ClamAV Virus/Malware Scanning: Scans each uploaded file stream prior to storage
+                - ClamAV Virus/Malware Scanning: Scans each uploaded file stream prior to storage.
+                  A positive match does NOT reject that file (still 201) -- it's saved with
+                  scanStatus="INFECTED" and accessible=false in its entry, and no signed
+                  URL/redacted-preview access is ever granted for it.
                 - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
                 """
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "201",
-                    description = "All documents uploaded successfully",
+                    description = """
+                All documents uploaded successfully. Check each entry's `scanStatus`/`accessible`
+                -- a malware-flagged file still returns 201 with scanStatus="INFECTED" and
+                accessible=false rather than a distinct error status.""",
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(value = """
@@ -125,6 +140,8 @@ public class DocumentController {
                         "departmentId": "dept-uuid-123",
                         "uploadedDateTime": "2026-04-20T10:30:00",
                         "latestViewedDateTime": null,
+                        "scanStatus": "CLEAN",
+                        "accessible": true,
                         "signedUrl": "https://pkbwoortbtsvbcggybia.supabase.co/storage/v1/object/sign/documents/uuid_Q1_Report.pdf?token=eyJ..."
                     }
                 ]
@@ -133,8 +150,7 @@ public class DocumentController {
             ),
             @ApiResponse(responseCode = "400", description = "Invalid file format/extension, invalid document type, file exceeds 10MB, batch exceeds 10 files, or invalid structural file signature match detected (magic bytes mismatch)"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions"),
-            @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
     })
     @PostMapping(value = "/upload/batch", consumes = "multipart/form-data")
     @AuditAction("Uploaded multiple documents")
@@ -251,8 +267,11 @@ public class DocumentController {
             description = """
                 Returns a redacted PNG rendering of the document for someone who is
                 NOT the uploader (e.g. a Manager reviewing a department document).
-                Never returns the raw original. PDF/DOCX redaction isn't implemented
-                yet -- returns 501 rather than falling back to the unredacted file.
+                Never returns the raw original. Supports image formats (PNG/JPG/JPEG),
+                scanned PDFs (OCR processing path), and text-native PDF/DOCX (rendered
+                and redacted server-side via AI's /apply-redaction). CSV has no
+                renderable page and returns 501 -- never falls back to the unredacted
+                file.
                 """
     )
     @ApiResponses({
@@ -260,7 +279,7 @@ public class DocumentController {
             @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department"),
             @ApiResponse(responseCode = "404", description = "Document not found"),
             @ApiResponse(responseCode = "422", description = "Document has no redaction data yet"),
-            @ApiResponse(responseCode = "501", description = "Not implemented for this document's format (PDF/DOCX)")
+            @ApiResponse(responseCode = "501", description = "Not implemented for this document's format (e.g. CSV — no renderable page)")
     })
     @GetMapping("/{id}/redacted-preview")
     @AuditAction("Viewed redacted preview '{documentId}'")
