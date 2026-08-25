@@ -2,6 +2,20 @@ FROM python:3.12-slim
 
 # libgl1/libglib2.0-0: opencv-python's runtime shared-library dependencies,
 # not present in the slim base image.
+# libgomp1: paddlepaddle's own OpenMP runtime dependency for its compiled
+# ops -- real, standalone requirement, unrelated to tesseract. Was never
+# declared explicitly; happened to work before #246 only because
+# tesseract-ocr pulled it in transitively, which masked the real gap.
+# #246 removing tesseract (correctly -- confirmed unused) exposed it: a
+# freshly started container whose first real request takes the
+# text-native-PDF path (pipeline.py's _run_text_native_path, which still
+# calls into module2_ocr_extraction for table-structure harvesting, #170)
+# fails outright with "libgomp.so.1: cannot open shared object file",
+# confirmed by triggering it for real through a live upload -- the
+# image-OCR path happening to work in earlier testing was request-order
+# luck, not a real fix. Declared explicitly now so paddle's dlopen always
+# finds it on the standard system path, regardless of which code path a
+# container's first request happens to take.
 # libreoffice-writer: issue #208 -- text-native docx redacted previews
 # convert docx->pdf via `soffice --headless` (file_routing.py's
 # convert_docx_to_pdf_bytes) before rendering/searching, same as the
@@ -18,6 +32,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
+    libgomp1 \
     libreoffice-writer \
     && rm -rf /var/lib/apt/lists/*
 

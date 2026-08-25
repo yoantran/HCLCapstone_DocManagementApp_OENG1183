@@ -24,10 +24,16 @@ app = modal.App("hcl-tco-ai-service")
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    # Matches AI/Dockerfile post-#246 exactly -- no tesseract-ocr packages
-    # (confirmed unused, zero pytesseract.* calls in any shipped file).
-    # libreoffice-writer: issue #208's docx->pdf redaction-preview path.
-    .apt_install("libgl1", "libglib2.0-0", "libreoffice-writer")
+    # Matches AI/Dockerfile post-#246/real-audit fix exactly -- no
+    # tesseract-ocr packages (confirmed unused, zero pytesseract.* calls
+    # in any shipped file). libgomp1: paddlepaddle's own OpenMP runtime
+    # dep, real and standalone -- without it, a container whose first
+    # real request takes the text-native-PDF path (which still calls into
+    # PPStructureV3 for table-structure harvesting, #170) fails outright
+    # with "libgomp.so.1: cannot open shared object file", confirmed live
+    # against this exact image before this fix. libreoffice-writer: issue
+    # #208's docx->pdf redaction-preview path.
+    .apt_install("libgl1", "libglib2.0-0", "libgomp1", "libreoffice-writer")
     .pip_install(
         "fastapi==0.141.1",
         "uvicorn==0.52.1",
