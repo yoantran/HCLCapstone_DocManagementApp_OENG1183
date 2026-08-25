@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Client } from '@stomp/stompjs';
 import { getRequest, patchRequest } from '../../api/apiHelpers';
@@ -6,6 +6,16 @@ import bellOn from '../../assets/bell-on.svg';
 import bellOff from '../../assets/bell-off.svg';
 import { formatDate } from '../../utils/formatFields';
 import { Dropdown, DropdownItem } from "flowbite-react";
+
+// Flowbite's Dropdown only mounts `children` while open (see Dropdown.js --
+// `open && <FloatingFocusManager>{children}</FloatingFocusManager>`), so a
+// mount-only effect here fires exactly once per time the dropdown opens.
+function MarkAllReadOnOpen({ markAllReadRef }) {
+    useEffect(() => {
+        markAllReadRef.current();
+    }, [markAllReadRef]);
+    return null;
+}
 
 export const NotificationBell = ({ userId, userEmail }) => {
     const [notifications, setNotifications] = useState([]);
@@ -71,25 +81,43 @@ export const NotificationBell = ({ userId, userEmail }) => {
     }, [userEmail]);
 
 
-    // route to `/documents` & push read noti request
+    // route to `/documents` & push read noti request -- navigation must
+    // always happen on click, even if MarkAllReadOnOpen already flipped
+    // hasRead the instant the dropdown opened (before this specific item
+    // was clicked); only the read-status PATCH is conditional on that.
     const handleNotificationClick = async (noti) => {
-        if (noti.hasRead) return;
+        if (!noti.hasRead) {
+            setNotifications((prev) =>
+                prev.map((n) => (n.id === noti.id ? { ...n, hasRead: true } : n))
+            );
 
-        // update state using 'hasRead'
-        setNotifications((prev) =>
-            prev.map((n) => (n.id === noti.id ? { ...n, hasRead: true } : n))
-        );
-
-        try {
-            await patchRequest({
-                url: `/notifications/${noti.id}/read`,
-                data: {}
-            });
-        } catch (error) {
-            console.error(`Failed to update read status for notification ${noti.id}:`, error);
+            try {
+                await patchRequest({
+                    url: `/notifications/${noti.id}/read`,
+                    data: {}
+                });
+            } catch (error) {
+                console.error(`Failed to update read status for notification ${noti.id}:`, error);
+            }
         }
 
         navigate(`/${userId}/documents`, { state: { highlightDocumentId: noti.triggeredDocumentId } });
+    };
+
+    // Ref so the mount-effect below always calls the freshest closure without
+    // needing to be in its dependency array -- the dropdown's content (and
+    // this component with it) mounts/unmounts each time it opens/closes, so
+    // firing once on mount == firing once per open.
+    const markAllReadRef = useRef();
+    markAllReadRef.current = () => {
+        setNotifications((prev) => {
+            prev.filter((n) => !n.hasRead).forEach((n) => {
+                patchRequest({ url: `/notifications/${n.id}/read`, data: {} })
+                    .catch((error) =>
+                        console.error(`Failed to mark notification ${n.id} as read:`, error));
+            });
+            return prev.map((n) => (n.hasRead ? n : { ...n, hasRead: true }));
+        });
     };
 
     return (
@@ -115,6 +143,7 @@ export const NotificationBell = ({ userId, userEmail }) => {
         >
 
             <div className="w-80 rounded-lg bg-white dark:bg-slate-800">
+                <MarkAllReadOnOpen markAllReadRef={markAllReadRef} />
                 <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5 dark:border-slate-700">
                     <span className="font-semibold text-slate-700 dark:text-slate-200">
                         Notifications ({unreadCount})

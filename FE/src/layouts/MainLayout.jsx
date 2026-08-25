@@ -22,7 +22,6 @@ export default function MainLayout() {
 
     const isStaffFeatureAllowed = ['STAFF', 'MANAGER', 'ADMIN'].includes(currentRole);
 
-    const isManagerOnly = currentRole === 'MANAGER';
     const isAdminOnly = currentRole === 'ADMIN';
 
 
@@ -87,12 +86,14 @@ export default function MainLayout() {
                 {/* Right Side Actions: Notification Bell + Dropdown Avatar Profile Wrapper */}
                 <div className="flex items-center gap-4 md:order-2">
 
-                    {/* notification */}
-                    {isManagerOnly && (
-                        <div>
-                            <NotificationBell userId={userId} userEmail={user?.email} />
-                        </div>
-                    )}
+                    {/* notification -- was manager-only, but AiProcessingService also
+                        pushes "AI processing complete/failed" to the uploader (any role);
+                        GET /notifications is already scoped server-side to receiverId ==
+                        current user, so no cross-user visibility risk showing this to
+                        everyone */}
+                    <div>
+                        <NotificationBell userId={userId} userEmail={user?.email} />
+                    </div>
                     <UserDropdown
                         user={user}
                         userId={userId}

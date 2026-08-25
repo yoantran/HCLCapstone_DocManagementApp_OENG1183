@@ -19,6 +19,8 @@ export const DocInfo = ({ document, aiResult }) => {
         latestViewedDateTime,
         byteSize,
         aiProcessed,
+        aiProcessingFailed,
+        aiFailureReason,
         requesterIsOwner,
     } = document;
 
@@ -116,6 +118,18 @@ export const DocInfo = ({ document, aiResult }) => {
                 </p>
             </div>
 
+
+            {!aiProcessed && !aiProcessingFailed && (
+                <div className="mt-2 border-t border-white/10 pt-4 text-sm opacity-80 italic">
+                    Processing… this page updates automatically once AI analysis finishes.
+                </div>
+            )}
+
+            {aiProcessingFailed && (
+                <div className="mt-2 border-t border-white/10 pt-4 text-sm text-red-300">
+                    AI processing failed{aiFailureReason ? `: ${aiFailureReason}` : "."} Try re-uploading.
+                </div>
+            )}
 
             {aiProcessed && !aiResult && (
                 <div className="mt-2 border-t border-white/10 pt-4 text-sm opacity-60 italic">
