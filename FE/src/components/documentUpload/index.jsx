@@ -21,6 +21,7 @@ export const DocumentUpload = () => {
     const [documentType, setDocumentType] = useState("");
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [proposedRepaymentAmount, setProposedRepaymentAmount] = useState("");
     const navigate = useNavigate();
 
     const handleAddDocument = () => {
@@ -69,6 +70,7 @@ export const DocumentUpload = () => {
             const { url, data } = buildMultipartFormPayload({
                 documentType,
                 cards,
+                proposedRepaymentAmount,
             });
 
             await postFormDataRequest({ url, data });
@@ -97,6 +99,7 @@ export const DocumentUpload = () => {
         setCards([createCard(0)]);
         setNextCardId(1);
         setDocumentType("");
+        setProposedRepaymentAmount("");
         setSubmitError("");
         setSubmitAttempted(false);
     };
@@ -109,6 +112,23 @@ export const DocumentUpload = () => {
                     <h2 className="text-left">Add New Loan Request</h2>
                 </div>
                 <hr className="dark:border-amber-50" />
+
+                {/* Proposed Repayment Amount */}
+                <div className="mt-6">
+                    <label className="block text-sm text-white mb-1">
+                        Proposed Repayment Amount <span className="opacity-50">(optional)</span>
+                    </label>
+                    <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="e.g. 1200.00"
+                        value={proposedRepaymentAmount}
+                        onChange={(e) => setProposedRepaymentAmount(e.target.value)}
+                        disabled={isSubmitting}
+                        className="w-full rounded-md border border-gray-300 bg-(--code-bg) text-white px-3 py-2 text-sm font-light focus:outline-none focus:ring-1 focus:ring-(--light-blue) focus:border-(--light-blue)"
+                    />
+                </div>
 
                 {/* upload cards */}
                 <div>
@@ -140,9 +160,9 @@ export const DocumentUpload = () => {
                         </div>
                     ))}
                     <Button className="cursor-pointer w-full my-5 border text-(--text) hover:bg-gray-200 dark:bg-(--code-bg) bg-(--code-bg) dark:hover:bg-(--accent-bg)"
-                            size="sm"
-                            onClick={handleAddDocument}
-                            disabled={isSubmitting}
+                        size="sm"
+                        onClick={handleAddDocument}
+                        disabled={isSubmitting}
                     >
                         Add another document
                     </Button>

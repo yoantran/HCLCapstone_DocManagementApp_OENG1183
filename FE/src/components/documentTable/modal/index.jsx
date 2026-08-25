@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from "react";
+import { useAuth } from '../../../context/AuthContext.jsx';
 import {
     Modal,
     ModalHeader,
@@ -11,6 +13,7 @@ import { DownloadButton } from "./DownloadButton";
 import { DeleteAction } from "../../action/DeleteAction.jsx";
 import { formatDate, formatSize } from '../../../utils/formatFields';
 import { getScanStatusInfo } from '../../../utils/scanHelper.js';
+import { getBlobRequest } from '../../../api/apiHelpers.js';
 
 export const DocumentModal = ({
     document,
@@ -19,7 +22,73 @@ export const DocumentModal = ({
     position = "center",
     onDeleteSuccess
 }) => {
+    const { user } = useAuth();
+    const isManager = user.role?.toUpperCase() === "MANAGER";
+
+    const [redactedPreview, setRedactedPreview] = useState({
+        documentId: null,
+        url: null,
+    });
+
+    const redactedPreviewUrl =
+        redactedPreview.documentId === document?.id
+            ? redactedPreview.url
+            : null;
+
+    const [previewError, setPreviewError] = useState(null);
+    const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+
     const navigate = useNavigate();
+
+    // background fetch when modal opens for non-owner image docs
+    useEffect(() => {
+        if (!show || !document) return;
+        if (!document.aiProcessed) return;
+
+        let cancelled = false;
+        let fetchedUrl = null;
+
+        setTimeout(() => {
+            setIsLoadingPreview(true);
+        }, 0);
+
+        getBlobRequest({
+            url: `/documents/${document.id}/redacted-preview`,
+        })
+            .then((url) => {
+                if (cancelled) {
+                    URL.revokeObjectURL(url);
+                    return;
+                }
+                fetchedUrl = url;
+
+                setRedactedPreview({
+                    documentId: document.id,
+                    url,
+                });
+
+                setIsLoadingPreview(false);
+            })
+            .catch((err) => {
+                if (cancelled) return;
+
+                setPreviewError(err.response?.status ?? null);
+                setIsLoadingPreview(false);
+            });
+
+        return () => {
+            cancelled = true;
+
+            if (fetchedUrl) {
+                URL.revokeObjectURL(fetchedUrl);
+            }
+        };
+    }, [
+        show,
+        document?.id,
+        document?.requesterIsOwner,
+        document?.aiProcessed,
+    ]);
 
     const handleViewDocument = () => {
         navigate(`../view-document/${document.id}`);
@@ -86,13 +155,29 @@ export const DocumentModal = ({
 
                         <div className="w-2/3">
                             <strong>Options:</strong>
+
                             <DownloadButton
                                 file={document}
-                                className={"w-full mt-4 cursor-pointer border border-(--lighter-blue-300) hover:bg-(--dark-blue-700) "}
+                                isDownloadAllowed={
+                                    document.requesterIsOwner
+                                        ? document.scanStatus === "CLEAN" || document.scanStatus === "NOT_SCANNED"
+                                        : Boolean(redactedPreviewUrl)
+                                }
+                                redactedPreviewUrl={
+                                    document.requesterIsOwner === false ? redactedPreviewUrl : null
+                                }
+                                detailUrl={
+                                    isManager
+                                        ? `/documents/department/${document.id}`
+                                        : `/documents/mine/${document.id}`
+                                }
+                                className="w-full mt-4 cursor-pointer border border-(--lighter-blue-300) hover:bg-(--dark-blue-700)"
+                                isLoadingPreview={document.requesterIsOwner === false && isLoadingPreview}
                             />
+
                             <Button
                                 onClick={handleViewDocument}
-                                disabled={!document.signedUrl}
+                                disabled={!document.accessible}
                                 className="w-full mt-4 cursor-pointer border border-(--lighter-blue-300) hover:bg-(--dark-blue-700)"
                             >
                                 View Document

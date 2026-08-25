@@ -10,7 +10,7 @@ import {
 import { customNavbarTheme } from "../components/navbar/index.jsx";
 import UserDropdown from "../components/userDropdown/index.jsx";
 import { NotificationBell } from '../components/navbar/NotificationBell.jsx';
-import {BsGithub, BsGlobe} from "react-icons/bs";
+import { BsGithub, BsGlobe } from "react-icons/bs";
 import Footer from "../components/footer/index.jsx";
 
 export default function MainLayout() {
@@ -28,7 +28,7 @@ export default function MainLayout() {
 
     return (
         <div
-            className="border-r border-(--cool-gray-200) h-screen w-screen overflow-hidden flex flex-col"
+            className="border-r border-(--cool-gray-200) h-screen w-screen overflow-y-scroll wrap-anywhere flex flex-col"
         >
             {/* Global Navbar*/}
             <Navbar

@@ -55,3 +55,8 @@ export const deleteRequest = async ({ url, params = {} }) => {
     const res = await axios.delete(url, { params });
     return res.data;
 };
+
+export const getBlobRequest = async ({ url }) => {
+    const response = await axios.get(url, { responseType: 'blob' });
+    return URL.createObjectURL(response.data);
+};
