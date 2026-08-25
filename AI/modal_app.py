@@ -8,6 +8,16 @@ Modal's own autoscaling (spinning up additional container instances under
 load) is what actually answers #195's one-request-at-a-time bottleneck,
 not a code change here.
 
+Issue #254 -- promoted to use Modal's GPU Memory Snapshots (alpha,
+https://modal.com/docs/guide/memory-snapshots) after validating it on an
+isolated experiment app first (hcl-tco-ai-service-snapshot-experiment,
+never wired to BE). Real, confirmed result across two independent
+cold-restore cycles: ~21-30s cold start, down from ~74s without
+snapshotting -- both correct (bit-exact field extraction against the
+known-good result). Still an alpha Modal feature ("test carefully before
+using in production" -- Modal's own docs); accepted given the real,
+repeated measurement.
+
 Deploy:
     ./venv/Scripts/modal.exe deploy modal_app.py
 
@@ -75,19 +85,36 @@ image = (
 )
 
 
-@app.function(
+@app.cls(
     image=image,
     gpu="T4",
     timeout=600,
     # Keeps a container warm for 5min after its last request before
     # scaling to zero -- absorbs a real demo/testing burst without paying
-    # a ~30-60s PPStructureV3 cold-start on every single request, while
-    # still scaling to zero (the $30/mo free-tier assumption from #233's
-    # research) once actually idle.
+    # a cold-start on every single request, while still scaling to zero
+    # (the $30/mo free-tier assumption from #233's research) once
+    # actually idle. With #254's snapshotting, even the next cold start
+    # after that is real and fast (~21-30s measured), not the ~74s a
+    # non-snapshotted cold start costs.
     scaledown_window=300,
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
-@modal.asgi_app()
-def fastapi_app():
-    from main import app as real_app
+class AIService:
+    @modal.enter(snap=True)
+    def warm_models(self):
+        # Eagerly construct both pipelines (PPStructureV3 for the real
+        # /process path, plain PaddleOCR for word-box reconstruction)
+        # BEFORE Modal takes the snapshot, so a restored container has
+        # real, already-loaded GPU weights instead of reconstructing from
+        # scratch on every cold start.
+        from module2_ocr_extraction import _get_pipeline, _get_word_pipeline
 
-    return real_app
+        _get_pipeline("en")
+        _get_word_pipeline("en")
+
+    @modal.asgi_app()
+    def fastapi_app(self):
+        from main import app as real_app
+
+        return real_app
