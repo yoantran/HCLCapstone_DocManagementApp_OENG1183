@@ -1,5 +1,6 @@
 import { useAuth } from '../context/AuthContext';
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import { useLocation } from 'react-router-dom';
 import { columnsByRole } from '../components/customTable/columns.jsx';
 import { CustomTable } from '../components/customTable/index.jsx';
 import { DocumentModal } from '../components/documentTable/modal';
@@ -10,6 +11,15 @@ import ConfigTable from '../components/filteringPanel/ConfigTable.jsx';
 
 export default function Documents() {
     const { user } = useAuth();
+    const location = useLocation();
+
+    // Set by NotificationBell's navigate(state: { highlightDocumentId }) --
+    // read once on mount, not tracked against location changes, since we
+    // only want the jump-and-highlight to happen for the navigation that
+    // actually carried it (a later re-render/back-nav to this same route
+    // shouldn't re-trigger it).
+    const [highlightedId] = useState(location.state?.highlightDocumentId ?? null);
+    const hasJumpedToHighlight = useRef(false);
 
     const [documents, setDocuments] = useState([]);
     const [openModal, setOpenModal] = useState(false);
@@ -104,6 +114,20 @@ export default function Documents() {
         currentPage * pageSize
     );
 
+    // Jump to whichever page the notification's target document actually
+    // lands on, once (not on every sort/filter change afterward -- once the
+    // user starts interacting with the table, their own navigation wins).
+    useEffect(() => {
+        if (!highlightedId || hasJumpedToHighlight.current || sortedDocuments.length === 0) {
+            return;
+        }
+        const index = sortedDocuments.findIndex((doc) => doc.id === highlightedId);
+        if (index !== -1) {
+            setCurrentPage(Math.floor(index / pageSize) + 1);
+        }
+        hasJumpedToHighlight.current = true;
+    }, [highlightedId, sortedDocuments, pageSize]);
+
     return (
         <>
             <FilteringPanel
@@ -165,6 +189,7 @@ export default function Documents() {
                 onRowClick={handleRowClick}
                 onDeleteSuccess={handleDeleteSuccess}
                 isLoading={isLoading}
+                highlightedId={highlightedId}
             />
 
             <DocumentModal

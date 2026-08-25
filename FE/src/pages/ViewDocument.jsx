@@ -1,6 +1,6 @@
 import { useParams } from "react-router-dom";
 import { useAuth } from '../context/AuthContext';
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PublicViewer } from "../components/documentProcess/view"
 import { DocInfo } from "../components/documentProcess/view/docInfo/DocInfo";
@@ -37,12 +37,12 @@ export default function ViewDocument() {
 
     const navigate = useNavigate();
 
-    useEffect(() => {
+    const fetchDocument = useCallback(() => {
         const url = isManager
             ? `/documents/department/${documentId}`
             : `/documents/mine/${documentId}`;
 
-        getRequest({ url })
+        return getRequest({ url })
             .then((response) => {
                 setDocument(response);
 
@@ -69,6 +69,22 @@ export default function ViewDocument() {
             .catch((error) =>
                 console.error("Error fetching document:", error));
     }, [documentId, isManager]);
+
+    useEffect(() => {
+        fetchDocument();
+    }, [fetchDocument]);
+
+    // Poll while AI is still processing -- BE has no push mechanism into this
+    // page (the WS notification only drives the bell), so this is the
+    // simplest way to pick up aiResult/redacted-preview once it's ready
+    // without a manual reload.
+    useEffect(() => {
+        if (!document || document.aiProcessed || document.aiProcessingFailed) {
+            return;
+        }
+        const interval = setInterval(fetchDocument, 5000);
+        return () => clearInterval(interval);
+    }, [document, fetchDocument]);
 
     useEffect(() => {
         return () => {
