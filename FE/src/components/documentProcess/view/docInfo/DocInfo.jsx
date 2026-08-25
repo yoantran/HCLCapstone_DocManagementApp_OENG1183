@@ -1,4 +1,5 @@
-import { formatSize, formatDate } from "../../../../utils/formatFields";
+import { useEffect, useState } from "react";
+import { formatSize, formatDate, parseServerDate } from "../../../../utils/formatFields";
 
 export const DocInfo = ({ document, aiResult }) => {
     if (!document) {
@@ -120,9 +121,7 @@ export const DocInfo = ({ document, aiResult }) => {
 
 
             {!aiProcessed && !aiProcessingFailed && (
-                <div className="mt-2 border-t border-white/10 pt-4 text-sm opacity-80 italic">
-                    Processing… this page updates automatically once AI analysis finishes.
-                </div>
+                <ProcessingIndicator uploadedDateTime={uploadedDateTime} />
             )}
 
             {aiProcessingFailed && (
@@ -301,6 +300,50 @@ export const DocInfo = ({ document, aiResult }) => {
                 </div>
             )}
 
+        </div>
+    );
+};
+
+// Real per-stage progress would need the AI service to report intermediate
+// state through BE -- not worth the backend lift here. This just proves the
+// upload is alive and gives a rough ETA so users aren't staring at nothing.
+const EXPECTED_PROCESSING_SECONDS = 200;
+
+const ProcessingIndicator = ({ uploadedDateTime }) => {
+    const [now, setNow] = useState(Date.now());
+
+    useEffect(() => {
+        const interval = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const uploadedAt = parseServerDate(uploadedDateTime);
+    const elapsedSeconds = uploadedAt
+        ? Math.max(0, Math.floor((now - uploadedAt.getTime()) / 1000))
+        : 0;
+
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    const elapsedLabel = `${minutes}:${String(seconds).padStart(2, "0")}`;
+
+    const progressPct = Math.min(95, (elapsedSeconds / EXPECTED_PROCESSING_SECONDS) * 100);
+
+    return (
+        <div className="mt-2 border-t border-white/10 pt-4">
+            <p className="text-sm opacity-80 italic">
+                Processing… this page updates automatically once AI analysis finishes.
+            </p>
+
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                <div
+                    className="h-full rounded-full bg-(--light-blue) transition-all duration-1000 ease-linear"
+                    style={{ width: `${progressPct}%` }}
+                />
+            </div>
+
+            <p className="mt-1.5 text-xs opacity-60">
+                Elapsed: {elapsedLabel} — usually takes about 3 minutes
+            </p>
         </div>
     );
 };
