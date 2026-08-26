@@ -24,7 +24,7 @@ export default function Profile() {
             updateUser({ name: updated.name, avatarSignedUrl: updated.avatarSignedUrl });
             pushSuccess("Profile updated.");
         } catch (err) {
-            pushError(err?.response?.data?.message || "Failed to update profile.");
+            pushError(err?.response?.data?.error || "Failed to update profile.");
         } finally {
             setSaving(false);
         }
