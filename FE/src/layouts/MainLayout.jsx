@@ -112,7 +112,7 @@ export default function MainLayout() {
             <main className="flex-1 p-8">
                 <Outlet />
             </main>
-            <div className="p-8 pt-0 sticky bottom-0 z-10">
+            <div className="p-8 pt-0">
                 <Footer className="bg-transparent border-0 rounded-none px-0 " />
             </div>
         </div>

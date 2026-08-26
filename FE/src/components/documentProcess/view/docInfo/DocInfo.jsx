@@ -93,10 +93,6 @@ export const DocInfo = ({ document, aiResult }) => {
                 {name}
             </h2>
 
-            <p className="text-sm opacity-80">
-                ID: {id}
-            </p>
-
             <div className="flex flex-row justify-between">
                 <div className="mt-6 flex flex-wrap gap-3">
                     <Badge label="Format" value={format} />
@@ -289,13 +285,6 @@ export const DocInfo = ({ document, aiResult }) => {
                             </div>
                         )}
 
-                        {requesterIsOwner === false && (
-                            <div className="border-t border-gray-300 bg-gray-50 px-6 py-3">
-                                <p className="text-xs italic text-gray-500">
-                                    Some sensitive fields are hidden because you are not the document owner.
-                                </p>
-                            </div>
-                        )}
                     </div>
                 </div>
             )}
