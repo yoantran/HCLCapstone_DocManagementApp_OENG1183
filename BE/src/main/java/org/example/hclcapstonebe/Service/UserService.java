@@ -68,7 +68,16 @@ import org.springframework.web.multipart.MultipartFile;
                     throw new AppException("Failed to read file bytes: " + e.getMessage(),
                             HttpStatus.INTERNAL_SERVER_ERROR);
                 }
-                String newAvatarPath = supabaseStorageService.uploadFile(IMAGE_BUCKET, bytes, storagePath, avatarFile.getContentType());
+                // Real MIME type from the file's own magic bytes, not the
+                // client-supplied Content-Type header -- same bug #235 fixed
+                // for document uploads (a non-browser client sending a generic
+                // application/octet-stream otherwise gets a raw 500 leaked
+                // from Supabase's own bucket MIME allowlist, confirmed live).
+                // Also backfills the Swagger contract already promising a
+                // clean 400 for an invalid avatar format, which nothing here
+                // previously actually checked.
+                String avatarContentType = detectImageContentType(bytes);
+                String newAvatarPath = supabaseStorageService.uploadFile(IMAGE_BUCKET, bytes, storagePath, avatarContentType);
                 // 3. Save path
                 user.setAvatarImageUrl(newAvatarPath);
             }
@@ -104,5 +113,23 @@ import org.springframework.web.multipart.MultipartFile;
         private User getUserByEmail(String email) {
             return userRepository.findByEmailAndIsDeletedFalse(email)
                     .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
+        }
+
+        /**
+         * Magic-byte format check -- same shape as DocumentService's, scoped
+         * to the two formats this endpoint's own Swagger doc already promises
+         * ("JPEG or PNG"). Real 400, not a raw Supabase-leaked 500, for
+         * anything else (wrong file type, or a byte-for-byte match failure).
+         */
+        private String detectImageContentType(byte[] bytes) {
+            if (bytes.length >= 4
+                    && (bytes[0] & 0xFF) == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
+                return "image/png";
+            }
+            if (bytes.length >= 3
+                    && (bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xD8 && (bytes[2] & 0xFF) == 0xFF) {
+                return "image/jpeg";
+            }
+            throw new AppException("Invalid avatar format — only JPEG and PNG are supported", HttpStatus.BAD_REQUEST);
         }
     }
