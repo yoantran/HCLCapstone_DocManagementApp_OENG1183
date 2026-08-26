@@ -226,13 +226,13 @@ export const auditLogColumns = () => [
         key: "method",
         label: "Method",
         accessor: 'method',
-        className: 'max-w-2',
+        className: 'whitespace-nowrap',
     },
     {
         key: "status",
         label: "Status",
         accessor: "status",
-        className: 'max-w-2',
+        className: 'whitespace-nowrap',
     },
     {
         key: "action",
