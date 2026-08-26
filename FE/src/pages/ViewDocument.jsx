@@ -134,7 +134,7 @@ export default function ViewDocument() {
                 <p className="mt-1 text-sm text-gray-500">
                     {document.requesterIsOwner
                         ? "Preview of the uploaded document"
-                        : "Redacted preview with sensitive information protected"}
+                        : "Redacted preview with sensitive information protected, since you are not the document owner"}
                 </p>
             </div>
 
