@@ -9,6 +9,8 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -109,6 +111,67 @@ public class SupabaseStorageService {
             return supabaseUrl + "/storage/v1/" + signedPath;
         } catch (Exception e) {
             throw new AppException("Failed to generate signed URL: " + e.getMessage(),
+                    HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Batch version of generateSignedUrl -- one real Supabase call for every
+     * path instead of one call per path (issue #260). Supabase Storage's own
+     * batch-sign endpoint (POST .../object/sign/{bucket}, body {paths, expiresIn})
+     * returns every signed URL in a single request; verified live against the
+     * real project before wiring this in, not assumed from docs.
+     *
+     * @param bucket       "documents" or "images"
+     * @param storagePaths the paths returned by uploadFile() -- duplicates and
+     *                     empty input are both handled (Supabase itself
+     *                     dedupes; an empty list short-circuits with no call)
+     * @return             storagePath -> signed URL. A path Supabase reports
+     *                     an error for is simply omitted, not thrown -- callers
+     *                     already treat a missing signed URL as "not
+     *                     accessible", the same fail-closed behavior
+     *                     generateSignedUrl's own exception path leads to for
+     *                     a single lookup.
+     */
+    public Map<String, String> generateSignedUrls(String bucket, List<String> storagePaths, int expiresIn) {
+        if (storagePaths == null || storagePaths.isEmpty()) {
+            return Map.of();
+        }
+
+        String signUrl = supabaseUrl + "/storage/v1/object/sign/" + bucket;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + serviceRoleKey);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, Object> body = Map.of("expiresIn", expiresIn, "paths", storagePaths);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
+
+        try {
+            ResponseEntity<List> response = restTemplate.exchange(
+                    signUrl, HttpMethod.POST, entity, List.class
+            );
+            List<Map<String, Object>> results = response.getBody();
+            if (results == null) {
+                throw new AppException("Supabase did not return signed URLs", HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+
+            Map<String, String> signedUrls = new HashMap<>();
+            for (Map<String, Object> result : results) {
+                Object path = result.get("path");
+                Object signedURL = result.get("signedURL");
+                if (path == null || signedURL == null) {
+                    continue; // Supabase reported an error for this one path -- omit, don't fail the whole batch
+                }
+                String signedPath = (String) signedURL;
+                if (signedPath.startsWith("/")) {
+                    signedPath = signedPath.substring(1);
+                }
+                signedUrls.put((String) path, supabaseUrl + "/storage/v1/" + signedPath);
+            }
+            return signedUrls;
+        } catch (Exception e) {
+            throw new AppException("Failed to generate signed URLs: " + e.getMessage(),
                     HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }

@@ -246,9 +246,10 @@ public class DocumentService {
 
     public List<DocumentResponse> getMyDocuments(String currentUserEmail) {
         User user = getUserByEmail(currentUserEmail);
-        return documentRepository.findByUploaderIdAndIsDeletedFalse(user.getId())
-                .stream()
-                .map(doc -> toDocumentResponse(doc, user.getId()))
+        List<Document> docs = documentRepository.findByUploaderIdAndIsDeletedFalse(user.getId());
+        Map<String, String> signedUrls = preloadSignedUrls(docs, user.getId());
+        return docs.stream()
+                .map(doc -> toDocumentResponse(doc, user.getId(), signedUrls))
                 .collect(Collectors.toList());
     }
 
@@ -269,11 +270,28 @@ public class DocumentService {
 
     public List<DocumentResponse> getDepartmentDocuments(String currentUserEmail) {
         User boss = getUserByEmail(currentUserEmail);
-        return documentRepository
-                .findByDepartmentIdAndIsDeletedFalse(boss.getDepartment().getId())
-                .stream()
-                .map(doc -> toDocumentResponse(doc, boss.getId()))
+        List<Document> docs = documentRepository
+                .findByDepartmentIdAndIsDeletedFalse(boss.getDepartment().getId());
+        Map<String, String> signedUrls = preloadSignedUrls(docs, boss.getId());
+        return docs.stream()
+                .map(doc -> toDocumentResponse(doc, boss.getId(), signedUrls))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Issue #260 -- one real Supabase call for every document link the
+     * requester owns and can access, instead of toDocumentResponse making
+     * its own call per document. Only owned+accessible docs need a signed
+     * URL at all (see toDocumentResponse's own gate), so this only ever
+     * asks Supabase for paths that will actually be used.
+     */
+    private Map<String, String> preloadSignedUrls(List<Document> docs, UUID requesterId) {
+        List<String> ownedAccessibleLinks = docs.stream()
+                .filter(doc -> isAccessible(doc) && doc.getUploader().getId().equals(requesterId))
+                .map(Document::getDocumentLink)
+                .distinct()
+                .toList();
+        return supabaseStorageService.generateSignedUrls(BUCKET, ownedAccessibleLinks, SIGNED_URL_TTL);
     }
 
     public DocumentResponse getDepartmentDocumentById(String docId, String currentUserEmail) {
@@ -462,9 +480,23 @@ public class DocumentService {
     /**
      * Maps a Document to a response DTO and attaches a fresh signed URL.
      * The signed URL lets the FE read the file directly from Supabase for
-     * SIGNED_URL_TTL seconds.
+     * SIGNED_URL_TTL seconds. Single-doc callers keep making their own live
+     * Supabase call here, unchanged.
      */
     private DocumentResponse toDocumentResponse(Document doc, UUID requesterId) {
+        return toDocumentResponse(doc, requesterId, null);
+    }
+
+    /**
+     * Issue #260 -- list endpoints (getMyDocuments/getDepartmentDocuments)
+     * pass a pre-fetched documentLink -> signedUrl map (built via
+     * SupabaseStorageService.generateSignedUrls, one real Supabase call for
+     * the whole list) instead of this method making its own call per
+     * document. Falls back to a live single-doc call if a doc's link is
+     * missing from the map -- defensive only, the batch call is built from
+     * the exact same doc list, so this should never actually trigger.
+     */
+    private DocumentResponse toDocumentResponse(Document doc, UUID requesterId, Map<String, String> preloadedSignedUrls) {
         DocumentResponse response = documentMapper.toResponse(doc);
         response.setScanStatus(doc.getScanStatus());
 
@@ -478,9 +510,14 @@ public class DocumentService {
         // non-owner (e.g. a Manager reviewing a department document) uses
         // /documents/{id}/redacted-preview instead.
         if (accessible && isOwner) {
-            String signedUrl = supabaseStorageService.generateSignedUrl(
-                    BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL
-            );
+            String signedUrl = preloadedSignedUrls != null
+                    ? preloadedSignedUrls.get(doc.getDocumentLink())
+                    : null;
+            if (signedUrl == null) {
+                signedUrl = supabaseStorageService.generateSignedUrl(
+                        BUCKET, doc.getDocumentLink(), SIGNED_URL_TTL
+                );
+            }
             response.setSignedUrl(signedUrl);
         }
 
