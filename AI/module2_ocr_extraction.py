@@ -18,7 +18,16 @@ import cv2
 import numpy as np
 from paddleocr import PaddleOCR, PPStructureV3
 
-from field_extraction_en import extract_fields_from_text_en
+from field_extraction_en import (
+    INCOME_LABEL_PATTERNS,
+    LABEL_PATTERNS,
+    _clean_label_value,
+    _get_nlp_en,
+    _has_person_entity,
+    _looks_like_name,
+    extract_fields_from_text_en,
+    parse_currency_amount,
+)
 
 
 class _TableRowParser(HTMLParser):
@@ -118,7 +127,128 @@ def extract_fields(image, lang: str = "en") -> dict:
     text = lines_to_text(doc["lines"])
     table_rows = [row for html in doc["tables"] for row in html_table_to_rows(html)]
     fields = extract_fields_from_text_en(text, table_rows=table_rows or None)
+    _repair_line_split_fields(doc["lines"], text, fields)
     return {"fields": fields, "line_boxes": doc["lines"], "tables": doc["tables"], "text": text}
+
+
+# Issue #270 class B -- PPStructureV3 detects a label and its value as
+# separate OCR spans whenever they're visually adjacent but not drawn as
+# one contiguous text run (common on non-tabular/photographed layouts,
+# e.g. Payslip.jpg's "Pay Slip For:" / "Rymer, Mark" or "GROSS PAY:" /
+# "$5,837.50" each landing in their own detected box). lines_to_text()
+# joins every detected span onto its own "\n"-separated line, so a
+# label-anchored regex expecting "label: value" on ONE line finds the
+# label with nothing after it -- and worse, if the regex's capture
+# crosses onto the wrong nearby line, it can grab a truncated, WRONG
+# number instead of correctly missing (the grid4.jpg "income: 9.0"
+# case -- OCR split "9500" as "9" then "500" on separate lines/cells,
+# and the pre-fix regex's within-line capture silently accepted the "9").
+#
+# This repairs it via the OCR lines' own real spatial boxes rather than
+# guessing at more label wording -- when a label matched but its
+# same-line capture came back empty, look up which OCR line the label
+# text came from and search for the value by real position: directly to
+# the right on the same visual row first (true reading order), directly
+# below in the same column second (a value that wrapped under its
+# label). Never widens the search past adjacent spans, so it can't
+# reach across into an unrelated field's row/column the way a naive
+# "nearest number anywhere on the page" search could.
+_REPAIRABLE_LABEL_FIELDS = ("name", "address", "bsb", "account_number")
+
+
+def _line_index_for_offset(lines: list[dict], offset: int) -> int:
+    """lines_to_text() joins line["text"] with "\n" in order, so a match
+    offset into that joined string maps back to exactly one line index."""
+    pos = 0
+    for i, line in enumerate(lines):
+        end = pos + len(line["text"])
+        if offset <= end:
+            return i
+        pos = end + 1  # +1 for the "\n" separator
+    return len(lines) - 1
+
+
+def _overlap_ratio(a_lo: float, a_hi: float, b_lo: float, b_hi: float) -> float:
+    overlap = min(a_hi, b_hi) - max(a_lo, b_lo)
+    smaller = min(a_hi - a_lo, b_hi - b_lo)
+    return overlap / smaller if overlap > 0 and smaller > 0 else 0.0
+
+
+def find_adjacent_value(lines: list[dict], label_line_idx: int) -> str | None:
+    lx1, ly1, lx2, ly2 = lines[label_line_idx]["box"]
+    label_h = ly2 - ly1
+
+    # Real confirmed case (Payslip.jpg): "lassification:" and "Cheque No:"
+    # sit in genuinely different columns of a 2-column form but still
+    # overlap vertically by >50% (69-92 vs 60-79) -- a bare overlap-ratio
+    # check alone would wrongly treat them as the same row. Capping the
+    # rightward gap at a fraction of the page's own width (max x2 seen
+    # across all lines, the only page-width signal available here) is
+    # what actually rejects that case (326px gap on a 600px-wide page)
+    # while still allowing the real same-row case (41px gap).
+    page_width = max((line["box"][2] for line in lines), default=0)
+    max_right_gap = page_width * 0.3
+
+    best_right = None  # (x_gap, index)
+    best_below = None  # (y_gap, index)
+    for i, line in enumerate(lines):
+        if i == label_line_idx:
+            continue
+        x1, y1, x2, y2 = line["box"]
+        if x1 >= lx2 and _overlap_ratio(ly1, ly2, y1, y2) >= 0.6:
+            gap = x1 - lx2
+            if gap <= max_right_gap and (best_right is None or gap < best_right[0]):
+                best_right = (gap, i)
+        elif y1 >= ly2 and _overlap_ratio(lx1, lx2, x1, x2) >= 0.6:
+            gap = y1 - ly2
+            if gap <= label_h * 2 and (best_below is None or gap < best_below[0]):
+                best_below = (gap, i)
+
+    if best_right is not None:
+        return lines[best_right[1]]["text"].strip()
+    if best_below is not None:
+        return lines[best_below[1]]["text"].strip()
+    return None
+
+
+def _repair_line_split_fields(lines: list[dict], text: str, fields: dict) -> None:
+    for field in _REPAIRABLE_LABEL_FIELDS:
+        if fields.get(field) is not None:
+            continue
+        match = LABEL_PATTERNS[field].search(text)
+        if match is None:
+            continue
+        value = find_adjacent_value(lines, _line_index_for_offset(lines, match.start()))
+        cleaned = _clean_label_value(value) if value else None
+        if cleaned is None:
+            continue
+        # Real confirmed false positive (audited on Salary Slip Format
+        # Basic.jpg): unlike LABEL_PATTERNS's own same-line capture, this
+        # function's spatial box lookup has no idea WHAT it's grabbing --
+        # it took the box nearest to a bare "Employee:" label and returned
+        # "Bank Detals" (an unrelated field on the same form) uncritically.
+        # `name` specifically needs the same semantic check class A's NER
+        # fallback already applies (spaCy confirms PERSON, not just
+        # "some non-blank text was nearby") -- the other 3 repairable
+        # fields have no equivalent confirmed failure yet, so are left
+        # exactly as tolerant as before rather than guessing at a fix for
+        # a bug not yet observed.
+        if field == "name" and not (_looks_like_name(cleaned) and _has_person_entity(_get_nlp_en(), cleaned)):
+            continue
+        fields[field] = cleaned
+
+    if fields.get("income") is None:
+        for basis in ("gross", "net"):
+            match = INCOME_LABEL_PATTERNS[basis].search(text)
+            if match is None:
+                continue
+            value = find_adjacent_value(lines, _line_index_for_offset(lines, match.start()))
+            cleaned = _clean_label_value(value) if value else None
+            amount = parse_currency_amount(cleaned) if cleaned is not None else None
+            if amount is not None:
+                fields["income"] = amount
+                fields["income_basis"] = basis
+                break
 
 
 # Word-box source for module3_redaction.find_sensitive_boxes() (issue #130).

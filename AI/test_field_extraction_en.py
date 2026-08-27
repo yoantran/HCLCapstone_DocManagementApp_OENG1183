@@ -5,6 +5,7 @@ sys.path.insert(0, ".")
 from field_extraction_en import (
     extract_balance_sheet_fields_en,
     extract_fields_from_text_en,
+    extract_name_via_ner_en,
     parse_currency_amount,
     parse_currency_amount_balance_sheet,
 )
@@ -263,6 +264,33 @@ def test_balance_sheet_falls_back_to_rightmost_when_no_header_detected():
     rows = [["Total Equity", "$1", "$2", "$3"]]
     fields = extract_balance_sheet_fields_en(rows)
     assert fields["total_equity"] == 3.0
+
+
+def test_ner_fallback_finds_name_with_real_unrecognized_label_wording():
+    # Real confirmed case (#270 class A): Payslip.jpg's actual OCR text --
+    # "Pay Slip For:" garbled to "ay Slip For:", label+value split across
+    # lines. LABEL_PATTERNS["name"] doesn't match this wording at all.
+    text = "ay Slip For:\nRymer, Mark\nCheque No:\n71\nlassification:\nAssembly"
+    fields = extract_fields_from_text_en(text)
+    assert fields["name"] == "Rymer, Mark"
+
+
+def test_ner_fallback_does_not_override_a_working_regex_match():
+    text = "*Employer: Acme Pty Ltd\n*Employee: Jo Worker"
+    fields = extract_fields_from_text_en(text)
+    assert fields["name"] == "Jo Worker"
+
+
+def test_ner_fallback_ignores_unrelated_person_names():
+    # No name-context keyword anywhere -- must not grab a name from
+    # unrelated text just because spaCy tags it PERSON somewhere.
+    text = "Approved by the finance team.\nJohn Smith reviewed this document."
+    assert extract_name_via_ner_en(text) is None
+
+
+def test_ner_fallback_same_line_after_colon():
+    text = "Full Name: Priya Chandra\nDate: 01/01/2026"
+    assert extract_name_via_ner_en(text) == "Priya Chandra"
 
 
 def run_all():

@@ -27,6 +27,8 @@ import re
 from datetime import datetime
 from difflib import SequenceMatcher
 
+import spacy
+
 from field_extraction import _clean_label_value as _clean_label_value_base
 
 DATE_RE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")  # DD/MM/YYYY -- same convention as Vietnamese, confirmed on a real sample
@@ -117,7 +119,17 @@ def _clean_label_value(value: str) -> str | None:
 
 
 def parse_currency_amount(value: str) -> float | None:
-    match = re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d{2})?", value)
+    # Issue #270 -- same bare-digit-run bug #186 already fixed in
+    # parse_currency_amount_balance_sheet, just never ported here: the old
+    # `\d{1,3}(?:,\d{3})*` accepts ZERO repetitions of the comma group, so
+    # a plain unformatted number with no thousands separator at all (real
+    # case: grid/list payslip templates literally show "9500", not
+    # "9,500") matched only its first 3 digits ("950"), silently
+    # truncating a real income value by 10x. Requiring `+` (at least one
+    # comma-group) on the first alternative and falling through to a bare
+    # `\d+` otherwise is the exact fix #186 already validated for the
+    # balance-sheet parser -- same technique, ported.
+    match = re.search(r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{2})?", value)
     if match is None:
         return None
     digits = match.group(0).replace(",", "")
@@ -655,9 +667,93 @@ def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict, pref
                 result[field] = candidate
 
 
+# Issue #270 class A -- LABEL_PATTERNS["name"] only matches label wording
+# actually observed in the corpus ("*Employee:", "Employee Name:"). A real
+# payslip using different wording (confirmed real case: "Pay Slip For:",
+# OCR-garbled to "ay Slip For:") is never caught by regex alone, however
+# clean the underlying text -- and real-world payslip templates are far
+# more varied than the 2 template families in this corpus. This is a
+# bounded, keyword-anchored spaCy fallback, deliberately NOT a generic
+# "grab any PERSON entity found anywhere in the document" search -- a
+# real payslip can have multiple names (employee, approving manager,
+# payroll officer), and undisambiguated NER can't tell which one is the
+# employee. Only fires when LABEL_PATTERNS found nothing at all (checked
+# by the caller) -- never overrides a working regex match, and only
+# considers text adjacent to a small set of real, observed name-context
+# words, not the whole document.
+# "slip for" not "pay slip for" -- real OCR on Payslip.jpg drops the
+# leading character of several lines ("ay Slip For:", "lassification:"),
+# a confirmed real artifact on that image, not a hypothetical -- matching
+# the shorter phrase survives it.
+_NAME_CONTEXT_KEYWORDS = ("employee", "slip for", "full name", "worker", "staff", "candidate")
+
+_nlp_en = None
+
+
+def _get_nlp_en():
+    global _nlp_en
+    if _nlp_en is None:
+        _nlp_en = spacy.load("en_core_web_sm")
+    return _nlp_en
+
+
+def _has_person_entity(nlp, text: str) -> bool:
+    text = text.strip()
+    if not text:
+        return False
+    return any(ent.label_ == "PERSON" for ent in nlp(text).ents)
+
+
+# Real false positives found verifying this against the actual corpus (not
+# hypothetical): en_core_web_sm tags the bare section header "RECITALS" as
+# PERSON in isolation, and a "next line" that's really a full boilerplate
+# sentence ("On behalf of [Company Name] trading as...") passed the old
+# bare PERSON-tag check too, since a long sentence full of proper nouns
+# gives spaCy plenty of chances to mistag something. A real name in every
+# sample seen (docx-native or OCR) is 2-5 short words, never uppercase,
+# never sentence punctuation -- this rejects both real failure cases
+# while still accepting "Rymer, Mark", "Jo Worker", "Sally Harley".
+def _looks_like_name(text: str) -> bool:
+    if not text or len(text) > 60 or text.isupper():
+        return False
+    if any(ch in text for ch in ".;:"):
+        return False
+    return 2 <= len(text.split()) <= 5
+
+
+def extract_name_via_ner_en(text: str) -> str | None:
+    lines = text.split("\n")
+    nlp = _get_nlp_en()
+    for i, line in enumerate(lines):
+        low = line.lower()
+        if not any(kw in low for kw in _NAME_CONTEXT_KEYWORDS):
+            continue
+        # Same line, after a colon -- real for the docx-native / clean-OCR
+        # case where label and value weren't split onto separate lines.
+        if ":" in line:
+            same_line_value = line.split(":", 1)[1].strip()
+            cleaned = _clean_label_value(same_line_value)
+            if cleaned and _looks_like_name(cleaned) and _has_person_entity(nlp, cleaned):
+                return cleaned
+        # Next line -- real for the OCR-split case (Payslip.jpg's actual
+        # "ay Slip For:\nRymer, Mark"). Whole line, not spaCy's own PERSON
+        # span -- confirmed empirically that en_core_web_sm's span
+        # boundary drops "Rymer" from "Rymer, Mark" (tags only "Mark"),
+        # so the span itself is an unreliable value; PERSON-tagged is used
+        # only as a yes/no signal that this line is a name, and the full
+        # adjacent line is taken as the value to avoid that truncation.
+        if i + 1 < len(lines):
+            cleaned = _clean_label_value(lines[i + 1].strip())
+            if cleaned and _looks_like_name(cleaned) and _has_person_entity(nlp, cleaned):
+                return cleaned
+    return None
+
+
 def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = None) -> dict:
     fields = extract_regex_fields_en(text)
     fields.update(extract_label_anchored_en(text))
+    if fields.get("name") is None:
+        fields["name"] = extract_name_via_ner_en(text)
     fields["income"], fields["income_basis"] = extract_income_en(text)
     fields["annual_salary"] = extract_annual_salary_en(text)
     fields["pay_period_days"] = extract_pay_period_days_en(text)

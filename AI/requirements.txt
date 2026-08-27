@@ -30,3 +30,11 @@ paddlepaddle==3.3.1
 # everything actually required, not a manually-guessed subset.
 paddlex[ocr]==3.7.2
 onnxruntime==1.28.0
+# Issue #270 class A -- spaCy NER fallback for real-world payslip name
+# labels not covered by field_extraction_en.py's LABEL_PATTERNS regex.
+# Model pinned as a direct wheel URL (same convention `spacy download`
+# resolves to under the hood) so the Docker build doesn't need its own
+# extra network step/model-download command -- a plain `pip install -r`
+# is sufficient, matching every other dependency in this file.
+spacy==3.8.16
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#egg=en_core_web_sm==3.8.0
