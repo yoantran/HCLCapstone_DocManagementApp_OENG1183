@@ -157,28 +157,20 @@ def parse_currency_amount(value: str) -> float | None:
 # (#186), confirmed real on a different file in the same corpus.
 _PERIOD_THOUSANDS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+\.\d{2}")
 
-# Issue #186 -- confirmed on a real spreadsheet-screenshot corpus
-# ("images (9).jpg"): the SAME field is rendered 3 different ways across
-# its own year-columns in one row -- comma-grouped (already correct), a
-# bare digit run with no separator ("165000"), and a dot-grouped value
-# with no cents suffix ("120.000"). The bare-single-period case above
-# was assumed ambiguous when #188 was fixed; it isn't. Real currency
-# decimals are always exactly 2 digits (AUD -- this pipeline's actual
-# documented domain, per the Fair Work Ombudsman template corpus), so a
-# dot followed by exactly 3 digits can never validly be a decimal point
-# -- it's unconditionally a thousands group, regardless of the specific
-# digits. Deliberately only matches a SINGLE separator character
-# repeated (all dots) -- does NOT accept mixed separators within one
-# number (e.g. a real but rare OCR artifact seen in the same corpus,
-# "1.459 800", true value 1,459,800 confirmed against two correctly
-# space-grouped sibling occurrences of the same total in the same
-# table). Extending the character class to also accept comma/space at
-# each group boundary was tried and reverted: it corrupts the common,
-# already-correct "$435,879,843.89"-style case via regex backtracking
-# (matches only "435,879", silently dropping ",843.89") -- verified
-# directly, not assumed. Left as a known, narrow limitation rather than
-# risk that.
-_DOT_THOUSANDS_NO_CENTS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+(?!\.\d{2})(?!\d)")
+# Issue #186 added a dot-grouped-thousands-no-cents branch here
+# ("120.000" -> 120000.0), grounded in a real case (images (9).jpg).
+# Issue #271 -- removed on explicit request after measuring its real
+# blast radius across the full corpus: instrumenting the function
+# showed this branch only ever fired on 3 cells total. Re-running the
+# ENTIRE corpus with it removed (not just simulating the 3 cells in
+# isolation, which is what first suggested a regression) confirmed
+# zero change to any file's final extracted result, including
+# images (9).jpg -- its own row has other, unaffected cells further
+# right that "last cell wins" already resolves to instead. The only
+# real effect anywhere: images.jpg's already-broken total_assets
+# (the #271 adversarial stray-digit-noise bug, "3 203,200.00 3") swaps
+# from one wrong number (200003.0) to a different wrong number
+# (3203.0) -- not a regression (already wrong), not a fix either.
 
 
 def parse_currency_amount_balance_sheet(value: str) -> float | None:
@@ -202,9 +194,6 @@ def parse_currency_amount_balance_sheet(value: str) -> float | None:
     if period_match is not None:
         digits = period_match.group(0).replace(".", "")
         return float(digits[:-2] + "." + digits[-2:])
-    dot_thousands_match = _DOT_THOUSANDS_NO_CENTS_RE.search(value)
-    if dot_thousands_match is not None:
-        return float(dot_thousands_match.group(0).replace(".", ""))
     # Issue #186 -- a bare digit run with no separator at all ("165000")
     # previously truncated to its first 3 digits, since the grouped
     # alternative requires a literal comma/space to keep matching beyond
