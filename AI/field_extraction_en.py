@@ -186,6 +186,18 @@ def parse_currency_amount_balance_sheet(value: str) -> float | None:
     # ("$106 ,000") parse the same as their clean docx-native equivalent
     # ("$106,000"); a no-op on already-clean input.
     value = _despace(value)
+    # Issue #271 -- real confirmed bug: a table cell that's actually prose
+    # with an incidental number in it ("in 12 months", from an
+    # instructional worksheet template, not a real balance-sheet figure)
+    # was accepted as a valid dollar amount because nothing here checked
+    # whether the CELL looked like a number at all, only whether a number
+    # could be found somewhere inside it. Every real currency cell seen
+    # across the entire corpus (docx-native or OCR) is pure digits/
+    # currency-symbols/separators -- zero letters, confirmed against
+    # every existing test case this function has. A run of 2+ letters
+    # anywhere in the (despaced) cell means it's prose, not an amount.
+    if re.search(r"[A-Za-z]{2,}", value):
+        return None
     period_match = _PERIOD_THOUSANDS_RE.search(value)
     if period_match is not None:
         digits = period_match.group(0).replace(".", "")
@@ -473,6 +485,17 @@ def _detect_current_period_column(table_rows: list[list[str]]) -> int | None:
     return None
 
 
+# Issue #271 -- confirmed real on IC-Small-Business-Pro-Forma-Balance-Sheet-
+# Template.jpg: an entire row there is nothing but "$"/"5"/"S"/"s" tokens
+# (a different row's own currency-symbol column, real evidence this
+# document's OCR genuinely confuses "$" with these specific characters,
+# not a guess). Deliberately narrow -- a real label is never JUST one of
+# these characters repeated, but a real value legitimately CAN be a bare
+# "5" (five dollars) or similar short digit run, so this only matches
+# cells with ZERO digits at all.
+_BARE_CURRENCY_SYMBOL_RE = re.compile(r"^[\$Ss]+$")
+
+
 def _last_numeric_cell(cells: list[str], start_col: int = 0, prefer_col: int | None = None) -> float | None:
     """Issue #172 -- several real templates have more than one value
     column (e.g. PRIOR YEAR / CURRENT YEAR, FY1 / FY2). Take the LAST
@@ -492,7 +515,18 @@ def _last_numeric_cell(cells: list[str], start_col: int = 0, prefer_col: int | N
     would scan straight past the empty spacer into the OTHER field's
     value. The stop check is deliberately generic (any real label
     text, not just cells matching the 5 tracked patterns), since
-    "Total Long-Term Assets" itself doesn't match any of them."""
+    "Total Long-Term Assets" itself doesn't match any of them.
+
+    Issue #271 -- real confirmed bug: a standalone currency-symbol cell
+    with zero digits in it ("$" split into its own cell, ahead of the
+    real value in the next cell -- confirmed real on
+    IC-Small-Business-Pro-Forma-Balance-Sheet-Template.jpg, where OCR
+    also misreads "$" as a bare "s"/"S" elsewhere in the very same
+    table) was wrongly treated as the #184 stop signal, halting the scan
+    before it ever reached the real number 1-2 cells later. Unlike a
+    real label ("Total Long-Term Assets"), a cell that's PURELY a
+    currency symbol can never be a different field's label -- safe to
+    skip over it and keep scanning, not stop."""
     result = None
     preferred = None
     for offset, cell in enumerate(cells):
@@ -502,7 +536,7 @@ def _last_numeric_cell(cells: list[str], start_col: int = 0, prefer_col: int | N
             result = amount
             if prefer_col is not None and start_col + offset == prefer_col:
                 preferred = amount
-        elif stripped:
+        elif stripped and not _BARE_CURRENCY_SYMBOL_RE.match(stripped):
             break
     return preferred if preferred is not None else result
 

@@ -266,6 +266,46 @@ def test_balance_sheet_falls_back_to_rightmost_when_no_header_detected():
     assert fields["total_equity"] == 3.0
 
 
+def test_parse_currency_amount_balance_sheet_rejects_prose_with_incidental_number():
+    # Real confirmed bug (#271, images (2).jpg): a genuinely blank
+    # worksheet template's own instructional sentence ("...in 12
+    # months...") sat in the cell adjacent to a real "Total current
+    # assets" label, and got accepted as if "12" were a dollar figure.
+    assert parse_currency_amount_balance_sheet("in12 months") is None
+    assert parse_currency_amount_balance_sheet("in 12 months") is None
+    # Must not regress a real amount that happens to be short.
+    assert parse_currency_amount_balance_sheet("$12.00") == 12.0
+
+
+def test_balance_sheet_does_not_match_prose_cell_adjacent_to_real_label():
+    # Same bug, full pipeline: "Total current assets" is a real exact
+    # label match, but its neighboring cell is prose, not a value --
+    # must stay None, not silently populate with a wrong number.
+    rows = [["Total current assets", "in12 months"]]
+    fields = extract_balance_sheet_fields_en(rows)
+    assert fields["total_current_assets"] is None
+
+
+def test_last_numeric_cell_skips_bare_currency_symbol_not_stops():
+    # Real confirmed bug (#271, IC-Small-Business-Pro-Forma-Balance-Sheet-
+    # Template.jpg): OCR split "$" into its own cell (and elsewhere in the
+    # same real table misreads "$" as bare "s"/"S") ahead of the real
+    # value -- the #184 stop-at-first-unparseable-cell guard treated it
+    # as a different field's label and gave up before ever reaching the
+    # real number 2 cells later.
+    row = ["TOTAL ASSETS", "s", "558.00", "$", "1,848.00"]
+    fields = extract_balance_sheet_fields_en([row])
+    assert fields["total_assets"] is not None
+
+
+def test_last_numeric_cell_still_stops_at_a_real_label():
+    # Must not regress #184's original case -- a real OTHER field's label
+    # (not a bare currency symbol) still has to stop the scan.
+    rows = [["Total Current Assets", "$105,000", "", "Total Long-Term Assets", "$320,000"]]
+    fields = extract_balance_sheet_fields_en(rows)
+    assert fields["total_current_assets"] == 105000.0
+
+
 def test_ner_fallback_finds_name_with_real_unrecognized_label_wording():
     # Real confirmed case (#270 class A): Payslip.jpg's actual OCR text --
     # "Pay Slip For:" garbled to "ay Slip For:", label+value split across
