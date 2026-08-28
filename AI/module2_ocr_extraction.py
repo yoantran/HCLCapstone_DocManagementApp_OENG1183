@@ -24,6 +24,7 @@ from field_extraction_en import (
     _clean_label_value,
     _get_nlp_en,
     _has_person_entity,
+    _looks_like_address,
     _looks_like_bsb_or_account,
     _looks_like_name,
     extract_fields_from_text_en,
@@ -231,14 +232,17 @@ def _repair_line_split_fields(lines: list[dict], text: str, fields: dict) -> Non
         # `name` needs the same semantic check class A's NER fallback
         # already applies (spaCy confirms PERSON, not just "some
         # non-blank text was nearby"). `bsb`/`account_number` get a
-        # cheap numeric-shape gate too (#272) -- same unguarded code
-        # path, no confirmed real failure yet, but proactive since it's
-        # low-risk. `address` is deliberately left as tolerant as
-        # before -- no safe, cheap "looks like an address" shape check
-        # exists, and there's no real failing case to design one against.
+        # cheap numeric-shape gate (#272) -- same unguarded code path,
+        # no confirmed real failure yet, but proactive since it's
+        # low-risk. `address` gets a state-code+postcode shape gate
+        # (#272) -- real evidence across 8 sampled contracts showed
+        # every real address has this exact shape, so it's not the
+        # "no safe check exists" case it first looked like.
         if field == "name" and not (_looks_like_name(cleaned) and _has_person_entity(_get_nlp_en(), cleaned)):
             continue
         if field in ("bsb", "account_number") and not _looks_like_bsb_or_account(cleaned):
+            continue
+        if field == "address" and not _looks_like_address(cleaned):
             continue
         fields[field] = cleaned
 

@@ -113,6 +113,37 @@ def test_repair_fills_bsb_split_across_ocr_lines():
     assert fields["bsb"] == "123-456"
 
 
+# Issue #272 -- real evidence (8 sampled tracked FILLED contracts, 8/8)
+# showed every real address ends with an AU state code + 4-digit
+# postcode ("...West Adamfurt NT 2639"), so this gate is grounded, not
+# speculative -- unlike bsb/account_number above, which have no
+# confirmed real repro at all.
+ADDRESS_SPLIT_LINES = [
+    _line("Employee Address:", [0, 100, 100, 122]),
+    _line("Unit 67 4 Martin Spur, West Adamfurt NT 2639", [110, 102, 400, 124]),
+]
+
+
+def test_repair_fills_address_split_across_ocr_lines():
+    text = lines_to_text(ADDRESS_SPLIT_LINES)
+    fields = {"name": None, "address": None, "bsb": None, "account_number": None, "income": None}
+    _repair_line_split_fields(ADDRESS_SPLIT_LINES, text, fields)
+    assert fields["address"] == "Unit 67 4 Martin Spur, West Adamfurt NT 2639"
+
+
+ADDRESS_NEAR_UNRELATED_TEXT_LINES = [
+    _line("Employee Address:", [0, 100, 100, 122]),
+    _line("to be advised shortly", [110, 102, 250, 124]),
+]
+
+
+def test_repair_rejects_non_address_shaped_value():
+    text = lines_to_text(ADDRESS_NEAR_UNRELATED_TEXT_LINES)
+    fields = {"name": None, "address": None, "bsb": None, "account_number": None, "income": None}
+    _repair_line_split_fields(ADDRESS_NEAR_UNRELATED_TEXT_LINES, text, fields)
+    assert fields["address"] is None
+
+
 def test_repair_is_a_noop_when_field_already_found():
     lines = [_line("Employee: Jo Worker", [0, 0, 200, 20])]
     text = lines_to_text(lines)
@@ -129,5 +160,7 @@ if __name__ == "__main__":
     test_repair_fills_income_split_across_ocr_lines()
     test_repair_rejects_non_numeric_value_for_bsb()
     test_repair_fills_bsb_split_across_ocr_lines()
+    test_repair_fills_address_split_across_ocr_lines()
+    test_repair_rejects_non_address_shaped_value()
     test_repair_is_a_noop_when_field_already_found()
     print("all module2 OCR line-repair self-checks passed")
