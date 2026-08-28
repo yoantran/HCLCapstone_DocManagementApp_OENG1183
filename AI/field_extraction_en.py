@@ -65,8 +65,18 @@ LABEL_PATTERNS = {
     # "Employee" and "Employer" are different words (not substrings of each
     # other) -- safe to anchor on "Employee" alone without accidentally
     # matching "Employer" lines.
-    "name": re.compile(r"Employee(?:\s*Name)?\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
-    "address": re.compile(r"Employee\s*Address\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
+    #
+    # Issue #272 -- leading "E?" confirmed real: rendering
+    # part-time-employment-contract-FILLED-100.docx through the actual
+    # OCR pipeline (docx -> pdf -> image -> PPStructureV3, not a
+    # hand-picked corpus file) produced "mployee Name: Steven Wood" and
+    # "mployee Address: ...NT 2639" -- OCR dropped the leading "E" on
+    # BOTH labels, same left-edge character-drop artifact already seen
+    # on Payslip.jpg ("ay Slip For:", "lassification:"). Making the "E"
+    # optional doesn't risk matching "Employer" -- "mployee" and
+    # "mployer" still diverge at the last letter (ee vs er).
+    "name": re.compile(r"E?mployee(?:\s*Name)?\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
+    "address": re.compile(r"E?mployee\s*Address\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
     "bsb": re.compile(r"BSB\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
     "account_number": re.compile(r"Account\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
 }
@@ -704,11 +714,16 @@ def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict, pref
 # by the caller) -- never overrides a working regex match, and only
 # considers text adjacent to a small set of real, observed name-context
 # words, not the whole document.
-# "slip for" not "pay slip for" -- real OCR on Payslip.jpg drops the
-# leading character of several lines ("ay Slip For:", "lassification:"),
-# a confirmed real artifact on that image, not a hypothetical -- matching
-# the shorter phrase survives it.
-_NAME_CONTEXT_KEYWORDS = ("employee", "slip for", "full name", "worker", "staff", "candidate")
+# "slip for" not "pay slip for", and "mployee" alongside "employee" --
+# real OCR drops the leading character of some lines (Payslip.jpg's
+# "ay Slip For:"/"lassification:"; a real end-to-end render of
+# part-time-employment-contract-FILLED-100.docx through the actual OCR
+# pipeline produced "mployee Name:"/"mployee Address:"), a confirmed
+# recurring artifact, not a hypothetical -- matching the dropped-letter
+# form directly survives it. Defense in depth here specifically:
+# LABEL_PATTERNS's own "E?mployee" fix already covers this exact case,
+# this is a backstop for wording this list hasn't anticipated yet.
+_NAME_CONTEXT_KEYWORDS = ("employee", "mployee", "slip for", "full name", "worker", "staff", "candidate")
 
 _nlp_en = None
 
@@ -758,6 +773,26 @@ def _looks_like_bsb_or_account(text: str) -> bool:
         return False
     digit_count = sum(ch.isdigit() for ch in text)
     return digit_count >= 4 and not re.search(r"[A-Za-z]", text)
+
+
+# Issue #272 -- the "no safe cheap shape check exists for free-text
+# address" concern turned out wrong once real evidence was checked:
+# every real address across 8 sampled real FILLED contracts ends with
+# an AU state abbreviation directly followed by a 4-digit postcode
+# ("...West Adamfurt NT 2639", "...Perezshire WA 0831", "...Lake Scott
+# NSW 9494") -- 8/8, no exceptions. Requiring BOTH together (not the
+# state code alone) is what makes this safe: a bare "VIC"/"WA"/"SA"/
+# "ACT" risks colliding with an unrelated real English word, but
+# state-code-immediately-followed-by-4-digits is a virtually
+# unambiguous real-address signal. Case-sensitive on purpose -- every
+# real sample has the state code fully uppercase.
+_AU_ADDRESS_RE = re.compile(r"\b(?:NSW|VIC|QLD|WA|SA|TAS|ACT|NT)\s+\d{4}\b")
+
+
+def _looks_like_address(text: str) -> bool:
+    if not text or len(text) > 100:
+        return False
+    return bool(_AU_ADDRESS_RE.search(text))
 
 
 def extract_name_via_ner_en(text: str) -> str | None:

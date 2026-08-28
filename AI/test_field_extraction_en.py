@@ -41,6 +41,23 @@ def test_extracts_employee_name_and_address_real_contract_convention():
     assert fields["address"] == "22 Home St, Melbourne VIC 3000"
 
 
+def test_extracts_name_and_address_when_ocr_drops_leading_e():
+    # Real confirmed case (#272): rendering a real tracked FILLED contract
+    # through the actual OCR pipeline (docx -> pdf -> image -> PPStructureV3,
+    # not a hand-picked corpus file) produced "mployee Name:"/"mployee
+    # Address:" -- OCR dropped the leading "E" on both labels, same
+    # left-edge character-drop artifact already confirmed on Payslip.jpg.
+    text = (
+        "mployer Name: Jesse Townsend\n"
+        "mployer Address: 681/1 Jillian Flat, South Matthewport QLD 2672\n"
+        "mployee Name: Steven Wood\n"
+        "mployee Address: Unit 67 4 Martin Spur, West Adamfurt NT 2639"
+    )
+    fields = extract_fields_from_text_en(text)
+    assert fields["name"] == "Steven Wood"
+    assert fields["address"] == "Unit 67 4 Martin Spur, West Adamfurt NT 2639"
+
+
 def test_extracts_abn():
     text = "*Employer: Acme Pty Ltd\n*ABN: 12 345 978 910"
     fields = extract_fields_from_text_en(text)
