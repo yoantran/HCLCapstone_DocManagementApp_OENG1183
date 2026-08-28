@@ -150,12 +150,34 @@ def _words_overlapping_span(word_spans: list[dict], start: int, end: int) -> lis
     return [w for w in word_spans if w["start"] < end and w["end"] > start]
 
 
+# Real confirmed leak: rendered actual computed redaction boxes onto a real
+# processed payslip image and visually inspected the result -- nearly
+# every box's RIGHT edge cut into the last character (a sliver of a real
+# digit left visible outside the redacted rectangle), on "$27.81",
+# "$1.28", BSB "123-456", account "1234 5678", every dollar total, etc.
+# Root cause: this union takes OCR word boxes exactly as returned, and
+# nothing downstream ever adds a safety margin -- if the underlying word
+# box itself is even slightly tight (common for OCR boxes, which often
+# clip trailing serifs/anti-aliasing), the redacted rectangle inherits
+# that tightness with nothing to correct it. Margin is a percentage of
+# the box's own height (not a fixed pixel count) so it scales naturally
+# across different image resolutions and font sizes -- 15% chosen from
+# the real observed clipping (roughly a quarter of the last character's
+# width was exposed; character width is typically ~55% of line height
+# for the fonts seen in this corpus). Horizontal only, matching the
+# confirmed evidence -- no vertical clipping was observed in the same
+# inspection, so top/bottom stay exactly as detected rather than
+# expanding on an unconfirmed dimension.
+_HORIZONTAL_MARGIN_PCT = 0.15
+
+
 def _union_box(words: list[dict]) -> tuple[int, int, int, int]:
     x1 = min(w["box"][0] for w in words)
     y1 = min(w["box"][1] for w in words)
     x2 = max(w["box"][2] for w in words)
     y2 = max(w["box"][3] for w in words)
-    return x1, y1, x2, y2
+    margin = round((y2 - y1) * _HORIZONTAL_MARGIN_PCT)
+    return x1 - margin, y1, x2 + margin, y2
 
 
 def _matches_accepted_value(field: str, cleaned: str, fields: dict) -> bool:
@@ -163,7 +185,14 @@ def _matches_accepted_value(field: str, cleaned: str, fields: dict) -> bool:
 
 
 def _box_pct(box: tuple[int, int, int, int], img_h: int, img_w: int) -> dict:
+    # Clamp -- _union_box's new horizontal margin can push x1 below 0 or x2
+    # past img_w for a value sitting near the page edge; an unclamped
+    # negative/over-bound x_pct or w_pct would be a real invalid percentage
+    # downstream (redaction coordinates are documented as percentages,
+    # never absolute pixels, and never negative).
     x1, y1, x2, y2 = box
+    x1 = max(x1, 0)
+    x2 = min(x2, img_w)
     return {
         "x_pct": x1 / img_w,
         "y_pct": y1 / img_h,
@@ -403,16 +432,45 @@ if __name__ == "__main__":
         return text, word_spans
 
     def test_single_word_box():
+        # Real confirmed fix: a 15%-of-height horizontal margin now widens
+        # the union box (real leak -- last character was left exposed
+        # outside the redacted rectangle). Box height is 35-20=15, so
+        # margin = round(15*0.15) = 2px each side; x1=95-2=93, x2=150+2=152.
+        # y1/y2 stay exact -- margin is horizontal only (matches the
+        # confirmed evidence; no vertical clipping was observed).
         with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_word_reconstruction):
             fields = {"account_number": "1234 5678"}
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
         acct_boxes = [b for b in boxes if b["field"] == "account_number"]
         assert len(acct_boxes) == 1
         assert acct_boxes[0]["value"] == "1234 5678"
-        assert abs(acct_boxes[0]["x_pct"] - 95 / 400) < 1e-6
+        assert abs(acct_boxes[0]["x_pct"] - 93 / 400) < 1e-6
         assert abs(acct_boxes[0]["y_pct"] - 20 / 100) < 1e-6
-        assert abs(acct_boxes[0]["w_pct"] - (150 - 95) / 400) < 1e-6
+        assert abs(acct_boxes[0]["w_pct"] - (152 - 93) / 400) < 1e-6
         assert abs(acct_boxes[0]["h_pct"] - (35 - 20) / 100) < 1e-6
+
+
+    def test_union_box_margin_clamps_at_image_edge():
+        # Real edge case the margin introduces: a value sitting flush
+        # against the left edge of the page must not produce a negative
+        # x_pct (redaction coordinates are documented percentages, never
+        # negative) -- _box_pct clamps x1 to 0 and x2 to img_w.
+        def _fake_edge_reconstruction(*args, **kwargs):
+            text = "Account: 1234 5678"
+            word_spans = [
+                {"word": "Account:", "box": (0, 20, 10, 35), "start": 0, "end": 8},
+                {"word": "1234", "box": (0, 20, 20, 35), "start": 9, "end": 13},
+                {"word": "5678", "box": (380, 20, 400, 35), "start": 14, "end": 18},
+            ]
+            return text, word_spans
+
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_edge_reconstruction):
+            fields = {"account_number": "1234 5678"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        acct_boxes = [b for b in boxes if b["field"] == "account_number"]
+        assert len(acct_boxes) == 1
+        assert acct_boxes[0]["x_pct"] == 0.0
+        assert abs(acct_boxes[0]["x_pct"] + acct_boxes[0]["w_pct"] - 1.0) < 1e-6
 
     def test_absent_field_no_box():
         with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_word_reconstruction):
@@ -510,6 +568,7 @@ if __name__ == "__main__":
         test_income_field_uses_matching_basis_pattern,
         test_all_spans_satisfy_text_slice_invariant,
         test_single_word_box,
+        test_union_box_margin_clamps_at_image_edge,
         test_absent_field_no_box,
         test_value_not_in_fields_produces_no_box,
         test_apply_redaction_image_blacks_out_region_only,
