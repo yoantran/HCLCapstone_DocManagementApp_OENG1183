@@ -169,8 +169,9 @@ def parse_currency_amount(value: str) -> float | None:
 # cents group) is period-grouped thousands; anything with fewer periods
 # falls through to the existing comma/space-only logic, unchanged. A
 # bare single-period value with no cents suffix ("89.000") turned out
-# NOT to be ambiguous after all -- see _DOT_THOUSANDS_NO_CENTS_RE below
-# (#186), confirmed real on a different file in the same corpus.
+# NOT to be ambiguous after all -- #186 added a dedicated branch for
+# this shape, since removed (#271, see below) after its real dependency
+# turned out smaller than believed.
 _PERIOD_THOUSANDS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+\.\d{2}")
 
 # Issue #186 added a dot-grouped-thousands-no-cents branch here
@@ -187,6 +188,26 @@ _PERIOD_THOUSANDS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+\.\d{2}")
 # (the #271 adversarial stray-digit-noise bug, "3 203,200.00 3") swaps
 # from one wrong number (200003.0) to a different wrong number
 # (3203.0) -- not a regression (already wrong), not a fix either.
+#
+# Correction, checked directly rather than assumed: the OLD #186 branch
+# never actually fixed the "1.459 800" mixed-separator case its own
+# comment used to cite as a reason to leave that class of input broken.
+# Ran the pre-removal code against that exact string and got 1.45, not
+# 1459800.0 -- despacing (this function's first step, for the unrelated
+# "$106 ,000" word-wrap case) merges "459" and "800" into one run before
+# the old regex ever saw it, so its own "(?!\d)" guard (stop right after
+# a clean 3-digit group) never matched. That branch was solving a
+# different, narrower shape ("120.000" with nothing after) than the one
+# its comment credited it with. Separately, re-checked the real source
+# (images (9).jpg, still in the corpus) fresh: its "1.459 800" cell sits
+# alongside two other, correctly space-grouped occurrences of the same
+# total in the same row, and this document's real extracted
+# total_assets has been confirmed correct (1459800.0) throughout this
+# whole session -- the garbled cell never actually reaches the final
+# result, rescued by the same "last parseable cell wins" mechanism that
+# already covers other unrelated garbled cells elsewhere in this
+# corpus. Real, still-open parsing bug in isolation; zero measured
+# real-world impact on anything extracted so far.
 
 
 def parse_currency_amount_balance_sheet(value: str) -> float | None:
