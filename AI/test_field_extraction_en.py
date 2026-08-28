@@ -68,6 +68,25 @@ def test_extracts_bsb_and_account_when_ocr_drops_leading_letter():
     assert fields["account_number"] == "1234 5678"
 
 
+def test_extracts_gross_and_net_when_ocr_drops_leading_letter():
+    # Issue #272 -- same proactive fix, but "gross" specifically needed
+    # real corpus checking first: a bare dropped-G "ross" collides with
+    # real unrelated text (a real employer surname "Christopher Ross",
+    # "Crossing", "Crossroad") -- requiring the trailing "Pay" to stay
+    # mandatory is what makes this safe, confirmed against the corpus.
+    text = "ross Pay: $718.66\nET PAY: $625.36"
+    fields = extract_fields_from_text_en(text)
+    assert fields["income"] == 718.66
+    assert fields["income_basis"] == "gross"
+
+
+def test_does_not_match_bare_ross_without_trailing_pay():
+    # The real collision this design specifically avoids.
+    text = "Employer Name: Christopher Ross\nEmployer Address: 1 Crossing St"
+    fields = extract_fields_from_text_en(text)
+    assert fields["income"] is None
+
+
 def test_extracts_abn():
     text = "*Employer: Acme Pty Ltd\n*ABN: 12 345 978 910"
     fields = extract_fields_from_text_en(text)
