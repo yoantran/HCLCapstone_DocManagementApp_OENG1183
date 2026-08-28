@@ -24,6 +24,7 @@ from field_extraction_en import (
     _clean_label_value,
     _get_nlp_en,
     _has_person_entity,
+    _looks_like_bsb_or_account,
     _looks_like_name,
     extract_fields_from_text_en,
     parse_currency_amount,
@@ -227,13 +228,17 @@ def _repair_line_split_fields(lines: list[dict], text: str, fields: dict) -> Non
         # function's spatial box lookup has no idea WHAT it's grabbing --
         # it took the box nearest to a bare "Employee:" label and returned
         # "Bank Detals" (an unrelated field on the same form) uncritically.
-        # `name` specifically needs the same semantic check class A's NER
-        # fallback already applies (spaCy confirms PERSON, not just
-        # "some non-blank text was nearby") -- the other 3 repairable
-        # fields have no equivalent confirmed failure yet, so are left
-        # exactly as tolerant as before rather than guessing at a fix for
-        # a bug not yet observed.
+        # `name` needs the same semantic check class A's NER fallback
+        # already applies (spaCy confirms PERSON, not just "some
+        # non-blank text was nearby"). `bsb`/`account_number` get a
+        # cheap numeric-shape gate too (#272) -- same unguarded code
+        # path, no confirmed real failure yet, but proactive since it's
+        # low-risk. `address` is deliberately left as tolerant as
+        # before -- no safe, cheap "looks like an address" shape check
+        # exists, and there's no real failing case to design one against.
         if field == "name" and not (_looks_like_name(cleaned) and _has_person_entity(_get_nlp_en(), cleaned)):
+            continue
+        if field in ("bsb", "account_number") and not _looks_like_bsb_or_account(cleaned):
             continue
         fields[field] = cleaned
 

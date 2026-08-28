@@ -744,6 +744,22 @@ def _looks_like_name(text: str) -> bool:
     return 2 <= len(text.split()) <= 5
 
 
+# Issue #272 -- proactive hardening, not a confirmed-bug fix: no real
+# corpus document has been found where bsb/account_number's Class B
+# repair (module2_ocr_extraction._repair_line_split_fields) actually
+# misfires, but that repair uses the exact same blind "nearest spatial
+# box, no semantic check" mechanism that DID misfire for `name` (the
+# real "Bank Detals" case). A real bsb/account_number is always short
+# and mostly digits ("123-456", "1234 5678") -- confirmed against the
+# one real example in the corpus (Screenshot 2026-07-28...png). Cheap,
+# safe insurance on an already-proven-unsafe code path.
+def _looks_like_bsb_or_account(text: str) -> bool:
+    if not text or len(text) > 20:
+        return False
+    digit_count = sum(ch.isdigit() for ch in text)
+    return digit_count >= 4 and not re.search(r"[A-Za-z]", text)
+
+
 def extract_name_via_ner_en(text: str) -> str | None:
     lines = text.split("\n")
     nlp = _get_nlp_en()
