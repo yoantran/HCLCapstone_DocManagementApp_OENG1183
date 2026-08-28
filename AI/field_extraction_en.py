@@ -77,8 +77,14 @@ LABEL_PATTERNS = {
     # "mployer" still diverge at the last letter (ee vs er).
     "name": re.compile(r"E?mployee(?:\s*Name)?\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
     "address": re.compile(r"E?mployee\s*Address\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
-    "bsb": re.compile(r"BSB\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
-    "account_number": re.compile(r"Account\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
+    # Issue #272 -- same leading-character-drop artifact, checked
+    # proactively this time rather than waiting for a real repro. Real
+    # false-positive risk was checked, not assumed: searched the whole
+    # corpus for a standalone "SB:" (not preceded by "B") and a
+    # standalone "ccount:" (not preceded by "A") -- zero collisions
+    # found, so making the first letter optional is safe here too.
+    "bsb": re.compile(r"B?SB\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
+    "account_number": re.compile(r"A?ccount\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
 }
 
 INCOME_LABEL_PATTERNS = {

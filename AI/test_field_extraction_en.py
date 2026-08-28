@@ -58,6 +58,16 @@ def test_extracts_name_and_address_when_ocr_drops_leading_e():
     assert fields["address"] == "Unit 67 4 Martin Spur, West Adamfurt NT 2639"
 
 
+def test_extracts_bsb_and_account_when_ocr_drops_leading_letter():
+    # Issue #272 -- proactive fix, checked (not assumed) for false-positive
+    # risk: searched the whole corpus for a standalone "SB:"/"ccount:" not
+    # preceded by "B"/"A", zero collisions found before applying this.
+    text = "Bank details: A Pretend Bank\nSB: 123-456\nccount: 1234 5678"
+    fields = extract_fields_from_text_en(text)
+    assert fields["bsb"] == "123-456"
+    assert fields["account_number"] == "1234 5678"
+
+
 def test_extracts_abn():
     text = "*Employer: Acme Pty Ltd\n*ABN: 12 345 978 910"
     fields = extract_fields_from_text_en(text)
