@@ -83,6 +83,36 @@ def test_repair_fills_income_split_across_ocr_lines():
     assert fields["income_basis"] == "net"
 
 
+# Issue #272 -- proactive hardening, no confirmed real corpus bug (unlike
+# the other cases above), but bsb/account_number use the exact same
+# unguarded spatial-box repair that DID misfire for `name` ("Bank
+# Detals"). Synthetic but representative of that same shape of mistake.
+BSB_NEAR_UNRELATED_TEXT_LINES = [
+    _line("BSB:", [0, 100, 40, 122]),
+    _line("Bank Details", [50, 102, 150, 124]),
+]
+
+
+def test_repair_rejects_non_numeric_value_for_bsb():
+    text = lines_to_text(BSB_NEAR_UNRELATED_TEXT_LINES)
+    fields = {"name": None, "address": None, "bsb": None, "account_number": None, "income": None}
+    _repair_line_split_fields(BSB_NEAR_UNRELATED_TEXT_LINES, text, fields)
+    assert fields["bsb"] is None
+
+
+BSB_SPLIT_LINES = [
+    _line("BSB:", [0, 100, 40, 122]),
+    _line("123-456", [50, 102, 120, 124]),
+]
+
+
+def test_repair_fills_bsb_split_across_ocr_lines():
+    text = lines_to_text(BSB_SPLIT_LINES)
+    fields = {"name": None, "address": None, "bsb": None, "account_number": None, "income": None}
+    _repair_line_split_fields(BSB_SPLIT_LINES, text, fields)
+    assert fields["bsb"] == "123-456"
+
+
 def test_repair_is_a_noop_when_field_already_found():
     lines = [_line("Employee: Jo Worker", [0, 0, 200, 20])]
     text = lines_to_text(lines)
@@ -97,5 +127,7 @@ if __name__ == "__main__":
     test_line_index_for_offset_maps_back_to_originating_line()
     test_repair_fills_name_split_across_ocr_lines()
     test_repair_fills_income_split_across_ocr_lines()
+    test_repair_rejects_non_numeric_value_for_bsb()
+    test_repair_fills_bsb_split_across_ocr_lines()
     test_repair_is_a_noop_when_field_already_found()
     print("all module2 OCR line-repair self-checks passed")
