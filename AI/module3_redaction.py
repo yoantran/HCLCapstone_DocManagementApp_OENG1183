@@ -161,14 +161,27 @@ def _words_overlapping_span(word_spans: list[dict], start: int, end: int) -> lis
 # clip trailing serifs/anti-aliasing), the redacted rectangle inherits
 # that tightness with nothing to correct it. Margin is a percentage of
 # the box's own height (not a fixed pixel count) so it scales naturally
-# across different image resolutions and font sizes -- 15% chosen from
-# the real observed clipping (roughly a quarter of the last character's
-# width was exposed; character width is typically ~55% of line height
-# for the fonts seen in this corpus). Horizontal only, matching the
-# confirmed evidence -- no vertical clipping was observed in the same
-# inspection, so top/bottom stay exactly as detected rather than
-# expanding on an unconfirmed dimension.
-_HORIZONTAL_MARGIN_PCT = 0.15
+# across different image resolutions and font sizes. Horizontal only,
+# matching the confirmed evidence -- no vertical clipping was observed
+# in either inspection, so top/bottom stay exactly as detected rather
+# than expanding on an unconfirmed dimension.
+#
+# Asymmetric on purpose, not a guess: a first pass shipped 15% on both
+# sides, but re-inspecting at 5x pixel zoom after a follow-up report
+# showed the LEFT edge was still clipping the first character even with
+# that margin applied -- while the right edge was genuinely fine. This
+# lines up with the same left-edge tightness already confirmed elsewhere
+# this session in PPStructureV3's own text detection (a different,
+# unfixable-without-cost issue there -- see field_extraction_en.py's
+# LABEL_PATTERNS comments) showing up again here in the separate
+# word-box detection path this redaction logic depends on. Tested 15%/
+# 25%/35%/50% directly against 3 real boxes (BSB, account, ABN) at 6x
+# zoom: 15% and 25% both still left a visible sliver of the first
+# character, 35% was the first value that fully covered it in all 3
+# real cases with no meaningful over-expansion. Right stays at 15%,
+# already confirmed sufficient in the original inspection.
+_LEFT_MARGIN_PCT = 0.35
+_RIGHT_MARGIN_PCT = 0.15
 
 
 def _union_box(words: list[dict]) -> tuple[int, int, int, int]:
@@ -176,8 +189,8 @@ def _union_box(words: list[dict]) -> tuple[int, int, int, int]:
     y1 = min(w["box"][1] for w in words)
     x2 = max(w["box"][2] for w in words)
     y2 = max(w["box"][3] for w in words)
-    margin = round((y2 - y1) * _HORIZONTAL_MARGIN_PCT)
-    return x1 - margin, y1, x2 + margin, y2
+    h = y2 - y1
+    return x1 - round(h * _LEFT_MARGIN_PCT), y1, x2 + round(h * _RIGHT_MARGIN_PCT), y2
 
 
 def _matches_accepted_value(field: str, cleaned: str, fields: dict) -> bool:
@@ -432,21 +445,20 @@ if __name__ == "__main__":
         return text, word_spans
 
     def test_single_word_box():
-        # Real confirmed fix: a 15%-of-height horizontal margin now widens
-        # the union box (real leak -- last character was left exposed
-        # outside the redacted rectangle). Box height is 35-20=15, so
-        # margin = round(15*0.15) = 2px each side; x1=95-2=93, x2=150+2=152.
-        # y1/y2 stay exact -- margin is horizontal only (matches the
-        # confirmed evidence; no vertical clipping was observed).
+        # Real confirmed fix, asymmetric: box height is 35-20=15, so
+        # left margin = round(15*0.35) = 5px, right margin = round(15*0.15)
+        # = 2px; x1=95-5=90, x2=150+2=152. y1/y2 stay exact -- margin is
+        # horizontal only (matches the confirmed evidence; no vertical
+        # clipping was observed in either inspection).
         with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_word_reconstruction):
             fields = {"account_number": "1234 5678"}
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
         acct_boxes = [b for b in boxes if b["field"] == "account_number"]
         assert len(acct_boxes) == 1
         assert acct_boxes[0]["value"] == "1234 5678"
-        assert abs(acct_boxes[0]["x_pct"] - 93 / 400) < 1e-6
+        assert abs(acct_boxes[0]["x_pct"] - 90 / 400) < 1e-6
         assert abs(acct_boxes[0]["y_pct"] - 20 / 100) < 1e-6
-        assert abs(acct_boxes[0]["w_pct"] - (152 - 93) / 400) < 1e-6
+        assert abs(acct_boxes[0]["w_pct"] - (152 - 90) / 400) < 1e-6
         assert abs(acct_boxes[0]["h_pct"] - (35 - 20) / 100) < 1e-6
 
 
