@@ -114,6 +114,58 @@ def test_text_native_pdf_balance_sheet_totals_found_on_a_later_page():
     assert result["fields"]["total_assets"] == 425000.0
 
 
+def test_ocr_path_multipage_merges_fields_and_places_boxes_on_correct_page():
+    # Issue #286 -- a scanned multi-page PDF used to only ever OCR page 1
+    # (render_pdf_first_page). No real scanned multi-page PDF exists in
+    # samples/ (every real PDF fixture has a genuine text layer, routing
+    # "text_native" not "ocr") -- exercises the merge + box-composite
+    # logic directly via mocks, same as #283's balance-sheet test above.
+    page0 = np.full((50, 50, 3), 255, dtype=np.uint8)
+    page1 = np.full((50, 50, 3), 255, dtype=np.uint8)
+
+    base_fields = {
+        "name": None, "bsb": None, "account_number": None, "address": None,
+        "abn": [], "phone": [], "dates": [], "salary": [],
+        "income": None, "income_basis": None, "annual_salary": None, "pay_period_days": None,
+    }
+    page0_fields = {**base_fields, "salary": ["$100"]}
+    page1_fields = {**base_fields, "salary": ["$200"], "name": "Jane Doe"}
+
+    page0_boxes = [
+        {"field": "salary", "value": "$100", "x_pct": 0.1, "y_pct": 0.1, "w_pct": 0.1, "h_pct": 0.1, "detection_method": "regex"}
+    ]
+    page1_boxes = [
+        {"field": "name", "value": "Jane Doe", "x_pct": 0.1, "y_pct": 0.2, "w_pct": 0.3, "h_pct": 0.1, "detection_method": "regex"}
+    ]
+
+    with patch("pipeline.detect_processing_path", return_value="ocr"), \
+         patch("pipeline.render_pdf_all_pages", return_value=[page0, page1]), \
+         patch.object(
+             module2_ocr_extraction, "extract_fields",
+             side_effect=[
+                 {"fields": page0_fields, "line_boxes": [], "tables": [], "text": ""},
+                 {"fields": page1_fields, "line_boxes": [], "tables": [], "text": ""},
+             ],
+         ), \
+         patch("module3_redaction.find_sensitive_boxes", side_effect=[page0_boxes, page1_boxes]):
+        result = process_document("scan.pdf", b"irrelevant")
+
+    assert result["error"] is None
+    # list-shaped field: concatenated across pages, not "first wins"
+    assert result["fields"]["salary"] == ["$100", "$200"]
+    # scalar field: first non-null wins -- only found on page 2
+    assert result["fields"]["name"] == "Jane Doe"
+
+    items = result["redaction"]["items"]
+    salary_item = next(i for i in items if i["field"] == "salary")
+    name_item = next(i for i in items if i["field"] == "name")
+    # page 0 (offset 0): composite y_pct == its own page-local y_pct * (page_h / total_h) = 0.1 * 50/100
+    assert salary_item["y_pct"] == 0.05
+    # page 1 (offset 50px on a 100px-tall composite): 0.2 * 50 = 10, +50 offset = 60, /100 = 0.6
+    assert name_item["y_pct"] == 0.6
+    assert name_item["y_pct"] > salary_item["y_pct"]
+
+
 def run_all():
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for test in tests:

@@ -98,6 +98,18 @@ def test_stack_pages_vertically_pads_narrower_pages():
     assert composite[0, 6].tolist() == [255, 255, 255]
 
 
+def test_stack_pages_vertically_pads_narrower_grayscale_pages():
+    # Issue #286 -- module1_opencv.enhance() output (the OCR path's
+    # per-page images) is single-channel grayscale, not 3-channel BGR
+    # like render_pdf_all_pages's output. A hardcoded 3-channel pad shape
+    # would raise on this via np.hstack's shape mismatch.
+    tall_narrow = np.zeros((10, 5), dtype=np.uint8)
+    short_wide = np.full((4, 8), 255, dtype=np.uint8)
+    composite = stack_pages_vertically([tall_narrow, short_wide])
+    assert composite.shape == (14, 8)
+    assert composite[0, 6] == 255
+
+
 def run_all():
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     for test in tests:

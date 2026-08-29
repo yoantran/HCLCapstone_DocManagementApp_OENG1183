@@ -134,27 +134,34 @@ async def apply_redaction(
         try:
             if is_text_native_item_shape:
                 # Issue #283 -- a text-native item's box isn't known to be
-                # on page 1 (render_pdf_first_page alone), so render every
-                # page and let resolve_item_boxes_via_pdf_text search all
-                # of them, against this same composite image's coordinate
-                # space. The #207 x_pct-passthrough shape below keeps
-                # rendering page 1 only -- those coordinates were already
-                # computed against a single-page OCR image at upload time.
-                image = file_routing.stack_pages_vertically(file_routing.render_pdf_all_pages(file_bytes))
+                # on page 1, so render every page and let
+                # resolve_item_boxes_via_pdf_text search all of them,
+                # against this same composite image's coordinate space.
+                final_image = file_routing.stack_pages_vertically(file_routing.render_pdf_all_pages(file_bytes))
             else:
-                image = file_routing.render_pdf_first_page(file_bytes)
+                # Issue #286 -- an x_pct item's coordinates were baked at
+                # upload time against a composite of each page's OWN
+                # enhanced image (pipeline.py::_run_ocr_path's
+                # boxes_to_composite_pct), not the raw rendered pages --
+                # reproduce that here identically (enhance() is
+                # deterministic per page, same invariant the single-page
+                # case already relies on below). Compositing the raw
+                # pages first and enhancing the whole stack afterward
+                # would be wrong: deskew/autocrop would run across page
+                # boundaries as if it were one image, not one call per
+                # real page.
+                pages = file_routing.render_pdf_all_pages(file_bytes)
+                enhanced_pages = [module1_opencv.enhance(p)["image"] for p in pages]
+                final_image = file_routing.stack_pages_vertically(enhanced_pages)
         except Exception:
             raise HTTPException(status_code=422, detail="file is not a decodable PDF") from None
         redaction_items = file_routing.resolve_item_boxes_via_pdf_text(file_bytes, redaction_items)
     else:
         image = cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
-    if image is None:
-        raise HTTPException(status_code=422, detail="file is not a decodable image")
+        if image is None:
+            raise HTTPException(status_code=422, detail="file is not a decodable image")
+        final_image = image if is_text_native_item_shape else module1_opencv.enhance(image)["image"]
 
-    if is_text_native_item_shape and filename.endswith(".pdf"):
-        final_image = image
-    else:
-        final_image = module1_opencv.enhance(image)["image"]
     redacted = module3_redaction.apply_redaction_image(final_image, redaction_items)
     ok, buf = cv2.imencode(".png", redacted)
     if not ok:

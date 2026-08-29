@@ -317,6 +317,48 @@ def find_sensitive_boxes(image, fields: dict) -> list[dict]:
     return boxes
 
 
+def boxes_to_composite_pct(per_page_boxes: list[dict], page_images: list[np.ndarray]) -> list[dict]:
+    """Issue #286 -- a multi-page OCR/scanned-PDF document computes each
+    box independently per page (find_sensitive_boxes called once per
+    page's own enhanced image), but the redacted-preview endpoint renders
+    one composite image (file_routing.stack_pages_vertically -- every
+    enhanced page stacked top to bottom, left-aligned, narrower pages
+    padded white on the right). This converts each box's page-local
+    x_pct/y_pct/w_pct/h_pct (relative to `page_images[box["page_index"]]`
+    alone) into that composite's own coordinate space, in real pixels
+    (page_images are already-enhanced np.ndarray frames, unlike
+    file_routing.resolve_item_boxes_via_pdf_text's PDF-points version of
+    this same math for the text-native path). Drops "page_index" from the
+    output -- downstream consumers (apply_redaction_image, BE storage)
+    only ever expect the four pct keys."""
+    heights = [img.shape[0] for img in page_images]
+    widths = [img.shape[1] for img in page_images]
+    total_h = sum(heights)
+    max_w = max(widths)
+    offsets = []
+    acc = 0
+    for h in heights:
+        offsets.append(acc)
+        acc += h
+
+    converted = []
+    for box in per_page_boxes:
+        page_index = box["page_index"]
+        page_h = heights[page_index]
+        page_w = widths[page_index]
+        offset = offsets[page_index]
+        converted.append(
+            {
+                **{k: v for k, v in box.items() if k != "page_index"},
+                "x_pct": (box["x_pct"] * page_w) / max_w,
+                "y_pct": (offset + box["y_pct"] * page_h) / total_h,
+                "w_pct": (box["w_pct"] * page_w) / max_w,
+                "h_pct": (box["h_pct"] * page_h) / total_h,
+            }
+        )
+    return converted
+
+
 def apply_redaction_image(image: np.ndarray, items: list[dict]) -> np.ndarray:
     """Burns filled black rectangles over each item's box. Coordinates are
     percentages of `image`'s own dimensions -- caller must pass the same
@@ -570,6 +612,46 @@ if __name__ == "__main__":
         assert len(assets_boxes) == 1
         assert assets_boxes[0]["value"] == "87500"
 
+    def test_boxes_to_composite_pct_single_page_is_identity():
+        # Issue #286 -- a single-page document must reduce to exactly the
+        # box's own original page-local pct, unchanged (offset 0,
+        # composite dimensions == the one page's own).
+        page = np.zeros((200, 100, 3), dtype=np.uint8)
+        boxes = [{"field": "bsb", "value": "x", "x_pct": 0.1, "y_pct": 0.2, "w_pct": 0.3, "h_pct": 0.1, "page_index": 0}]
+        converted = boxes_to_composite_pct(boxes, [page])
+        assert converted[0]["x_pct"] == 0.1
+        assert converted[0]["y_pct"] == 0.2
+        assert converted[0]["w_pct"] == 0.3
+        assert converted[0]["h_pct"] == 0.1
+        assert "page_index" not in converted[0]
+
+    def test_boxes_to_composite_pct_offsets_later_pages():
+        # Two equal-height 100px pages stacked -> composite is 200px
+        # tall. A page-1 (second page) box at y_pct=0.5 (its own 100px
+        # page's midpoint, pixel 50) must land at composite pixel
+        # 100+50=150, i.e. composite y_pct=0.75.
+        page0 = np.zeros((100, 50, 3), dtype=np.uint8)
+        page1 = np.zeros((100, 50, 3), dtype=np.uint8)
+        boxes = [
+            {"field": "name", "value": "a", "x_pct": 0.0, "y_pct": 0.1, "w_pct": 0.2, "h_pct": 0.1, "page_index": 0},
+            {"field": "bsb", "value": "b", "x_pct": 0.0, "y_pct": 0.5, "w_pct": 0.2, "h_pct": 0.1, "page_index": 1},
+        ]
+        converted = boxes_to_composite_pct(boxes, [page0, page1])
+        assert converted[0]["y_pct"] == 0.05  # page 0, unchanged (offset 0)
+        assert converted[1]["y_pct"] == 0.75  # page 1, offset by page 0's full height
+
+    def test_boxes_to_composite_pct_pads_narrower_page_width():
+        # A box on a narrower page must have its x_pct rescaled against
+        # the composite's own (wider) max width, matching
+        # stack_pages_vertically's own right-padding of narrower pages.
+        wide_page = np.zeros((50, 100, 3), dtype=np.uint8)
+        narrow_page = np.zeros((50, 50, 3), dtype=np.uint8)
+        boxes = [{"field": "abn", "value": "x", "x_pct": 0.5, "y_pct": 0.0, "w_pct": 0.1, "h_pct": 0.1, "page_index": 1}]
+        converted = boxes_to_composite_pct(boxes, [wide_page, narrow_page])
+        # narrow page's x_pct=0.5 is pixel 25 on its own 50px-wide page;
+        # against the composite's 100px width, that's x_pct=0.25.
+        assert converted[0]["x_pct"] == 0.25
+
     tests = [
         test_single_occurrence_regex_field,
         test_multiple_occurrences_regex_field,
@@ -590,6 +672,9 @@ if __name__ == "__main__":
         test_balance_sheet_field_skips_parenthetical_alternate_name,
         test_balance_sheet_field_absent_produces_no_span,
         test_balance_sheet_field_box_found_on_same_ocr_line,
+        test_boxes_to_composite_pct_single_page_is_identity,
+        test_boxes_to_composite_pct_offsets_later_pages,
+        test_boxes_to_composite_pct_pads_narrower_page_width,
     ]
     for test in tests:
         test()

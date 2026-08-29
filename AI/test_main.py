@@ -1,4 +1,5 @@
 import sys
+from unittest.mock import patch
 
 sys.path.insert(0, ".")
 
@@ -367,6 +368,47 @@ def test_resolve_item_boxes_finds_values_on_different_pages_in_one_call():
     name_box, bsb_box = resolved
     assert name_box["y_pct"] != bsb_box["y_pct"]
     assert bsb_box["y_pct"] > name_box["y_pct"]
+
+
+def test_apply_redaction_ocr_shape_multipage_pdf_lands_on_composite():
+    # Issue #286 -- an x_pct item's coordinates are baked at upload time
+    # against a composite of each page's OWN enhanced image
+    # (pipeline.py::_run_ocr_path's boxes_to_composite_pct). No real
+    # scanned multi-page PDF exists in samples/ (every real PDF fixture
+    # has a genuine text layer, routing text_native not ocr) -- mocks
+    # render_pdf_all_pages to return 2 controlled equal-size pages,
+    # simulating what a real multi-page scan would produce.
+    page0 = np.full((1200, 900, 3), 255, dtype=np.uint8)
+    page1 = np.full((1200, 900, 3), 255, dtype=np.uint8)
+    # x_pct/y_pct here are already composite-relative -- that's the whole
+    # point of pipeline.py's boxes_to_composite_pct (separately unit-
+    # tested in module3_redaction.py) baking the conversion in at upload
+    # time, so apply_redaction_image itself has no page-index concept and
+    # just draws wherever it's told against whatever image it receives.
+    # y_pct=0.6 only makes sense on a real 2-page composite (a single
+    # enhanced page alone would put this out of a sane physical position);
+    # picking it here is what actually proves multi-page rendering
+    # happened, not just page 1 padded/truncated.
+    items = json.dumps([{"field": "bsb", "value": "x", "x_pct": 0.1, "y_pct": 0.6, "w_pct": 0.2, "h_pct": 0.1}])
+
+    with patch("file_routing.render_pdf_all_pages", return_value=[page0, page1]):
+        response = client.post(
+            "/apply-redaction",
+            files={"file": ("scan.pdf", _PDF_BYTES, "application/pdf")},
+            data={"items": items},
+        )
+    assert response.status_code == 200
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    h, w = arr.shape[:2]
+    # composite must be exactly 2x a single enhanced page's height --
+    # confirms real multi-page compositing happened, not just page 1 alone
+    single_enhanced_h = module1_opencv.enhance(page0)["image"].shape[0]
+    assert h == single_enhanced_h * 2
+    cx, cy = int(0.2 * w), int(0.65 * h)
+    assert arr[cy, cx].tolist() == [0, 0, 0]
+    # sanity: the composite's own upper (page 0) region must stay
+    # unredacted -- only the requested 0.6-0.7 band was asked for
+    assert arr[int(0.1 * h), int(0.2 * w)].tolist() != [0, 0, 0]
 
 
 def run_all():
