@@ -132,7 +132,17 @@ async def apply_redaction(
 
     if filename.endswith(".pdf"):
         try:
-            image = file_routing.render_pdf_first_page(file_bytes)
+            if is_text_native_item_shape:
+                # Issue #283 -- a text-native item's box isn't known to be
+                # on page 1 (render_pdf_first_page alone), so render every
+                # page and let resolve_item_boxes_via_pdf_text search all
+                # of them, against this same composite image's coordinate
+                # space. The #207 x_pct-passthrough shape below keeps
+                # rendering page 1 only -- those coordinates were already
+                # computed against a single-page OCR image at upload time.
+                image = file_routing.stack_pages_vertically(file_routing.render_pdf_all_pages(file_bytes))
+            else:
+                image = file_routing.render_pdf_first_page(file_bytes)
         except Exception:
             raise HTTPException(status_code=422, detail="file is not a decodable PDF") from None
         redaction_items = file_routing.resolve_item_boxes_via_pdf_text(file_bytes, redaction_items)

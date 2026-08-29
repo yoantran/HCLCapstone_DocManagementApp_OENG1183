@@ -78,6 +78,46 @@ def render_pdf_first_page(pdf_bytes: bytes, scale: float = 3.5) -> np.ndarray:
         pdf.close()
 
 
+def render_pdf_all_pages(pdf_bytes: bytes, scale: float = 3.5) -> list[np.ndarray]:
+    """Issue #283 -- renders every page, not just the first. A real
+    multi-page text-native document's sensitive content isn't guaranteed
+    to be on page 1 (confirmed: Pay-slip-template-sts-FILLED-*.docx's real
+    filled fields sit on page 3, pages 1-2 are the Fair Work template's
+    own fixed instructional text) -- render_pdf_first_page alone means the
+    redacted-preview endpoint would render/search a page that was never
+    the one with anything sensitive on it."""
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    try:
+        images = []
+        for page in pdf:
+            bitmap = page.render(scale=scale)
+            pil_image = bitmap.to_pil()
+            images.append(cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR))
+        return images
+    finally:
+        pdf.close()
+
+
+def stack_pages_vertically(images: list[np.ndarray]) -> np.ndarray:
+    """Issue #283 -- combines multiple rendered pages into one composite
+    image (top to bottom, left-aligned) so the redacted-preview endpoint's
+    existing single-PNG response contract doesn't need to change to
+    support multi-page documents. Pages narrower than the widest one are
+    padded white on the right -- real PDFs from one source document
+    normally share a single page size, so this rarely actually triggers,
+    but a mismatched width would otherwise silently misalign
+    resolve_item_boxes_via_pdf_text's x_pct math against this image."""
+    max_w = max(img.shape[1] for img in images)
+    rows = []
+    for img in images:
+        h, w = img.shape[:2]
+        if w < max_w:
+            pad = np.full((h, max_w - w, 3), 255, dtype=img.dtype)
+            img = np.hstack([img, pad])
+        rows.append(img)
+    return np.vstack(rows)
+
+
 def convert_docx_to_pdf_bytes(docx_bytes: bytes, timeout: float = 60.0) -> bytes:
     """Issue #208 -- lets a docx reuse render_pdf_first_page and
     resolve_item_boxes_via_pdf_text unchanged, by converting it to a PDF
@@ -130,10 +170,23 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
     page for them to be boxes against until now. An item that already has
     x_pct (the OCR/scanned-PDF shape, #207) is passed through unchanged.
     An item without one is resolved by searching its `value` string
-    directly in THIS SAME rendered page's own text layer -- avoids ever
+    directly in the rendered document's own text layer -- avoids ever
     having to align two independent text-extraction passes (python-docx's
     vs pdfium's own), which is a real, separate risk this sidesteps rather
     than solves.
+
+    Issue #283 -- searches EVERY page, not just page 0 (a real, confirmed
+    case: a multi-page docx's actual sensitive content can sit on page 3
+    while page 1 is fixed template boilerplate -- searching only page 0
+    meant those values were never found, never redacted, silently). The
+    matched box is converted into stack_pages_vertically's composite
+    coordinate space using each page's own get_size() (PDF points, not
+    rendered pixels) to compute the cumulative vertical offset -- render
+    scale is constant across pages, so the ratio is identical either way,
+    and this avoids coupling box resolution to an actual render call. For
+    a single-page document this reduces to exactly the pre-#283 math
+    (offset 0, composite width/height == the one page's own) --
+    deliberately verified so existing single-page callers see no change.
 
     An item whose value isn't found in the text layer is dropped, not
     guessed at -- same accepted "skip, don't fabricate a box" pattern
@@ -147,9 +200,15 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
     field from aiResult.fields regardless of whether its box resolves."""
     pdf = pdfium.PdfDocument(pdf_bytes)
     try:
-        page = pdf[0]
-        page_w, page_h = page.get_size()
-        tp = page.get_textpage()
+        sizes = [page.get_size() for page in pdf]
+        total_h = sum(h for _, h in sizes)
+        max_w = max(w for w, _ in sizes)
+        offsets = []
+        acc = 0.0
+        for _, h in sizes:
+            offsets.append(acc)
+            acc += h
+
         resolved = []
         for item in items:
             if "x_pct" in item:
@@ -158,25 +217,35 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
             value = str(item.get("value") or "")
             if not value:
                 continue
-            match = tp.search(value, index=0).get_next()
-            if match is None:
+            match_box = None
+            for page_index, page in enumerate(pdf):
+                page_w, page_h = sizes[page_index]
+                tp = page.get_textpage()
+                match = tp.search(value, index=0).get_next()
+                if match is None:
+                    continue
+                start, count = match
+                n_rects = tp.count_rects(start, count)
+                if n_rects == 0:
+                    continue
+                rects = [tp.get_rect(i) for i in range(n_rects)]
+                left = min(r[0] for r in rects)
+                bottom = min(r[1] for r in rects)
+                right = max(r[2] for r in rects)
+                top = max(r[3] for r in rects)
+                match_box = (page_index, page_w, page_h, left, bottom, right, top)
+                break
+            if match_box is None:
                 continue
-            start, count = match
-            n_rects = tp.count_rects(start, count)
-            if n_rects == 0:
-                continue
-            rects = [tp.get_rect(i) for i in range(n_rects)]
-            left = min(r[0] for r in rects)
-            bottom = min(r[1] for r in rects)
-            right = max(r[2] for r in rects)
-            top = max(r[3] for r in rects)
+            page_index, page_w, page_h, left, bottom, right, top = match_box
+            offset = offsets[page_index]
             resolved.append(
                 {
                     **item,
-                    "x_pct": left / page_w,
-                    "y_pct": 1 - (top / page_h),
-                    "w_pct": (right - left) / page_w,
-                    "h_pct": (top - bottom) / page_h,
+                    "x_pct": left / max_w,
+                    "y_pct": (offset + (page_h - top)) / total_h,
+                    "w_pct": (right - left) / max_w,
+                    "h_pct": (top - bottom) / total_h,
                 }
             )
         return resolved
