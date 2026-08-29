@@ -87,9 +87,22 @@ LABEL_PATTERNS = {
     "account_number": re.compile(r"A?ccount\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
 }
 
+# Issue #272 -- same recurring leading-character-drop artifact patched
+# for name/address/bsb/account_number, applied here too (no confirmed
+# real repro for income specifically yet, but the mechanism is already
+# proven recurring on 4 other real documents). "gross" needed real
+# checking, not the same blind "make the first letter optional" move --
+# a bare "ross" (dropped "G") is genuinely unsafe: found 4 real
+# collisions in the corpus, including a real employer's SURNAME
+# ("Christopher Ross"). Requiring the trailing "Pay"/"payment" to stay
+# mandatory (only the leading letter is optional) avoids all of them --
+# verified directly, not assumed: re-ran the exact final patterns
+# against the whole corpus and got zero matches that weren't the real,
+# fully-spelled label. "net"/"Total"'s dropped-letter forms ("et Pay",
+# "ET PAY", "otal ...") had zero real collisions either way.
 INCOME_LABEL_PATTERNS = {
-    "gross": re.compile(r"(?:Total\s*gross\s*payment|Gross\s*Pay)\s*:?[ \t]*([^\[\n]*)", re.IGNORECASE),
-    "net": re.compile(r"(?:NET\s*PAY|Total\s*net\s*payment|Net\s*Pay)\s*:?[ \t]*([^\[\n]*)", re.IGNORECASE),
+    "gross": re.compile(r"(?:T?otal\s*g?ross\s*payment|G?ross\s*Pay)\s*:?[ \t]*([^\[\n]*)", re.IGNORECASE),
+    "net": re.compile(r"(?:N?ET\s*PAY|T?otal\s*n?et\s*payment|N?et\s*Pay)\s*:?[ \t]*([^\[\n]*)", re.IGNORECASE),
 }
 
 # Real line on the Fair Work template: "*Annual salary: [if applicable]
