@@ -12,7 +12,7 @@ import module3_redaction
 import module4_loan_rules
 import income_normalization
 from field_extraction_en import extract_balance_sheet_fields_en
-from file_routing import detect_processing_path, render_pdf_first_page
+from file_routing import detect_processing_path, render_pdf_all_pages, render_pdf_first_page
 
 _EMPTY_RESULT = {
     "processing_path": None,
@@ -91,15 +91,33 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
     # (#171 hardened this exact path) just to harvest table structure --
     # no new extraction technique, purely content-driven (a no-op if the
     # PDF has no tables at all).
+    #
+    # Issue #283 -- the totals table isn't guaranteed to be on page 1: 2
+    # of the 4 real multi-page balance-sheet PDFs in samples/en_balance_
+    # sheet/ have their actual "Total Assets" table on page 2, with page 1
+    # holding unrelated content -- render_pdf_first_page alone silently
+    # returned zero totals for those two real files. OCR every page
+    # (these documents are short, 2-4 pages in the real corpus -- not the
+    # OCR-path scanned-PDF cost concern #283 also flagged separately for
+    # a genuinely long scanned document) and merge each page's result
+    # into `fields`, first non-null wins per key. Merging per-page
+    # results rather than concatenating table_rows across pages avoids
+    # extract_balance_sheet_fields_en's own section-tracking (a bare
+    # "Total" row resolved via the current section header, see its own
+    # docstring) getting corrupted by a page boundary landing mid-section.
     if ext == ".pdf":
-        image = render_pdf_first_page(file_bytes)
-        enhanced = module1_opencv.enhance(image)
-        ocr_doc = module2_ocr_extraction.ocr_document(enhanced["image"])
-        table_rows = [
-            row for html in ocr_doc["tables"] for row in module2_ocr_extraction.html_table_to_rows(html)
-        ]
-        if table_rows:
-            fields.update(extract_balance_sheet_fields_en(table_rows))
+        for page_image in render_pdf_all_pages(file_bytes):
+            enhanced = module1_opencv.enhance(page_image)
+            ocr_doc = module2_ocr_extraction.ocr_document(enhanced["image"])
+            table_rows = [
+                row for html in ocr_doc["tables"] for row in module2_ocr_extraction.html_table_to_rows(html)
+            ]
+            if not table_rows:
+                continue
+            page_fields = extract_balance_sheet_fields_en(table_rows)
+            for key, value in page_fields.items():
+                if value is not None and fields.get(key) is None:
+                    fields[key] = value
 
     spans = module3_redaction.find_sensitive_spans(text_result["text"], fields)
     redaction = {"type": "spans", "items": spans}

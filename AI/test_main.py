@@ -26,6 +26,9 @@ with open("samples/en_balance_sheet/Machias_Balance-sheet-template.pdf", "rb") a
 with open("samples/en_contract/part-time-employment-contract-FILLED-100.docx", "rb") as f:
     _FILLED_DOCX_BYTES = f.read()
 
+with open("samples/en_pay_slip/Pay-slip-template-sts-FILLED-118.docx", "rb") as f:
+    _MULTIPAGE_DOCX_BYTES = f.read()
+
 
 def test_docx_upload_returns_text_native_result():
     response = client.post(
@@ -304,6 +307,66 @@ def test_apply_redaction_undecodable_file_with_valid_items_is_422():
         data={"items": items},
     )
     assert response.status_code == 422
+
+
+def test_apply_redaction_finds_value_on_a_later_page_not_just_page_one():
+    # Issue #283 -- real regression case: Pay-slip-template-sts-FILLED-118
+    # renders to 4 PDF pages, pages 0-1 are the Fair Work template's own
+    # fixed instructional boilerplate, "Catherine Garcia" (the real
+    # Employee Name) is on page 2, the real BSB is on page 3 -- two
+    # DIFFERENT non-first pages in the same document. Pre-#283, both
+    # values would search only page 0's text, find nothing, and get
+    # silently dropped -- this confirms both are now found and redacted.
+    items = json.dumps([{"field": "name", "value": "Catherine Garcia"}])
+    response = client.post(
+        "/apply-redaction",
+        files={
+            "file": (
+                "payslip.docx",
+                _MULTIPAGE_DOCX_BYTES,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"items": items},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+
+    pdf_bytes = file_routing.convert_docx_to_pdf_bytes(_MULTIPAGE_DOCX_BYTES)
+    name_resolved = file_routing.resolve_item_boxes_via_pdf_text(
+        pdf_bytes, [{"field": "name", "value": "Catherine Garcia"}]
+    )
+    assert len(name_resolved) == 1
+    name_box = name_resolved[0]
+    # a real page-2 (not page-0) match: y_pct must land well past a
+    # single page's worth of the composite's own height (4 pages stacked
+    # -> a page-2 match sits in roughly the back half of the image)
+    assert name_box["y_pct"] > 0.4
+
+    arr = cv2.imdecode(np.frombuffer(response.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    h, w = arr.shape[:2]
+    cx = int((name_box["x_pct"] + name_box["w_pct"] / 2) * w)
+    cy = int((name_box["y_pct"] + name_box["h_pct"] / 2) * h)
+    assert arr[cy, cx].tolist() == [0, 0, 0]
+
+
+def test_resolve_item_boxes_finds_values_on_different_pages_in_one_call():
+    # Issue #283 -- "Catherine Garcia" (name) and the real BSB are on
+    # DIFFERENT pages (2 and 3) of the same document -- confirms
+    # per-item page search isn't accidentally pinned to whichever page
+    # the first match landed on.
+    pdf_bytes = file_routing.convert_docx_to_pdf_bytes(_MULTIPAGE_DOCX_BYTES)
+    resolved = file_routing.resolve_item_boxes_via_pdf_text(
+        pdf_bytes,
+        [
+            {"field": "name", "value": "Catherine Garcia"},
+            {"field": "bsb", "value": "941-935"},
+        ],
+    )
+    assert len(resolved) == 2
+    name_box, bsb_box = resolved
+    assert name_box["y_pct"] != bsb_box["y_pct"]
+    assert bsb_box["y_pct"] > name_box["y_pct"]
 
 
 def run_all():

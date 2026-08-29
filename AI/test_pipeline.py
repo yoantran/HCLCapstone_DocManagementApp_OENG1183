@@ -1,7 +1,11 @@
 import sys
+from unittest.mock import patch
+
+import numpy as np
 
 sys.path.insert(0, ".")
 
+import module2_ocr_extraction
 from pipeline import process_document
 
 with open("samples/en_contract/part-time-employment-contract.docx", "rb") as f:
@@ -9,6 +13,9 @@ with open("samples/en_contract/part-time-employment-contract.docx", "rb") as f:
 
 with open("samples/en_pay_slip/Screenshot 2026-07-28 152419.png", "rb") as f:
     _IMAGE_BYTES = f.read()
+
+with open("samples/en_balance_sheet/Machias_Balance-sheet-template.pdf", "rb") as f:
+    _PDF_BYTES = f.read()
 
 
 def test_docx_routes_text_native_and_returns_spans():
@@ -78,6 +85,33 @@ def test_sensitive_field_keys_empty_when_no_items_detected():
     # be present (never a missing key) so BE's parser doesn't need a
     # separate null-check for this specific field.
     assert result["sensitive_field_keys"] == []
+
+
+def test_text_native_pdf_balance_sheet_totals_found_on_a_later_page():
+    # Issue #283 -- the balance-sheet table-harvesting step used to render
+    # only page 1 (render_pdf_first_page); a real multi-page PDF whose
+    # totals table sits on a later page got nothing. No real fixture in
+    # samples/en_balance_sheet/ currently has real (non-placeholder)
+    # totals split across pages -- the ones checked while investigating
+    # this turned out to be blank templates -- so this exercises the merge
+    # logic directly via mocks rather than claiming a real-corpus repro.
+    # Page 1 has no table at all; page 2's table has the real total.
+    fake_page = np.full((20, 20, 3), 255, dtype=np.uint8)
+    with patch("pipeline.render_pdf_all_pages", return_value=[fake_page, fake_page]), \
+         patch.object(
+             module2_ocr_extraction,
+             "ocr_document",
+             side_effect=[{"tables": []}, {"tables": ["<table>ignored, html_table_to_rows is mocked</table>"]}],
+         ), \
+         patch.object(
+             module2_ocr_extraction,
+             "html_table_to_rows",
+             return_value=[["Total Assets", "$425,000"]],
+         ):
+        result = process_document("balance-sheet.pdf", _PDF_BYTES)
+
+    assert result["error"] is None
+    assert result["fields"]["total_assets"] == 425000.0
 
 
 def run_all():
