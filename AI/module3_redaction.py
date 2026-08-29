@@ -10,6 +10,7 @@ from field_extraction_en import (
     INCOME_LABEL_PATTERNS,
     BALANCE_SHEET_VALUE_PATTERNS,
     _clean_label_value,
+    parse_currency_amount_balance_sheet,
 )
 
 _REGEX_LIST_FIELDS = {
@@ -297,21 +298,38 @@ def find_sensitive_boxes(image, fields: dict) -> list[dict]:
         if fields.get(field) is None:
             continue
         # Same limitation as income above (#214).
+        #
+        # Issue #282 -- the trailing capture is only anchored by a
+        # bracket or newline, not by where a real value actually ends.
+        # On a real side-by-side two-column header row ("Total Assets" |
+        # "Total Liabilities & Equity" on one OCR-reconstructed line, no
+        # colon/newline between them), it greedily swallowed the
+        # neighboring column's own label text instead of the real number
+        # below it -- producing a non-numeric "value" that still got
+        # boxed and redacted, while the real dollar figure stayed
+        # unredacted. Requiring the cleaned capture to actually parse as
+        # a currency amount rejects that case outright (same "skip,
+        # don't fabricate" pattern the rest of this function already
+        # uses for a miss) and tries the next match in the text instead
+        # of giving up on the first bad one.
         for match in pattern.finditer(text):
             result = _cleaned_span(match)
             if result is None:
                 continue
             cleaned, start, end = result
+            if parse_currency_amount_balance_sheet(cleaned) is None:
+                continue
             overlapping = _words_overlapping_span(word_spans, start, end)
-            if overlapping:
-                boxes.append(
-                    {
-                        "field": field,
-                        "value": cleaned,
-                        **_box_pct(_union_box(overlapping), img_h, img_w),
-                        "detection_method": "regex",
-                    }
-                )
+            if not overlapping:
+                continue
+            boxes.append(
+                {
+                    "field": field,
+                    "value": cleaned,
+                    **_box_pct(_union_box(overlapping), img_h, img_w),
+                    "detection_method": "regex",
+                }
+            )
             break
 
     return boxes
@@ -612,6 +630,34 @@ if __name__ == "__main__":
         assert len(assets_boxes) == 1
         assert assets_boxes[0]["value"] == "87500"
 
+    def _fake_two_column_header_word_reconstruction(*args, **kwargs):
+        # Issue #282 -- real repro shape (images (6).png,
+        # samples/en_balance_sheet/): two "Total ..." column headers on
+        # one OCR-reconstructed line, no colon/newline between them, no
+        # real number anywhere near "Total Assets" in this fragment (the
+        # real value sits on a different row, not modeled here since
+        # this test targets the rejection, not the recovery).
+        text = "Total Assets Total Liabilities and Equity"
+        word_spans = [
+            {"word": "Total", "box": (10, 20, 50, 35), "start": 0, "end": 5},
+            {"word": "Assets", "box": (55, 20, 100, 35), "start": 6, "end": 12},
+            {"word": "Total", "box": (110, 20, 150, 35), "start": 13, "end": 18},
+            {"word": "Liabilities", "box": (155, 20, 220, 35), "start": 19, "end": 30},
+            {"word": "and", "box": (225, 20, 245, 35), "start": 31, "end": 34},
+            {"word": "Equity", "box": (250, 20, 300, 35), "start": 35, "end": 41},
+        ]
+        return text, word_spans
+
+    def test_balance_sheet_field_does_not_box_neighboring_column_header():
+        with patch(
+            "module2_ocr_extraction.build_word_reconstruction",
+            side_effect=_fake_two_column_header_word_reconstruction,
+        ):
+            fields = {"total_assets": 425000.0}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        assets_boxes = [b for b in boxes if b["field"] == "total_assets"]
+        assert assets_boxes == []
+
     def test_boxes_to_composite_pct_single_page_is_identity():
         # Issue #286 -- a single-page document must reduce to exactly the
         # box's own original page-local pct, unchanged (offset 0,
@@ -672,6 +718,7 @@ if __name__ == "__main__":
         test_balance_sheet_field_skips_parenthetical_alternate_name,
         test_balance_sheet_field_absent_produces_no_span,
         test_balance_sheet_field_box_found_on_same_ocr_line,
+        test_balance_sheet_field_does_not_box_neighboring_column_header,
         test_boxes_to_composite_pct_single_page_is_identity,
         test_boxes_to_composite_pct_offsets_later_pages,
         test_boxes_to_composite_pct_pads_narrower_page_width,
