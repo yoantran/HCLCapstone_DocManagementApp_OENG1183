@@ -12,7 +12,7 @@ import module3_redaction
 import module4_loan_rules
 import income_normalization
 from field_extraction_en import extract_balance_sheet_fields_en
-from file_routing import detect_processing_path, render_pdf_all_pages, render_pdf_first_page
+from file_routing import detect_processing_path, render_pdf_all_pages, stack_pages_vertically
 
 _EMPTY_RESULT = {
     "processing_path": None,
@@ -38,22 +38,85 @@ _BALANCE_SHEET_FIELD_KEYS = (
 )
 
 
+# Issue #286 -- extract_regex_fields_en's own return shape: these 4 keys
+# are .findall() lists (every real occurrence across the document), every
+# other field is a single first-match-wins scalar (or, for income, a
+# scalar PAIR with income_basis that must stay together). Merging pages
+# with the wrong shape either drops real list occurrences (treating a
+# list field as scalar) or corrupts a scalar field into a list. "dates"
+# isn't a redaction-relevant field (not in module3_redaction's
+# SENSITIVE_FIELD_KEYS) but is still list-shaped in `fields` itself, so
+# it's included here for correctness of the merged fields dict, even
+# though it never reaches find_sensitive_boxes.
+_LIST_FIELD_KEYS = ("abn", "phone", "dates", "salary")
+
+
+def _merge_page_fields(accumulated: dict, page_fields: dict) -> None:
+    for key in _LIST_FIELD_KEYS:
+        if key in page_fields:
+            accumulated.setdefault(key, [])
+            accumulated[key].extend(page_fields.get(key) or [])
+    if accumulated.get("income") is None and page_fields.get("income") is not None:
+        accumulated["income"] = page_fields["income"]
+        accumulated["income_basis"] = page_fields.get("income_basis")
+    for key, value in page_fields.items():
+        if key in _LIST_FIELD_KEYS or key in ("income", "income_basis"):
+            continue
+        if value is not None and accumulated.get(key) is None:
+            accumulated[key] = value
+
+
 def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = False) -> dict:
     ext = filename.lower().rsplit(".", 1)[-1]
     if ext == "pdf":
-        image = render_pdf_first_page(file_bytes)
+        raw_pages = render_pdf_all_pages(file_bytes)
     else:
-        image = cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        raw_pages = [cv2.imdecode(np.frombuffer(file_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)]
 
-    enhanced = module1_opencv.enhance(image)
+    # Issue #286 -- a scanned multi-page PDF used to only ever OCR page 1
+    # (render_pdf_first_page), missing real content on every later page --
+    # same page-1-only bug #283/#284 fixed for the text-native path, here
+    # on the OCR path. Loop every page: merge fields (shape-aware, see
+    # _merge_page_fields), and run find_sensitive_boxes per page against
+    # THAT PAGE's own (unmerged) field results -- naturally scoped to what
+    # genuinely exists on this page, no risk of a page-3 value getting
+    # boxed on page 1 just because it's present in the merged dict.
+    enhanced_pages = []
+    fields: dict = {}
+    per_page_boxes: list[dict] = []
+    worst_blur = None
+    worst_contrast = None
+    any_low_quality = False
+
+    for page_index, raw_image in enumerate(raw_pages):
+        enhanced = module1_opencv.enhance(raw_image)
+        enhanced_image = enhanced["image"]
+        enhanced_pages.append(enhanced_image)
+
+        if worst_blur is None or enhanced["blur_score"] < worst_blur:
+            worst_blur = enhanced["blur_score"]
+        if worst_contrast is None or enhanced["contrast_score"] < worst_contrast:
+            worst_contrast = enhanced["contrast_score"]
+        any_low_quality = any_low_quality or enhanced["low_quality"]
+
+        ocr_result = module2_ocr_extraction.extract_fields(enhanced_image)
+        _merge_page_fields(fields, ocr_result["fields"])
+
+        page_boxes = module3_redaction.find_sensitive_boxes(enhanced_image, ocr_result["fields"])
+        per_page_boxes.extend({**box, "page_index": page_index} for box in page_boxes)
+
     quality = {
-        "blur_score": enhanced["blur_score"],
-        "contrast_score": enhanced["contrast_score"],
-        "low_quality": enhanced["low_quality"],
+        "blur_score": worst_blur,
+        "contrast_score": worst_contrast,
+        "low_quality": any_low_quality,
     }
-    ocr_result = module2_ocr_extraction.extract_fields(enhanced["image"])
-    fields = ocr_result["fields"]
-    boxes = module3_redaction.find_sensitive_boxes(enhanced["image"], fields)
+    # Issue #286 -- each box above is percentages relative to its OWN
+    # page's enhanced image; the redacted-preview endpoint renders one
+    # composite (file_routing.stack_pages_vertically), so every box must
+    # be converted into that composite's coordinate space before storage
+    # -- a page-2 box left as page-2-relative would land on the wrong
+    # region once drawn against the full multi-page composite.
+    boxes = module3_redaction.boxes_to_composite_pct(per_page_boxes, enhanced_pages)
     redaction = {"type": "boxes", "items": boxes}
 
     # Issue: redaction boxes are percentages relative to the ENHANCED image
@@ -64,7 +127,8 @@ def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = Fals
     # bloat the jsonb column on every document for no real benefit there).
     preview_image_base64 = None
     if include_preview:
-        ok, buf = cv2.imencode(".png", enhanced["image"])
+        composite = stack_pages_vertically(enhanced_pages)
+        ok, buf = cv2.imencode(".png", composite)
         if ok:
             preview_image_base64 = base64.b64encode(buf.tobytes()).decode("ascii")
 

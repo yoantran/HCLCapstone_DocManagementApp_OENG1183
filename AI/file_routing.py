@@ -106,13 +106,21 @@ def stack_pages_vertically(images: list[np.ndarray]) -> np.ndarray:
     padded white on the right -- real PDFs from one source document
     normally share a single page size, so this rarely actually triggers,
     but a mismatched width would otherwise silently misalign
-    resolve_item_boxes_via_pdf_text's x_pct math against this image."""
+    resolve_item_boxes_via_pdf_text's x_pct math against this image.
+
+    Issue #286 -- padding shape must match each image's own dimensionality,
+    not assume 3-channel BGR. This function is also reused for
+    module1_opencv.enhance() output on the OCR path, which is single-
+    channel grayscale (enhance() never converts back to BGR) -- a
+    hardcoded 3-channel pad would raise on any two differently-sized
+    grayscale pages via np.hstack's shape mismatch."""
     max_w = max(img.shape[1] for img in images)
     rows = []
     for img in images:
         h, w = img.shape[:2]
         if w < max_w:
-            pad = np.full((h, max_w - w, 3), 255, dtype=img.dtype)
+            pad_shape = (h, max_w - w) if img.ndim == 2 else (h, max_w - w, img.shape[2])
+            pad = np.full(pad_shape, 255, dtype=img.dtype)
             img = np.hstack([img, pad])
         rows.append(img)
     return np.vstack(rows)
