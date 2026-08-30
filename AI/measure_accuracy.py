@@ -11,11 +11,23 @@ content (same seed + same source = same output), it does not change them.
 """
 
 from _fill_templates import fill_docx
-from field_extraction_en import parse_currency_amount
+from field_extraction_en import parse_currency_amount, parse_currency_amount_balance_sheet
 from module2_text_extraction import extract_fields
 
 SCALAR_FIELDS = {"name", "address", "bsb", "account_number"}
 LIST_FIELDS = {"abn", "salary"}
+# Issue #289 -- fill_docx() already returns real ground truth for these 5
+# fields (fill_docx_balance_sheet_years's own return value) for every
+# BALANCE_SHEET_SRC manifest entry, but score() never scored them --
+# discovered during a real pipeline audit that this coverage gap existed
+# despite the data already being generated on every run.
+BALANCE_SHEET_FIELDS = (
+    "total_current_assets",
+    "total_assets",
+    "total_current_liabilities",
+    "total_liabilities",
+    "total_equity",
+)
 
 CONTRACT_SRC = "samples/en_contract/part-time-employment-contract.docx"
 PAYSLIP_SRC = "samples/en_pay_slip/Pay-slip-template-sts.docx"
@@ -77,8 +89,8 @@ def build_manifest() -> list[tuple[str, str, int]]:
 
 def score() -> None:
     manifest = build_manifest()
-    totals = {f: 0 for f in SCALAR_FIELDS | LIST_FIELDS}
-    correct = {f: 0 for f in SCALAR_FIELDS | LIST_FIELDS}
+    totals = {f: 0 for f in SCALAR_FIELDS | LIST_FIELDS | set(BALANCE_SHEET_FIELDS)}
+    correct = {f: 0 for f in SCALAR_FIELDS | LIST_FIELDS | set(BALANCE_SHEET_FIELDS)}
     income_total = income_correct = 0
     misses = []
 
@@ -121,6 +133,18 @@ def score() -> None:
             else:
                 misses.append((dst, "income", [gt_income[0]], (got, got_basis)))
 
+        for field in BALANCE_SHEET_FIELDS:
+            gt_values = ground_truth.get(field, [])
+            if not gt_values:
+                continue
+            totals[field] += 1
+            expected = parse_currency_amount_balance_sheet(gt_values[0])
+            got = extracted.get(field)
+            if got is not None and expected is not None and abs(got - expected) < 0.01:
+                correct[field] += 1
+            else:
+                misses.append((dst, field, [gt_values[0]], got))
+
     with open("accuracy_report.txt", "w", encoding="utf-8") as out:
         out.write(f"Documents scored: {len(manifest)}\n\n")
         out.write("Per-field accuracy (correct / total ground-truth values):\n")
@@ -135,6 +159,12 @@ def score() -> None:
         out.write(f"  {'income':15s}: {income_correct:3d} / {income_total:3d}  ({income_pct})\n")
         overall_correct += income_correct
         overall_total += income_total
+        for field in BALANCE_SHEET_FIELDS:
+            t, c = totals[field], correct[field]
+            pct = f"{100 * c / t:.1f}%" if t else "n/a (no ground truth)"
+            out.write(f"  {field:25s}: {c:3d} / {t:3d}  ({pct})\n")
+            overall_correct += c
+            overall_total += t
         overall_pct = f"{100 * overall_correct / overall_total:.1f}%" if overall_total else "n/a"
         out.write(f"\nOverall: {overall_correct} / {overall_total}  ({overall_pct})\n")
 
