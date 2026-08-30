@@ -50,6 +50,9 @@ def compute_iou(box_a: dict, box_b: dict) -> float:
 
 def score(ground_truth_path: str = "redaction_ground_truth.json",
           report_path: str = "accuracy_report_redaction.txt") -> None:
+    import sys
+    import time
+
     with open(ground_truth_path, encoding="utf-8") as f:
         ground_truth = json.load(f)
 
@@ -57,13 +60,18 @@ def score(ground_truth_path: str = "redaction_ground_truth.json",
     correct = {f: 0 for f in FIELDS}
     misses = []
 
-    for doc in ground_truth["documents"]:
+    docs = ground_truth["documents"]
+    for i, doc in enumerate(docs):
         filename = doc["filename"]
+        t0 = time.monotonic()
         image_path = IMAGE_DIR / filename
         img = cv2.imdecode(np.fromfile(str(image_path), dtype=np.uint8), cv2.IMREAD_COLOR)
 
-        ocr_fields = extract_fields(img, lang="en")["fields"]
-        predicted_boxes = find_sensitive_boxes(img, ocr_fields)
+        extracted = extract_fields(img, lang="en")
+        ocr_fields = extracted["fields"]
+        predicted_boxes = find_sensitive_boxes(img, ocr_fields, table_ocr_preds=extracted["table_ocr_preds"])
+        elapsed = time.monotonic() - t0
+        print(f"[{i+1}/{len(docs)}] {filename} ({elapsed:.1f}s)", file=sys.stderr, flush=True)
 
         gt_by_field: dict[str, list[dict]] = {}
         for box in doc["boxes"]:

@@ -102,7 +102,9 @@ def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = Fals
         ocr_result = module2_ocr_extraction.extract_fields(enhanced_image)
         _merge_page_fields(fields, ocr_result["fields"])
 
-        page_boxes = module3_redaction.find_sensitive_boxes(enhanced_image, ocr_result["fields"])
+        page_boxes = module3_redaction.find_sensitive_boxes(
+            enhanced_image, ocr_result["fields"], table_ocr_preds=ocr_result["table_ocr_preds"]
+        )
         per_page_boxes.extend({**box, "page_index": page_index} for box in page_boxes)
 
     quality = {

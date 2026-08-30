@@ -215,8 +215,72 @@ def _box_pct(box: tuple[int, int, int, int], img_h: int, img_w: int) -> dict:
     }
 
 
-def find_sensitive_boxes(image, fields: dict) -> list[dict]:
-    from module2_ocr_extraction import build_word_reconstruction
+def _fragment_center_in_cell(cell_box: list[float], frag_box: list[float]) -> bool:
+    cx1, cy1, cx2, cy2 = cell_box
+    fx1, fy1, fx2, fy2 = frag_box
+    fcx, fcy = (fx1 + fx2) / 2, (fy1 + fy2) / 2
+    return cx1 <= fcx <= cx2 and cy1 <= fcy <= cy2
+
+
+def _find_balance_sheet_value_box(
+    target: float, table_ocr_preds: list[dict]
+) -> tuple[str, tuple[int, int, int, int]] | None:
+    """Issue #289 -- locates a balance-sheet total's box by searching for
+    its ALREADY-KNOWN value (from fields[field], already correctly
+    resolved by extract_balance_sheet_fields_en's section-tracking-aware
+    table_rows matching) instead of re-finding the LABEL via a flat text
+    reconstruction. Confirmed real, not theoretical: PPStructureV3's
+    plain word-level OCR pass (build_word_reconstruction, a completely
+    separate pass from the table-aware one) can scramble a "TOTAL"/
+    "ASSETS" label apart with real numeric content interleaved between
+    the fragments.
+
+    A first version tried concatenating table_ocr_pred's fragments in
+    their own raw reading order -- wrong, confirmed by direct testing:
+    that order runs across the WHOLE visual line first ("$106", "$75,",
+    "$74,", "$30,", "$92," -- 5 columns' first half each), then the
+    next line ("000" x5), not each cell's own two-line value
+    consecutively. A single value never appears as a contiguous run in
+    that flat sequence at all when it wraps within a narrow column.
+
+    Instead: for each of the table's own detected CELL boxes
+    (cell_box_list), find whichever OCR fragments fall inside that
+    cell's box by simple center-point containment, sort those fragments
+    top-to-bottom (correct within one cell, since fragments only wrap
+    vertically within a narrow column -- confirmed real: "$92," above
+    "000", same x-range), and concatenate. cell_box_list is used purely
+    as a set of spatial regions here, never correlated to pred_html's
+    own <td> order (see ocr_document's own comment on why that
+    correlation isn't reliable) -- so this is unaffected by whatever
+    mismatch exists between the two. Returns the CELL's own detected
+    box directly (not a fragment union) when its concatenated content
+    matches the target value -- more precise than unioning fragment
+    boxes, since it's the table structure model's own bounding region
+    for the whole cell."""
+    for table in table_ocr_preds:
+        frag_texts = table["texts"]
+        frag_boxes = table["boxes"]
+        for cell_box in table.get("cell_boxes", []):
+            contained = sorted(
+                (
+                    (fb[1], fb[0], ft)
+                    for ft, fb in zip(frag_texts, frag_boxes)
+                    if _fragment_center_in_cell(cell_box, fb)
+                ),
+            )
+            if not contained:
+                continue
+            joined = "".join(text for _, _, text in contained)
+            amount = parse_currency_amount_balance_sheet(joined)
+            if amount is None or abs(amount - target) >= 0.01:
+                continue
+            x1, y1, x2, y2 = cell_box
+            return joined, (round(x1), round(y1), round(x2), round(y2))
+    return None
+
+
+def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None = None) -> list[dict]:
+    from module2_ocr_extraction import build_word_reconstruction, ocr_document
 
     img_h, img_w = image.shape[:2]
     text, word_spans = build_word_reconstruction(image)
@@ -294,43 +358,35 @@ def find_sensitive_boxes(image, fields: dict) -> list[dict]:
                     )
                 break
 
-    for field, pattern in BALANCE_SHEET_VALUE_PATTERNS.items():
-        if fields.get(field) is None:
-            continue
-        # Same limitation as income above (#214).
-        #
-        # Issue #282 -- the trailing capture is only anchored by a
-        # bracket or newline, not by where a real value actually ends.
-        # On a real side-by-side two-column header row ("Total Assets" |
-        # "Total Liabilities & Equity" on one OCR-reconstructed line, no
-        # colon/newline between them), it greedily swallowed the
-        # neighboring column's own label text instead of the real number
-        # below it -- producing a non-numeric "value" that still got
-        # boxed and redacted, while the real dollar figure stayed
-        # unredacted. Requiring the cleaned capture to actually parse as
-        # a currency amount rejects that case outright (same "skip,
-        # don't fabricate" pattern the rest of this function already
-        # uses for a miss) and tries the next match in the text instead
-        # of giving up on the first bad one.
-        for match in pattern.finditer(text):
-            result = _cleaned_span(match)
-            if result is None:
+    if any(fields.get(f) is not None for f in BALANCE_SHEET_VALUE_PATTERNS):
+        # Issue #289 -- table_ocr_preds is threaded through from the
+        # caller when already available (pipeline.py's own extract_fields
+        # call already computed it, same PPStructureV3 call -- passing it
+        # through avoids a real redundant OCR call). Falls back to a
+        # fresh ocr_document() call for callers that don't have it handy
+        # (measure_redaction_accuracy.py, this module's own self-checks).
+        if table_ocr_preds is None:
+            table_ocr_preds = ocr_document(image)["table_ocr_preds"]
+
+        for field in BALANCE_SHEET_VALUE_PATTERNS:
+            target = fields.get(field)
+            if target is None:
                 continue
-            cleaned, start, end = result
-            if parse_currency_amount_balance_sheet(cleaned) is None:
+            found = _find_balance_sheet_value_box(target, table_ocr_preds)
+            if found is None:
+                # Same "skip, don't fabricate" degradation as everywhere
+                # else in this function -- no fragment run in any
+                # detected table matched this value closely enough.
                 continue
-            overlapping = _words_overlapping_span(word_spans, start, end)
-            if not overlapping:
-                continue
+            value, box = found
             boxes.append(
                 {
                     "field": field,
-                    "value": cleaned,
-                    **_box_pct(_union_box(overlapping), img_h, img_w),
-                    "detection_method": "regex",
+                    "value": value,
+                    **_box_pct(box, img_h, img_w),
+                    "detection_method": "table_ocr",
                 }
             )
-            break
 
     return boxes
 
@@ -610,53 +666,44 @@ if __name__ == "__main__":
         spans = find_sensitive_spans(text, fields)
         assert [s for s in spans if s["field"] == "total_assets"] == []
 
-    def _fake_balance_sheet_word_reconstruction(*args, **kwargs):
-        text = "Total Assets 87500"
-        word_spans = [
-            {"word": "Total", "box": (10, 20, 50, 35), "start": 0, "end": 5},
-            {"word": "Assets", "box": (55, 20, 100, 35), "start": 6, "end": 12},
-            {"word": "87500", "box": (105, 20, 150, 35), "start": 13, "end": 18},
-        ]
-        return text, word_spans
+    def _empty_word_reconstruction(*args, **kwargs):
+        return "", []
 
-    def test_balance_sheet_field_box_found_on_same_ocr_line():
-        with patch(
-            "module2_ocr_extraction.build_word_reconstruction",
-            side_effect=_fake_balance_sheet_word_reconstruction,
-        ):
+    def test_balance_sheet_field_box_found_via_table_cell():
+        # Issue #289 -- balance-sheet boxes now come from table_ocr_preds
+        # (cell_box_list used purely as spatial regions, matched to
+        # fine-grained OCR fragments by containment), not
+        # build_word_reconstruction's flat text -- a real, confirmed
+        # word-wrap/reading-order problem for narrow balance-sheet
+        # columns made the old regex-based approach fail 0/18 on every
+        # real document. Models a value split across two fragments
+        # ("$87," + "500", real observed shape) inside one cell box.
+        table_ocr_preds = [
+            {
+                "texts": ["Total", "Assets", "$87,", "500"],
+                "boxes": [[10, 20, 50, 35], [55, 20, 100, 35], [105, 20, 150, 35], [105, 35, 150, 50]],
+                "cell_boxes": [[100, 15, 155, 55]],
+            }
+        ]
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_empty_word_reconstruction):
             fields = {"total_assets": 87500.0}
-            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields, table_ocr_preds=table_ocr_preds)
         assets_boxes = [b for b in boxes if b["field"] == "total_assets"]
         assert len(assets_boxes) == 1
-        assert assets_boxes[0]["value"] == "87500"
+        assert assets_boxes[0]["value"] == "$87,500"
 
-    def _fake_two_column_header_word_reconstruction(*args, **kwargs):
-        # Issue #282 -- real repro shape (images (6).png,
-        # samples/en_balance_sheet/): two "Total ..." column headers on
-        # one OCR-reconstructed line, no colon/newline between them, no
-        # real number anywhere near "Total Assets" in this fragment (the
-        # real value sits on a different row, not modeled here since
-        # this test targets the rejection, not the recovery).
-        text = "Total Assets Total Liabilities and Equity"
-        word_spans = [
-            {"word": "Total", "box": (10, 20, 50, 35), "start": 0, "end": 5},
-            {"word": "Assets", "box": (55, 20, 100, 35), "start": 6, "end": 12},
-            {"word": "Total", "box": (110, 20, 150, 35), "start": 13, "end": 18},
-            {"word": "Liabilities", "box": (155, 20, 220, 35), "start": 19, "end": 30},
-            {"word": "and", "box": (225, 20, 245, 35), "start": 31, "end": 34},
-            {"word": "Equity", "box": (250, 20, 300, 35), "start": 35, "end": 41},
+    def test_balance_sheet_field_no_matching_cell_produces_no_box():
+        table_ocr_preds = [
+            {
+                "texts": ["Total", "Assets", "$12,", "345"],
+                "boxes": [[10, 20, 50, 35], [55, 20, 100, 35], [105, 20, 150, 35], [105, 35, 150, 50]],
+                "cell_boxes": [[100, 15, 155, 55]],
+            }
         ]
-        return text, word_spans
-
-    def test_balance_sheet_field_does_not_box_neighboring_column_header():
-        with patch(
-            "module2_ocr_extraction.build_word_reconstruction",
-            side_effect=_fake_two_column_header_word_reconstruction,
-        ):
-            fields = {"total_assets": 425000.0}
-            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
-        assets_boxes = [b for b in boxes if b["field"] == "total_assets"]
-        assert assets_boxes == []
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_empty_word_reconstruction):
+            fields = {"total_assets": 87500.0}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields, table_ocr_preds=table_ocr_preds)
+        assert [b for b in boxes if b["field"] == "total_assets"] == []
 
     def test_boxes_to_composite_pct_single_page_is_identity():
         # Issue #286 -- a single-page document must reduce to exactly the
@@ -717,8 +764,8 @@ if __name__ == "__main__":
         test_balance_sheet_field_finds_value_on_docx_joined_row,
         test_balance_sheet_field_skips_parenthetical_alternate_name,
         test_balance_sheet_field_absent_produces_no_span,
-        test_balance_sheet_field_box_found_on_same_ocr_line,
-        test_balance_sheet_field_does_not_box_neighboring_column_header,
+        test_balance_sheet_field_box_found_via_table_cell,
+        test_balance_sheet_field_no_matching_cell_produces_no_box,
         test_boxes_to_composite_pct_single_page_is_identity,
         test_boxes_to_composite_pct_offsets_later_pages,
         test_boxes_to_composite_pct_pads_narrower_page_width,
