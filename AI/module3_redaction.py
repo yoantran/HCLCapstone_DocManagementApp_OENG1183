@@ -312,11 +312,25 @@ def _find_balance_sheet_value_box(
     synthetic document had three separate cells worth $139,000 on one
     page, only one of them this field's actual row. Now collects every
     matching cell and prefers whichever one's row label (via
-    _row_label_matches) actually matches this field -- falling back to
-    the first match when no candidate's row label matches anything, so
-    this never returns LESS than before, only a better choice among
-    ambiguous candidates."""
-    fallback = None
+    _row_label_matches) actually matches this field, falling back to
+    plain value-matching candidates when none of them do.
+
+    Issue #295 -- a same-tier tie (either tier) still needs a
+    tiebreaker: real multi-column comparative balance sheets (two
+    dollar-amount columns per row, e.g. year-over-year) can have the
+    SAME target value repeat across columns of one row, and #293's
+    "first one found" pick is then arbitrary. Confirmed on two real,
+    independent documents that ground truth always lands on the
+    RIGHTMOST matching candidate within whichever tier is non-empty --
+    matches real financial-statement convention of placing the
+    current/primary reporting period in the last column. Applies
+    equally to a label-confirmed tie (two columns' rows both satisfy
+    the label pattern) and a no-label-match fallback tie (the row
+    label wasn't recognized by OCR at all -- confirmed real on one of
+    the two documents, its label cell only contained the fragment
+    "Total", missing "Current Assets" entirely)."""
+    labeled_candidates = []
+    fallback_candidates = []
     for table in table_ocr_preds:
         frag_texts = table["texts"]
         frag_boxes = table["boxes"]
@@ -339,12 +353,15 @@ def _find_balance_sheet_value_box(
             y1 = min(fb[1] for _, _, _, fb in contained)
             x2 = max(fb[2] for _, _, _, fb in contained)
             y2 = max(fb[3] for _, _, _, fb in contained)
-            box = (round(x1), round(y1), round(x2), round(y2))
-            if fallback is None:
-                fallback = (joined, box)
+            entry = (x1, joined, (round(x1), round(y1), round(x2), round(y2)))
+            fallback_candidates.append(entry)
             if _row_label_matches(field, cell_box, cell_boxes, frag_texts, frag_boxes):
-                return joined, box
-    return fallback
+                labeled_candidates.append(entry)
+    pool = labeled_candidates or fallback_candidates
+    if not pool:
+        return None
+    _, joined, box = max(pool, key=lambda entry: entry[0])
+    return joined, box
 
 
 def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None = None) -> list[dict]:
@@ -820,6 +837,39 @@ if __name__ == "__main__":
         # first-match-wins alone would have returned).
         assert abs(equity_boxes[0]["y_pct"] - 60 / 100) < 1e-9
 
+    def test_balance_sheet_field_multi_column_tie_prefers_rightmost_labeled_candidate():
+        # Issue #295 -- confirmed real on two independent documents: a
+        # multi-column comparative balance sheet (e.g. year-over-year)
+        # can have the SAME target value repeat across columns of one
+        # row, so #293's row-label check alone isn't enough -- both
+        # columns can legitimately match the same shared row label.
+        # Ground truth always picked the RIGHTMOST matching column in
+        # both real cases. Column A (leftmost, WRONG) is listed FIRST
+        # in cell_boxes, to prove this isn't accidental list-order luck.
+        table_ocr_preds = [
+            {
+                "texts": ["Total", "Equity", "$100,000", "$100,000"],
+                "boxes": [
+                    [10, 20, 50, 35], [55, 20, 95, 35],
+                    [105, 20, 150, 35],
+                    [205, 20, 250, 35],
+                ],
+                "cell_boxes": [
+                    [100, 15, 155, 55],
+                    [200, 15, 255, 55],
+                    [5, 15, 95, 55],
+                ],
+            }
+        ]
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_empty_word_reconstruction):
+            fields = {"total_equity": 100000.0}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields, table_ocr_preds=table_ocr_preds)
+        equity_boxes = [b for b in boxes if b["field"] == "total_equity"]
+        assert len(equity_boxes) == 1
+        # Column B's value fragment starts at pixel x=205 -- confirm
+        # the returned box is column B's, not column A's (x=105).
+        assert abs(equity_boxes[0]["x_pct"] - 205 / 400) < 1e-9
+
     def test_boxes_to_composite_pct_single_page_is_identity():
         # Issue #286 -- a single-page document must reduce to exactly the
         # box's own original page-local pct, unchanged (offset 0,
@@ -882,6 +932,7 @@ if __name__ == "__main__":
         test_balance_sheet_field_box_found_via_table_cell,
         test_balance_sheet_field_no_matching_cell_produces_no_box,
         test_balance_sheet_field_disambiguates_duplicate_value_by_row_label,
+        test_balance_sheet_field_multi_column_tie_prefers_rightmost_labeled_candidate,
         test_boxes_to_composite_pct_single_page_is_identity,
         test_boxes_to_composite_pct_offsets_later_pages,
         test_boxes_to_composite_pct_pads_narrower_page_width,
