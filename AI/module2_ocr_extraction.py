@@ -115,9 +115,46 @@ def ocr_document(image, lang: str = "en") -> dict:
         for t, s, b in zip(texts, scores, boxes)
     ]
 
-    tables = [t["pred_html"] for t in result.get("table_res_list", []) if t.get("pred_html")]
+    table_res_list = result.get("table_res_list", [])
+    tables = [t["pred_html"] for t in table_res_list if t.get("pred_html")]
+    # Issue #289 -- fine-grained per-fragment OCR tokens for each detected
+    # table region (e.g. a value like "$92,000" split into separate
+    # "$92," / "000" tokens, each with its OWN real box), sourced from
+    # this SAME PPStructureV3 call -- no extra OCR pass needed. Used by
+    # module3_redaction.find_sensitive_boxes to locate a balance-sheet
+    # total's box directly by searching for its ALREADY-KNOWN value
+    # (from fields[field], resolved via extract_balance_sheet_fields_en's
+    # own section-tracking-aware table_rows matching) among these
+    # fragments, rather than re-finding the LABEL via a flat, unreliable
+    # text reconstruction (build_word_reconstruction's own reading order
+    # can genuinely scramble a "TOTAL"/"ASSETS" label apart with real
+    # numeric content interleaved between the fragments -- confirmed
+    # real on samples/_redaction_annotation/Balance-sheet-template-
+    # FILLED-300_p1.png, not theoretical).
+    # Issue #289 -- cell_box_list is kept purely as a set of spatial
+    # regions (one real box per detected table cell), never correlated
+    # to pred_html's own <td> order -- a real direct check on this exact
+    # image found cell_box_list has 168 entries against pred_html's 182
+    # <td> tags, no reliable 1:1 correspondence (an open, unresolved
+    # PaddleOCR issue -- #7594 -- asks the same question). Used instead
+    # purely geometrically: which OCR fragments fall inside a given
+    # cell's box, regardless of which HTML cell it "is."
+    table_ocr_preds = [
+        {
+            "texts": t["table_ocr_pred"].get("rec_texts", []),
+            "boxes": [
+                (b.tolist() if hasattr(b, "tolist") else list(b))
+                for b in t["table_ocr_pred"].get("rec_boxes", [])
+            ],
+            "cell_boxes": [
+                (b.tolist() if hasattr(b, "tolist") else list(b)) for b in t.get("cell_box_list", [])
+            ],
+        }
+        for t in table_res_list
+        if t.get("table_ocr_pred")
+    ]
 
-    return {"lines": lines, "tables": tables}
+    return {"lines": lines, "tables": tables, "table_ocr_preds": table_ocr_preds}
 
 
 def lines_to_text(lines: list[dict]) -> str:
@@ -130,7 +167,13 @@ def extract_fields(image, lang: str = "en") -> dict:
     table_rows = [row for html in doc["tables"] for row in html_table_to_rows(html)]
     fields = extract_fields_from_text_en(text, table_rows=table_rows or None)
     _repair_line_split_fields(doc["lines"], text, fields)
-    return {"fields": fields, "line_boxes": doc["lines"], "tables": doc["tables"], "text": text}
+    return {
+        "fields": fields,
+        "line_boxes": doc["lines"],
+        "tables": doc["tables"],
+        "table_ocr_preds": doc["table_ocr_preds"],
+        "text": text,
+    }
 
 
 # Issue #270 class B -- PPStructureV3 detects a label and its value as

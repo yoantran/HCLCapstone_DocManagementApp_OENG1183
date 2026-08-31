@@ -143,8 +143,8 @@ def test_ocr_path_multipage_merges_fields_and_places_boxes_on_correct_page():
          patch.object(
              module2_ocr_extraction, "extract_fields",
              side_effect=[
-                 {"fields": page0_fields, "line_boxes": [], "tables": [], "text": ""},
-                 {"fields": page1_fields, "line_boxes": [], "tables": [], "text": ""},
+                 {"fields": page0_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": ""},
+                 {"fields": page1_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": ""},
              ],
          ), \
          patch("module3_redaction.find_sensitive_boxes", side_effect=[page0_boxes, page1_boxes]):
