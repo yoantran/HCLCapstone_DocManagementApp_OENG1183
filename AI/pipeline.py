@@ -87,6 +87,12 @@ def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = Fals
     worst_blur = None
     worst_contrast = None
     any_low_quality = False
+    # Issue #297 -- a balance-sheet section header can land on one page
+    # with its bare "Total" row on the next; carrying this across
+    # iterations lets extract_balance_sheet_fields_en's section-tracking
+    # (see its own docstring) survive the page boundary instead of
+    # resetting to None on every page's independent call.
+    balance_sheet_section: str | None = None
 
     for page_index, raw_image in enumerate(raw_pages):
         enhanced = module1_opencv.enhance(raw_image)
@@ -99,7 +105,8 @@ def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = Fals
             worst_contrast = enhanced["contrast_score"]
         any_low_quality = any_low_quality or enhanced["low_quality"]
 
-        ocr_result = module2_ocr_extraction.extract_fields(enhanced_image)
+        ocr_result = module2_ocr_extraction.extract_fields(enhanced_image, initial_section=balance_sheet_section)
+        balance_sheet_section = ocr_result["balance_sheet_section"]
         _merge_page_fields(fields, ocr_result["fields"])
 
         page_boxes = module3_redaction.find_sensitive_boxes(
@@ -171,6 +178,16 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
     # extract_balance_sheet_fields_en's own section-tracking (a bare
     # "Total" row resolved via the current section header, see its own
     # docstring) getting corrupted by a page boundary landing mid-section.
+    #
+    # Issue #297 -- that section-tracking still needs to survive a
+    # header landing on one page with its bare "Total" row on the next
+    # (confirmed real, total_current_liabilities resolving to None on
+    # every document in samples/_redaction_annotation/) -- threading
+    # initial_section/the returned final section across iterations
+    # carries just that one piece of state forward without touching the
+    # per-page table_rows themselves, so the corruption risk above still
+    # doesn't apply.
+    balance_sheet_section: str | None = None
     if ext == ".pdf":
         for page_image in render_pdf_all_pages(file_bytes):
             enhanced = module1_opencv.enhance(page_image)
@@ -180,7 +197,7 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
             ]
             if not table_rows:
                 continue
-            page_fields = extract_balance_sheet_fields_en(table_rows)
+            page_fields, balance_sheet_section = extract_balance_sheet_fields_en(table_rows, balance_sheet_section)
             for key, value in page_fields.items():
                 if value is not None and fields.get(key) is None:
                     fields[key] = value

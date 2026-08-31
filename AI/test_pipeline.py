@@ -143,8 +143,8 @@ def test_ocr_path_multipage_merges_fields_and_places_boxes_on_correct_page():
          patch.object(
              module2_ocr_extraction, "extract_fields",
              side_effect=[
-                 {"fields": page0_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": ""},
-                 {"fields": page1_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": ""},
+                 {"fields": page0_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None},
+                 {"fields": page1_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None},
              ],
          ), \
          patch("module3_redaction.find_sensitive_boxes", side_effect=[page0_boxes, page1_boxes]):
@@ -164,6 +164,68 @@ def test_ocr_path_multipage_merges_fields_and_places_boxes_on_correct_page():
     # page 1 (offset 50px on a 100px-tall composite): 0.2 * 50 = 10, +50 offset = 60, /100 = 0.6
     assert name_item["y_pct"] == 0.6
     assert name_item["y_pct"] > salary_item["y_pct"]
+
+
+def test_ocr_path_carries_balance_sheet_section_across_pages():
+    # Issue #297 -- a balance-sheet section header on one page with its
+    # bare "Total" row on the next only resolves if the section-
+    # tracking state (extract_balance_sheet_fields_en's own
+    # current_section_field) survives the page boundary. Verifies
+    # _run_ocr_path actually threads page 1's returned
+    # balance_sheet_section into page 2's initial_section kwarg, not
+    # just that the merged result happens to come out right.
+    page0 = np.full((50, 50, 3), 255, dtype=np.uint8)
+    page1 = np.full((50, 50, 3), 255, dtype=np.uint8)
+    base_fields = {
+        "name": None, "bsb": None, "account_number": None, "address": None,
+        "abn": [], "phone": [], "dates": [], "salary": [],
+        "income": None, "income_basis": None, "annual_salary": None, "pay_period_days": None,
+        "total_current_liabilities": None,
+    }
+    with patch("pipeline.detect_processing_path", return_value="ocr"), \
+         patch("pipeline.render_pdf_all_pages", return_value=[page0, page1]), \
+         patch.object(
+             module2_ocr_extraction, "extract_fields",
+             side_effect=[
+                 {"fields": base_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": "total_current_liabilities"},
+                 {"fields": {**base_fields, "total_current_liabilities": 45000.0}, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None},
+             ],
+         ) as mock_extract, \
+         patch("module3_redaction.find_sensitive_boxes", return_value=[]):
+        result = process_document("scan.pdf", b"irrelevant")
+
+    assert result["error"] is None
+    assert result["fields"]["total_current_liabilities"] == 45000.0
+    assert mock_extract.call_args_list[0].kwargs.get("initial_section") is None
+    assert mock_extract.call_args_list[1].kwargs.get("initial_section") == "total_current_liabilities"
+
+
+def test_text_native_pdf_carries_balance_sheet_section_across_pages():
+    # Issue #297 -- same page-boundary gap as the OCR path above, on
+    # the text-native PDF loop instead. Page 1's table has ONLY the
+    # section header (no Total row yet); page 2's has ONLY the bare
+    # Total row -- neither page alone can resolve this without the
+    # section carried across the loop's own iterations.
+    fake_page = np.full((20, 20, 3), 255, dtype=np.uint8)
+    with patch("pipeline.render_pdf_all_pages", return_value=[fake_page, fake_page]), \
+         patch.object(
+             module2_ocr_extraction, "ocr_document",
+             side_effect=[
+                 {"tables": ["<table>page1</table>"]},
+                 {"tables": ["<table>page2</table>"]},
+             ],
+         ), \
+         patch.object(
+             module2_ocr_extraction, "html_table_to_rows",
+             side_effect=[
+                 [["Current/short-term Liabilities"]],
+                 [["Total", "$45,000"]],
+             ],
+         ):
+        result = process_document("balance-sheet.pdf", _PDF_BYTES)
+
+    assert result["error"] is None
+    assert result["fields"]["total_current_liabilities"] == 45000.0
 
 
 def run_all():
