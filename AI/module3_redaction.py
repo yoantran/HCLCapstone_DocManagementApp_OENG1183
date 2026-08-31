@@ -252,29 +252,38 @@ def _find_balance_sheet_value_box(
     as a set of spatial regions here, never correlated to pred_html's
     own <td> order (see ocr_document's own comment on why that
     correlation isn't reliable) -- so this is unaffected by whatever
-    mismatch exists between the two. Returns the CELL's own detected
-    box directly (not a fragment union) when its concatenated content
-    matches the target value -- more precise than unioning fragment
-    boxes, since it's the table structure model's own bounding region
-    for the whole cell."""
+    mismatch exists between the two.
+
+    Issue #291 -- returning the CELL's own detected box directly (as
+    this originally did) is too loose: cell_box_list includes real
+    margin/padding beyond the digits, confirmed directly against real
+    ground truth (a predicted box ~60% wider than the human-annotated
+    tight box, consistently landing at 0.2-0.48 IoU -- just under the
+    0.5 threshold -- across every real miss). Returns the union of the
+    MATCHED fragments' own boxes instead -- tight around the actual
+    value text, same approach the regex-based fields above already
+    use via _union_box."""
     for table in table_ocr_preds:
         frag_texts = table["texts"]
         frag_boxes = table["boxes"]
         for cell_box in table.get("cell_boxes", []):
             contained = sorted(
                 (
-                    (fb[1], fb[0], ft)
+                    (fb[1], fb[0], ft, fb)
                     for ft, fb in zip(frag_texts, frag_boxes)
                     if _fragment_center_in_cell(cell_box, fb)
                 ),
             )
             if not contained:
                 continue
-            joined = "".join(text for _, _, text in contained)
+            joined = "".join(text for _, _, text, _ in contained)
             amount = parse_currency_amount_balance_sheet(joined)
             if amount is None or abs(amount - target) >= 0.01:
                 continue
-            x1, y1, x2, y2 = cell_box
+            x1 = min(fb[0] for _, _, _, fb in contained)
+            y1 = min(fb[1] for _, _, _, fb in contained)
+            x2 = max(fb[2] for _, _, _, fb in contained)
+            y2 = max(fb[3] for _, _, _, fb in contained)
             return joined, (round(x1), round(y1), round(x2), round(y2))
     return None
 
@@ -691,6 +700,17 @@ if __name__ == "__main__":
         assets_boxes = [b for b in boxes if b["field"] == "total_assets"]
         assert len(assets_boxes) == 1
         assert assets_boxes[0]["value"] == "$87,500"
+        # Issue #291 -- box must be the tight union of the matched
+        # fragments ($87,/500, pixel box [105,20,150,50]), NOT the
+        # looser parent cell_box ([100,15,155,55]) -- confirmed real
+        # against ground truth that the cell box is systematically too
+        # wide/offset (predicted ~60% wider than a human-annotated tight
+        # box, IoU stuck at 0.2-0.48). _FAKE_IMAGE is 400w x 100h.
+        box = assets_boxes[0]
+        assert abs(box["x_pct"] - 105 / 400) < 1e-9
+        assert abs(box["y_pct"] - 20 / 100) < 1e-9
+        assert abs(box["w_pct"] - 45 / 400) < 1e-9
+        assert abs(box["h_pct"] - 30 / 100) < 1e-9
 
     def test_balance_sheet_field_no_matching_cell_produces_no_box():
         table_ocr_preds = [
