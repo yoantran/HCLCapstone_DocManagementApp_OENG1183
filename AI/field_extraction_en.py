@@ -402,9 +402,17 @@ BALANCE_SHEET_VALUE_PATTERNS = {
 # amount of wording-alternative regex can survive -- despacing both the
 # cell and the pattern's separator (`\s+` -> `\s*`, matching zero spaces)
 # is what makes "CurrentassetS" match "^CurrentAssets$" case-insensitively.
+#
+# Issue #297 -- the liabilities pattern's "/short-term" required a
+# literal hyphen, but this real template's actual wording is "short
+# term" (a space, not a hyphen) -- _despace() only strips whitespace,
+# so that becomes "shortterm" with NO separator at all, never matching
+# the hardcoded "-". Confirmed real on Balance-sheet-template-FILLED-
+# 300_p1.png's own OCR'd header cell. "-?" makes the hyphen optional,
+# matching both the hyphenated and despaced-space real wordings.
 _SECTION_HEADER_TO_FIELD = {
     re.compile(r"^Current\s*Assets$", re.IGNORECASE): "total_current_assets",
-    re.compile(r"^Current(?:/short-term)?\s*Liabilities$", re.IGNORECASE): "total_current_liabilities",
+    re.compile(r"^Current(?:/short-?term)?\s*Liabilities$", re.IGNORECASE): "total_current_liabilities",
 }
 # Other section headers seen in the real template -- encountering one of
 # these resets the tracked section so ITS bare "Total" row isn't
@@ -620,7 +628,9 @@ def _resolve_value(
     return candidate
 
 
-def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
+def extract_balance_sheet_fields_en(
+    table_rows: list[list[str]], initial_section: str | None = None
+) -> tuple[dict, str | None]:
     """Pair a bare label cell with its adjacent value cell(s) -- same
     algorithm as field_extraction.py's extract_from_table_rows (VN era),
     ported to English balance-sheet labels. Real templates put the label
@@ -647,9 +657,25 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
     Issue #167 -- one real template never writes "Total Current Assets"/
     "Total Current Liabilities" as combined text at all -- see
     _SECTION_HEADER_TO_FIELD's comment. Track the current section while
-    scanning; a bare "Total" row is attributed to it."""
+    scanning; a bare "Total" row is attributed to it.
+
+    Issue #297 -- on a real multi-page document, a section header can
+    land on one page with its bare "Total" row on the next -- each
+    page gets OCR'd and extracted independently (pipeline.py's own
+    per-page loops, both the OCR and text-native paths), so
+    current_section_field being reset to None at the top of every call
+    meant this NEVER resolved: the page with the header has no Total
+    row yet, and the page with the Total row has no section context
+    (confirmed real: Balance-sheet-template-FILLED-300_p2.png alone
+    resolves total_current_liabilities to None). initial_section lets
+    a caller carry the section state in from wherever the previous
+    page's call left off; the returned final section lets it carry
+    that state OUT to seed the next page's call -- the same "only the
+    first bare Total after a header counts" reset logic below already
+    applies identically whether the header came from this page or was
+    carried in from the previous one."""
     result: dict[str, float | None] = {field: None for field in _BALANCE_SHEET_LABEL_RE}
-    current_section_field: str | None = None
+    current_section_field: str | None = initial_section
     prefer_col = _detect_current_period_column(table_rows)
     for row_idx, row in enumerate(table_rows):
         for i, cell in enumerate(row):
@@ -708,7 +734,7 @@ def extract_balance_sheet_fields_en(table_rows: list[list[str]]) -> dict:
     if any(v is None for v in result.values()):
         _fuzzy_fill_remaining_fields(table_rows, result, prefer_col)
 
-    return result
+    return result, current_section_field
 
 
 def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict, prefer_col: int | None = None) -> None:
@@ -863,7 +889,9 @@ def extract_name_via_ner_en(text: str) -> str | None:
     return None
 
 
-def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = None) -> dict:
+def extract_fields_from_text_en(
+    text: str, table_rows: list[list[str]] | None = None, initial_section: str | None = None
+) -> dict:
     fields = extract_regex_fields_en(text)
     fields.update(extract_label_anchored_en(text))
     if fields.get("name") is None:
@@ -871,8 +899,14 @@ def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = 
     fields["income"], fields["income_basis"] = extract_income_en(text)
     fields["annual_salary"] = extract_annual_salary_en(text)
     fields["pay_period_days"] = extract_pay_period_days_en(text)
+    # Issue #297 -- carries the balance-sheet section-tracking state
+    # (see extract_balance_sheet_fields_en's own docstring) through this
+    # layer for a caller that needs to thread it across pages (module2_
+    # ocr_extraction.extract_fields does, and pops this back out before
+    # returning -- never meant to reach a real consumer of `fields`).
+    final_section = initial_section
     if table_rows:
-        balance_sheet_fields = extract_balance_sheet_fields_en(table_rows)
+        balance_sheet_fields, final_section = extract_balance_sheet_fields_en(table_rows, initial_section)
         # Issue #219 -- SALARY_RE is payslip-domain (a single colon-anchored
         # dollar figure); a table containing real balance-sheet totals means
         # this is balance-sheet-shaped, where every dollar amount is a false
@@ -884,4 +918,5 @@ def extract_fields_from_text_en(text: str, table_rows: list[list[str]] | None = 
         if any(v is not None for v in balance_sheet_fields.values()):
             fields["salary"] = []
         fields.update(balance_sheet_fields)
+    fields["_balance_sheet_section"] = final_section
     return fields

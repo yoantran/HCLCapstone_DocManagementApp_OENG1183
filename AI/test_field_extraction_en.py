@@ -195,7 +195,7 @@ def test_balance_sheet_picks_current_column_when_current_is_leftmost():
         ["", "CURRENT YR.", "[PRIOR"],
         ["Total current assets", "$120,000.00", "$100,000.00"],
     ]
-    fields = extract_balance_sheet_fields_en(rows)
+    fields, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_assets"] == 120000.0
 
 
@@ -206,7 +206,7 @@ def test_balance_sheet_picks_current_column_when_current_is_rightmost():
         ["", "PRIOR YEAR", "CURRENT YEAR"],
         ["Total Assets", "$100,000.00", "$120,000.00"],
     ]
-    fields = extract_balance_sheet_fields_en(rows)
+    fields, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_assets"] == 120000.0
 
 
@@ -217,7 +217,7 @@ def test_balance_sheet_picks_highest_numbered_period_column():
         ["", "FY1", "FY2", "FY3"],
         ["Total Liabilities", "$50,000.00", "$60,000.00", "$70,000.00"],
     ]
-    fields = extract_balance_sheet_fields_en(rows)
+    fields, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_liabilities"] == 70000.0
 
 
@@ -254,7 +254,7 @@ def test_balance_sheet_picks_highest_year_n_column():
         ["", "Year 1", "Year 2", "Year 3"],
         ["Total Assets", "$100,000.00", "$110,000.00", "$120,000.00"],
     ]
-    fields = extract_balance_sheet_fields_en(rows)
+    fields, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_assets"] == 120000.0
 
 
@@ -312,8 +312,43 @@ def test_balance_sheet_falls_back_to_rightmost_when_no_header_detected():
     # No recognizable header row at all (most real docx tables) -- must
     # keep #172's original rightmost behavior unchanged, no regression.
     rows = [["Total Equity", "$1", "$2", "$3"]]
-    fields = extract_balance_sheet_fields_en(rows)
+    fields, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_equity"] == 3.0
+
+
+def test_balance_sheet_section_carries_across_two_calls():
+    # Issue #297 -- a section header on one page with its bare "Total"
+    # row on the next needs the section-tracking state threaded across
+    # two separate calls (real multi-page pipeline.py loops call this
+    # once per page, independently). Page 1's rows only contain the
+    # header; page 2's only contain the bare Total row -- neither call
+    # alone can resolve total_current_liabilities without the carry.
+    page1_rows = [["Current/short-term Liabilities"]]
+    page2_rows = [["Total", "$45,000"]]
+
+    page1_fields, section = extract_balance_sheet_fields_en(page1_rows)
+    assert page1_fields["total_current_liabilities"] is None
+    assert section == "total_current_liabilities"
+
+    page2_fields, _ = extract_balance_sheet_fields_en(page2_rows, section)
+    assert page2_fields["total_current_liabilities"] == 45000.0
+
+    # Confirm the carry is actually necessary -- without it, page 2
+    # alone still can't resolve it, matching the real bug's shape.
+    page2_fields_nocarry, _ = extract_balance_sheet_fields_en(page2_rows)
+    assert page2_fields_nocarry["total_current_liabilities"] is None
+
+
+def test_balance_sheet_section_header_tolerates_despaced_short_term():
+    # Issue #297 -- real OCR on Balance-sheet-template-FILLED-300_p1.png
+    # recovers this header as "Curr ent/ short term liabil ities" --
+    # _despace() strips the internal spaces (no hyphen to begin with),
+    # leaving "Current/shorttermLiabilities". The original regex
+    # required a literal "-" in "/short-term", which this despaced text
+    # never has -- confirmed real, this exact cell never matched before.
+    rows = [["Current/short term liabilities"], ["Total", "$45,000"]]
+    fields, _ = extract_balance_sheet_fields_en(rows)
+    assert fields["total_current_liabilities"] == 45000.0
 
 
 def test_parse_currency_amount_balance_sheet_rejects_prose_with_incidental_number():
@@ -332,7 +367,7 @@ def test_balance_sheet_does_not_match_prose_cell_adjacent_to_real_label():
     # label match, but its neighboring cell is prose, not a value --
     # must stay None, not silently populate with a wrong number.
     rows = [["Total current assets", "in12 months"]]
-    fields = extract_balance_sheet_fields_en(rows)
+    fields, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_assets"] is None
 
 
@@ -344,7 +379,7 @@ def test_last_numeric_cell_skips_bare_currency_symbol_not_stops():
     # as a different field's label and gave up before ever reaching the
     # real number 2 cells later.
     row = ["TOTAL ASSETS", "s", "558.00", "$", "1,848.00"]
-    fields = extract_balance_sheet_fields_en([row])
+    fields, _ = extract_balance_sheet_fields_en([row])
     assert fields["total_assets"] is not None
 
 
@@ -352,7 +387,7 @@ def test_last_numeric_cell_still_stops_at_a_real_label():
     # Must not regress #184's original case -- a real OTHER field's label
     # (not a bare currency symbol) still has to stop the scan.
     rows = [["Total Current Assets", "$105,000", "", "Total Long-Term Assets", "$320,000"]]
-    fields = extract_balance_sheet_fields_en(rows)
+    fields, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_assets"] == 105000.0
 
 

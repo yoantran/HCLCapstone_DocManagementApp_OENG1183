@@ -161,11 +161,16 @@ def lines_to_text(lines: list[dict]) -> str:
     return "\n".join(line["text"] for line in lines)
 
 
-def extract_fields(image, lang: str = "en") -> dict:
+def extract_fields(image, lang: str = "en", initial_section: str | None = None) -> dict:
     doc = ocr_document(image, lang=lang)
     text = lines_to_text(doc["lines"])
     table_rows = [row for html in doc["tables"] for row in html_table_to_rows(html)]
-    fields = extract_fields_from_text_en(text, table_rows=table_rows or None)
+    fields = extract_fields_from_text_en(text, table_rows=table_rows or None, initial_section=initial_section)
+    # Issue #297 -- carried purely for a per-page caller (pipeline.py's
+    # OCR-path loop) to thread into the NEXT page's initial_section; not
+    # a real redaction/extraction field, popped out before `fields`
+    # reaches anything else (module3_redaction, BE storage, etc.).
+    balance_sheet_section = fields.pop("_balance_sheet_section", None)
     _repair_line_split_fields(doc["lines"], text, fields)
     return {
         "fields": fields,
@@ -173,6 +178,7 @@ def extract_fields(image, lang: str = "en") -> dict:
         "tables": doc["tables"],
         "table_ocr_preds": doc["table_ocr_preds"],
         "text": text,
+        "balance_sheet_section": balance_sheet_section,
     }
 
 

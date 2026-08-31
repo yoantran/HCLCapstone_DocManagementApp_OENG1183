@@ -10,6 +10,7 @@ itself extracts correctly (#131 already measured that at 100%).
 """
 
 import json
+import re
 from pathlib import Path
 
 import cv2
@@ -26,6 +27,36 @@ FIELDS = (
     "total_current_assets", "total_assets",
     "total_current_liabilities", "total_liabilities", "total_equity",
 )
+
+# Issue #297 -- every ground-truth filename follows <doc_id>_p<N>.ext,
+# including single-page documents (always "_p0"), confirmed against the
+# real redaction_ground_truth.json.
+_PAGE_FILENAME_RE = re.compile(r"^(?P<doc_id>.+)_p(?P<page_num>\d+)\.[A-Za-z0-9]+$")
+
+
+def _group_by_document(docs: list[dict]) -> list[list[dict]]:
+    """Groups per-page-image ground-truth entries back into their real
+    multi-page documents, pages sorted in order within each group, so
+    score() can thread extract_fields's balance_sheet_section across
+    pages the same way pipeline.py's real _run_ocr_path loop does.
+    Scoring each page image in total isolation (the original behavior)
+    can never demonstrate a fix whose whole point is carrying state
+    ACROSS pages -- confirmed real: total_current_liabilities stayed at
+    0/18 in that mode even after #297's fix, purely because this
+    scorer never simulated the real multi-page call chain, not because
+    the fix didn't work (verified separately via a direct two-call
+    test on Balance-sheet-template-FILLED-300_p1.png/_p2.png). Preserves
+    each doc_id's first-appearance order so report output stays stable."""
+    groups: dict[str, list[tuple[int, dict]]] = {}
+    order: list[str] = []
+    for doc in docs:
+        match = _PAGE_FILENAME_RE.match(doc["filename"])
+        doc_id, page_num = match.group("doc_id"), int(match.group("page_num"))
+        if doc_id not in groups:
+            groups[doc_id] = []
+            order.append(doc_id)
+        groups[doc_id].append((page_num, doc))
+    return [[d for _, d in sorted(groups[doc_id])] for doc_id in order]
 
 
 def compute_iou(box_a: dict, box_b: dict) -> float:
@@ -61,31 +92,41 @@ def score(ground_truth_path: str = "redaction_ground_truth.json",
     misses = []
 
     docs = ground_truth["documents"]
-    for i, doc in enumerate(docs):
-        filename = doc["filename"]
-        t0 = time.monotonic()
-        image_path = IMAGE_DIR / filename
-        img = cv2.imdecode(np.fromfile(str(image_path), dtype=np.uint8), cv2.IMREAD_COLOR)
+    document_groups = _group_by_document(docs)
+    page_count = 0
+    for group in document_groups:
+        # Issue #297 -- reset per real document (not per page): a
+        # section header carried in from an unrelated PRECEDING
+        # document would be a real bug of its own, same class as the
+        # one this carry-through exists to fix.
+        balance_sheet_section: str | None = None
+        for doc in group:
+            filename = doc["filename"]
+            page_count += 1
+            t0 = time.monotonic()
+            image_path = IMAGE_DIR / filename
+            img = cv2.imdecode(np.fromfile(str(image_path), dtype=np.uint8), cv2.IMREAD_COLOR)
 
-        extracted = extract_fields(img, lang="en")
-        ocr_fields = extracted["fields"]
-        predicted_boxes = find_sensitive_boxes(img, ocr_fields, table_ocr_preds=extracted["table_ocr_preds"])
-        elapsed = time.monotonic() - t0
-        print(f"[{i+1}/{len(docs)}] {filename} ({elapsed:.1f}s)", file=sys.stderr, flush=True)
+            extracted = extract_fields(img, lang="en", initial_section=balance_sheet_section)
+            balance_sheet_section = extracted["balance_sheet_section"]
+            ocr_fields = extracted["fields"]
+            predicted_boxes = find_sensitive_boxes(img, ocr_fields, table_ocr_preds=extracted["table_ocr_preds"])
+            elapsed = time.monotonic() - t0
+            print(f"[{page_count}/{len(docs)}] {filename} ({elapsed:.1f}s)", file=sys.stderr, flush=True)
 
-        gt_by_field: dict[str, list[dict]] = {}
-        for box in doc["boxes"]:
-            gt_by_field.setdefault(box["field"], []).append(box)
+            gt_by_field: dict[str, list[dict]] = {}
+            for box in doc["boxes"]:
+                gt_by_field.setdefault(box["field"], []).append(box)
 
-        for field, gt_boxes in gt_by_field.items():
-            pred_for_field = [b for b in predicted_boxes if b["field"] == field]
-            for gt_box in gt_boxes:
-                totals[field] += 1
-                best_iou = max((compute_iou(gt_box, p) for p in pred_for_field), default=0.0)
-                if best_iou >= IOU_THRESHOLD:
-                    correct[field] += 1
-                else:
-                    misses.append((filename, field, gt_box, best_iou))
+            for field, gt_boxes in gt_by_field.items():
+                pred_for_field = [b for b in predicted_boxes if b["field"] == field]
+                for gt_box in gt_boxes:
+                    totals[field] += 1
+                    best_iou = max((compute_iou(gt_box, p) for p in pred_for_field), default=0.0)
+                    if best_iou >= IOU_THRESHOLD:
+                        correct[field] += 1
+                    else:
+                        misses.append((filename, field, gt_box, best_iou))
 
     with open(report_path, "w", encoding="utf-8") as out:
         out.write(f"iou_threshold={IOU_THRESHOLD}\n")
@@ -128,10 +169,33 @@ if __name__ == "__main__":
         b = {"x_pct": 0.1, "y_pct": 0.0, "w_pct": 0.2, "h_pct": 0.1}
         assert abs(compute_iou(a, b) - (1 / 3)) < 1e-9
 
+    def test_group_by_document_sorts_pages_and_preserves_doc_order():
+        # Issue #297 -- pages fed out of order, across two documents
+        # interleaved, must regroup correctly: each doc's own pages
+        # sorted p0/p1/p2, doc B first (its p0 appeared first).
+        docs = [
+            {"filename": "DocB_p0.png"},
+            {"filename": "DocA_p2.png"},
+            {"filename": "DocA_p0.png"},
+            {"filename": "DocA_p1.png"},
+            {"filename": "DocB_p1.png"},
+        ]
+        groups = _group_by_document(docs)
+        assert [d["filename"] for d in groups[0]] == ["DocB_p0.png", "DocB_p1.png"]
+        assert [d["filename"] for d in groups[1]] == ["DocA_p0.png", "DocA_p1.png", "DocA_p2.png"]
+
+    def test_group_by_document_single_page_doc_is_its_own_group():
+        docs = [{"filename": "SoloContract_p0.png"}]
+        groups = _group_by_document(docs)
+        assert len(groups) == 1
+        assert len(groups[0]) == 1
+
     tests = [
         test_identical_boxes_iou_is_one,
         test_disjoint_boxes_iou_is_zero,
         test_partial_overlap_hand_computed,
+        test_group_by_document_sorts_pages_and_preserves_doc_order,
+        test_group_by_document_single_page_doc_is_its_own_group,
     ]
     for test in tests:
         test()
