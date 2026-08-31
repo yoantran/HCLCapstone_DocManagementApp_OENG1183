@@ -9,6 +9,7 @@ from field_extraction_en import (
     LABEL_PATTERNS,
     INCOME_LABEL_PATTERNS,
     BALANCE_SHEET_VALUE_PATTERNS,
+    _BALANCE_SHEET_LABEL_RE,
     _clean_label_value,
     parse_currency_amount_balance_sheet,
 )
@@ -222,8 +223,50 @@ def _fragment_center_in_cell(cell_box: list[float], frag_box: list[float]) -> bo
     return cx1 <= fcx <= cx2 and cy1 <= fcy <= cy2
 
 
+def _row_label_matches(
+    field: str,
+    cell_box: list[float],
+    all_cell_boxes: list[list[float]],
+    frag_texts: list[str],
+    frag_boxes: list[list[float]],
+) -> bool:
+    """Issue #293 -- when the same dollar amount appears in more than
+    one cell on a page (confirmed real: a synthetic document with
+    three separate $139,000 cells), find_sensitive_boxes needs a way
+    to tell which cell is actually this field's row. Checks every
+    cell_box in the same row (vertical overlap) positioned to this
+    one's LEFT -- not just the nearest one -- since real balance
+    sheets are multi-column (assets/liabilities side by side), so the
+    immediate left neighbor is often another value column, not the
+    label; the real label can sit two or more columns further left.
+    Matches each candidate's concatenated fragment text against the
+    field's already-defined exact label pattern (same one the
+    DOCX-path extraction uses)."""
+    cy = (cell_box[1] + cell_box[3]) / 2
+    left_neighbors = [
+        cb
+        for cb in all_cell_boxes
+        if cb is not cell_box and cb[1] <= cy <= cb[3] and cb[2] <= cell_box[0]
+    ]
+    pattern = _BALANCE_SHEET_LABEL_RE.get(field)
+    if pattern is None:
+        return False
+    for label_cell in left_neighbors:
+        label_text = "".join(
+            text
+            for _, _, text in sorted(
+                (fb[1], fb[0], ft)
+                for ft, fb in zip(frag_texts, frag_boxes)
+                if _fragment_center_in_cell(label_cell, fb)
+            )
+        )
+        if pattern.search(label_text):
+            return True
+    return False
+
+
 def _find_balance_sheet_value_box(
-    target: float, table_ocr_preds: list[dict]
+    field: str, target: float, table_ocr_preds: list[dict]
 ) -> tuple[str, tuple[int, int, int, int]] | None:
     """Issue #289 -- locates a balance-sheet total's box by searching for
     its ALREADY-KNOWN value (from fields[field], already correctly
@@ -262,11 +305,23 @@ def _find_balance_sheet_value_box(
     0.5 threshold -- across every real miss). Returns the union of the
     MATCHED fragments' own boxes instead -- tight around the actual
     value text, same approach the regex-based fields above already
-    use via _union_box."""
+    use via _union_box.
+
+    Issue #293 -- returning the FIRST matching cell is wrong when more
+    than one cell shares the same dollar amount: confirmed real, a
+    synthetic document had three separate cells worth $139,000 on one
+    page, only one of them this field's actual row. Now collects every
+    matching cell and prefers whichever one's row label (via
+    _row_label_matches) actually matches this field -- falling back to
+    the first match when no candidate's row label matches anything, so
+    this never returns LESS than before, only a better choice among
+    ambiguous candidates."""
+    fallback = None
     for table in table_ocr_preds:
         frag_texts = table["texts"]
         frag_boxes = table["boxes"]
-        for cell_box in table.get("cell_boxes", []):
+        cell_boxes = table.get("cell_boxes", [])
+        for cell_box in cell_boxes:
             contained = sorted(
                 (
                     (fb[1], fb[0], ft, fb)
@@ -284,8 +339,12 @@ def _find_balance_sheet_value_box(
             y1 = min(fb[1] for _, _, _, fb in contained)
             x2 = max(fb[2] for _, _, _, fb in contained)
             y2 = max(fb[3] for _, _, _, fb in contained)
-            return joined, (round(x1), round(y1), round(x2), round(y2))
-    return None
+            box = (round(x1), round(y1), round(x2), round(y2))
+            if fallback is None:
+                fallback = (joined, box)
+            if _row_label_matches(field, cell_box, cell_boxes, frag_texts, frag_boxes):
+                return joined, box
+    return fallback
 
 
 def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None = None) -> list[dict]:
@@ -381,7 +440,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
             target = fields.get(field)
             if target is None:
                 continue
-            found = _find_balance_sheet_value_box(target, table_ocr_preds)
+            found = _find_balance_sheet_value_box(field, target, table_ocr_preds)
             if found is None:
                 # Same "skip, don't fabricate" degradation as everywhere
                 # else in this function -- no fragment run in any
@@ -725,6 +784,42 @@ if __name__ == "__main__":
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields, table_ocr_preds=table_ocr_preds)
         assert [b for b in boxes if b["field"] == "total_assets"] == []
 
+    def test_balance_sheet_field_disambiguates_duplicate_value_by_row_label():
+        # Issue #293 -- confirmed real: a synthetic document had three
+        # separate cells sharing the exact same dollar value on one
+        # page, and first-match-wins picked the wrong one every time.
+        # Two cells here share $100,000: row A's label is "Total
+        # Liabilities" (wrong field for this lookup), row B's is
+        # "Total Equity" (correct). Row A's value cell is listed FIRST
+        # in cell_boxes, to prove this isn't accidental first-match
+        # luck -- the fix must actively prefer row B via its label.
+        table_ocr_preds = [
+            {
+                "texts": ["Total", "Liabilities", "$100,", "000", "Total", "Equity", "$100,", "000"],
+                "boxes": [
+                    [10, 20, 50, 35], [55, 20, 100, 35],
+                    [105, 20, 150, 35], [105, 35, 150, 50],
+                    [10, 60, 50, 75], [55, 60, 100, 75],
+                    [105, 60, 150, 75], [105, 75, 150, 90],
+                ],
+                "cell_boxes": [
+                    [100, 15, 155, 55],
+                    [100, 55, 155, 95],
+                    [5, 15, 95, 55],
+                    [5, 55, 95, 95],
+                ],
+            }
+        ]
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_empty_word_reconstruction):
+            fields = {"total_equity": 100000.0}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields, table_ocr_preds=table_ocr_preds)
+        equity_boxes = [b for b in boxes if b["field"] == "total_equity"]
+        assert len(equity_boxes) == 1
+        # Row B's value cell starts at pixel y=60 -- confirm the
+        # returned box is row B's, not row A's (y=20, which
+        # first-match-wins alone would have returned).
+        assert abs(equity_boxes[0]["y_pct"] - 60 / 100) < 1e-9
+
     def test_boxes_to_composite_pct_single_page_is_identity():
         # Issue #286 -- a single-page document must reduce to exactly the
         # box's own original page-local pct, unchanged (offset 0,
@@ -786,6 +881,7 @@ if __name__ == "__main__":
         test_balance_sheet_field_absent_produces_no_span,
         test_balance_sheet_field_box_found_via_table_cell,
         test_balance_sheet_field_no_matching_cell_produces_no_box,
+        test_balance_sheet_field_disambiguates_duplicate_value_by_row_label,
         test_boxes_to_composite_pct_single_page_is_identity,
         test_boxes_to_composite_pct_offsets_later_pages,
         test_boxes_to_composite_pct_pads_narrower_page_width,
