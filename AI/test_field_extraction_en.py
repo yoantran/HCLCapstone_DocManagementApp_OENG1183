@@ -339,6 +339,22 @@ def test_balance_sheet_section_carries_across_two_calls():
     assert page2_fields_nocarry["total_current_liabilities"] is None
 
 
+def test_balance_sheet_bare_total_resolves_when_values_precede_it():
+    # Issue #298 -- confirmed real on 3 independent documents
+    # (Balance-sheet-template-FILLED-302/307/312_p2.png): some
+    # templates put "Total" as the LAST cell in its row, with every
+    # value BEFORE it -- reversed from the assumed "label first,
+    # values after" shape _resolve_value's forward search expects.
+    # Rightmost value wins (no header detected here), same convention
+    # as the forward-order case.
+    rows = [
+        ["Current/short term liabilities"],
+        ["$78,000", "$80,000", "$55,000", "$94,000", "$129,000", "Total"],
+    ]
+    fields, _ = extract_balance_sheet_fields_en(rows)
+    assert fields["total_current_liabilities"] == 129000.0
+
+
 def test_balance_sheet_section_header_tolerates_despaced_short_term():
     # Issue #297 -- real OCR on Balance-sheet-template-FILLED-300_p1.png
     # recovers this header as "Curr ent/ short term liabil ities" --
