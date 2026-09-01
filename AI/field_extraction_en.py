@@ -618,16 +618,26 @@ def _resolve_value(
     col_offset: int,
     prefer_col: int | None = None,
 ) -> float | None:
-    candidate = _last_numeric_cell(row[i + 1:], start_col=i + 1, prefer_col=prefer_col)
+    # Issue #298 -- some real templates put the bare "Total" label LAST
+    # in its row, values BEFORE it (reversed from "label first, values
+    # after") -- confirmed real on 3 documents, e.g. ['$78,000',
+    # '$80,000', '$55,000', '$94,000', '$129,000', 'Total'].
+    #
+    # Issue #301 -- tried BEFORE the forward search (not just as its
+    # fallback) because "Total" isn't always at either end -- confirmed
+    # real on 2 documents where it sits in the MIDDLE, e.g. ['$81,000',
+    # '$99,000', '$143,000', '$87,000', 'Total', '$56,000']. The
+    # trailing "$56,000" is a spurious cell (not the real value; ground
+    # truth wants $87,000, immediately preceding "Total"), but the
+    # forward search finds it and stops before ever trying backward --
+    # trying backward first fixes this without disturbing the other two
+    # confirmed shapes (Total-first: row[:0] is empty, falls through to
+    # forward unchanged; Total-last: forward was already empty anyway).
+    # start_col=0 since row[:i]'s own indices already are the row's
+    # real absolute column positions, no offset needed.
+    candidate = _last_numeric_cell(row[:i], start_col=0, prefer_col=prefer_col)
     if candidate is None:
-        # Issue #298 -- some real templates put the bare "Total" label
-        # LAST in its row, values BEFORE it (reversed from the assumed
-        # "label first, values after" shape the forward search above
-        # expects) -- confirmed real on 3 independent documents, e.g.
-        # ['$78,000', '$80,000', '$55,000', '$94,000', '$129,000',
-        # 'Total']. start_col=0 since row[:i]'s own indices already are
-        # the row's real absolute column positions, no offset needed.
-        candidate = _last_numeric_cell(row[:i], start_col=0, prefer_col=prefer_col)
+        candidate = _last_numeric_cell(row[i + 1:], start_col=i + 1, prefer_col=prefer_col)
     if candidate is None:
         next_row = _next_nonempty_row(table_rows, row_idx + 1)
         if next_row is not None:
