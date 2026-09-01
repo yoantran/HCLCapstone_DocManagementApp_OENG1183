@@ -355,6 +355,21 @@ def test_balance_sheet_bare_total_resolves_when_values_precede_it():
     assert fields["total_current_liabilities"] == 129000.0
 
 
+def test_balance_sheet_bare_total_prefers_value_before_over_trailing_cell():
+    # Issue #301 -- confirmed real on 2 independent documents
+    # (Balance-sheet-template-FILLED-314/317_p2.png): "Total" can sit
+    # in the MIDDLE of its row, with a spurious cell trailing it. Ground
+    # truth confirmed the value immediately BEFORE "Total" ($87,000) is
+    # correct, not the trailing cell ($56,000) the forward search alone
+    # would find first.
+    rows = [
+        ["Current/short term liabilities"],
+        ["$81,000", "$99,000", "$143,000", "$87,000", "Total", "$56,000"],
+    ]
+    fields, _ = extract_balance_sheet_fields_en(rows)
+    assert fields["total_current_liabilities"] == 87000.0
+
+
 def test_balance_sheet_section_header_tolerates_despaced_short_term():
     # Issue #297 -- real OCR on Balance-sheet-template-FILLED-300_p1.png
     # recovers this header as "Curr ent/ short term liabil ities" --
