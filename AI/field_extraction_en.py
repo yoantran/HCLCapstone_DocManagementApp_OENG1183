@@ -620,6 +620,15 @@ def _resolve_value(
 ) -> float | None:
     candidate = _last_numeric_cell(row[i + 1:], start_col=i + 1, prefer_col=prefer_col)
     if candidate is None:
+        # Issue #298 -- some real templates put the bare "Total" label
+        # LAST in its row, values BEFORE it (reversed from the assumed
+        # "label first, values after" shape the forward search above
+        # expects) -- confirmed real on 3 independent documents, e.g.
+        # ['$78,000', '$80,000', '$55,000', '$94,000', '$129,000',
+        # 'Total']. start_col=0 since row[:i]'s own indices already are
+        # the row's real absolute column positions, no offset needed.
+        candidate = _last_numeric_cell(row[:i], start_col=0, prefer_col=prefer_col)
+    if candidate is None:
         next_row = _next_nonempty_row(table_rows, row_idx + 1)
         if next_row is not None:
             col = i + col_offset
