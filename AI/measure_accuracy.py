@@ -92,6 +92,14 @@ def score() -> None:
     totals = {f: 0 for f in SCALAR_FIELDS | LIST_FIELDS | set(BALANCE_SHEET_FIELDS)}
     correct = {f: 0 for f in SCALAR_FIELDS | LIST_FIELDS | set(BALANCE_SHEET_FIELDS)}
     income_total = income_correct = 0
+    # Issue #313 -- annual_salary had zero systematic measurement despite
+    # every other field being 100% covered: _fill_templates.py never
+    # recorded its generated value as ground truth (it fell into the
+    # generic "$00,000" placeholder pass untracked, only ever counted as
+    # a "salary" list entry), so this scoring path never existed. Same
+    # shape as income (a single parsed float, no exact printed-string
+    # form to compare against), not SCALAR_FIELDS's plain string equality.
+    annual_salary_total = annual_salary_correct = 0
     misses = []
 
     for src, dst, seed in manifest:
@@ -133,6 +141,16 @@ def score() -> None:
             else:
                 misses.append((dst, "income", [gt_income[0]], (got, got_basis)))
 
+        gt_annual_salary = ground_truth.get("annual_salary")
+        if gt_annual_salary:
+            annual_salary_total += 1
+            expected = parse_currency_amount(gt_annual_salary[0])
+            got = extracted.get("annual_salary")
+            if got is not None and expected is not None and abs(got - expected) < 0.01:
+                annual_salary_correct += 1
+            else:
+                misses.append((dst, "annual_salary", [gt_annual_salary[0]], got))
+
         for field in BALANCE_SHEET_FIELDS:
             gt_values = ground_truth.get(field, [])
             if not gt_values:
@@ -159,6 +177,10 @@ def score() -> None:
         out.write(f"  {'income':15s}: {income_correct:3d} / {income_total:3d}  ({income_pct})\n")
         overall_correct += income_correct
         overall_total += income_total
+        annual_salary_pct = f"{100 * annual_salary_correct / annual_salary_total:.1f}%" if annual_salary_total else "n/a"
+        out.write(f"  {'annual_salary':15s}: {annual_salary_correct:3d} / {annual_salary_total:3d}  ({annual_salary_pct})\n")
+        overall_correct += annual_salary_correct
+        overall_total += annual_salary_total
         for field in BALANCE_SHEET_FIELDS:
             t, c = totals[field], correct[field]
             pct = f"{100 * c / t:.1f}%" if t else "n/a (no ground truth)"
