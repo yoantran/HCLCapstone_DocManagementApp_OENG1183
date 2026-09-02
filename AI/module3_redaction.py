@@ -233,10 +233,7 @@ def _words_overlapping_span(word_spans: list[dict], start: int, end: int) -> lis
 # clip trailing serifs/anti-aliasing), the redacted rectangle inherits
 # that tightness with nothing to correct it. Margin is a percentage of
 # the box's own height (not a fixed pixel count) so it scales naturally
-# across different image resolutions and font sizes. Horizontal only,
-# matching the confirmed evidence -- no vertical clipping was observed
-# in either inspection, so top/bottom stay exactly as detected rather
-# than expanding on an unconfirmed dimension.
+# across different image resolutions and font sizes.
 #
 # Asymmetric on purpose, not a guess: a first pass shipped 15% on both
 # sides, but re-inspecting at 5x pixel zoom after a follow-up report
@@ -255,14 +252,51 @@ def _words_overlapping_span(word_spans: list[dict], start: int, end: int) -> lis
 _LEFT_MARGIN_PCT = 0.35
 _RIGHT_MARGIN_PCT = 0.15
 
+# Issue #310 -- originally this union added no vertical margin at all
+# ("no vertical clipping was observed in either inspection" -- true at
+# the time, checked only against payslip images). The contract redaction
+# IoU audit found a real counter-example: rendered a real computed box
+# onto a real contract image at 8x zoom and the BOTTOM edge clipped a
+# descender's tail ("King"'s "g"), the same class of tight-OCR-box
+# clipping already confirmed horizontally above, just never observed
+# vertically before. No top/ascender clipping was found in the same
+# inspection, so top stays untouched -- same "don't expand on an
+# unconfirmed dimension" discipline the original comment already used,
+# just now correctly scoped to top only. Tested 15%/25%/35% at 8x zoom
+# against the same real descender: 15% and 25% still left a sliver of
+# the tail exposed, 35% was the first value that fully covered it,
+# matching _LEFT_MARGIN_PCT's own value from the same kind of test.
+# Verified this also closes all 4 real IoU misses found by the audit
+# (0.468-0.488 -> 0.638-0.787, all now above the 0.5 threshold) by
+# recomputing IoU against redaction_ground_truth.json's real boxes, not
+# just visual inspection.
+_BOTTOM_MARGIN_PCT = 0.35
 
-def _union_box(words: list[dict]) -> tuple[int, int, int, int]:
+
+def _union_box(words: list[dict], all_words: list[dict]) -> tuple[int, int, int, int]:
     x1 = min(w["box"][0] for w in words)
     y1 = min(w["box"][1] for w in words)
     x2 = max(w["box"][2] for w in words)
     y2 = max(w["box"][3] for w in words)
     h = y2 - y1
-    return x1 - round(h * _LEFT_MARGIN_PCT), y1, x2 + round(h * _RIGHT_MARGIN_PCT), y2
+
+    # Issue #310 -- clamp the bottom margin to at most half the real gap
+    # to the next word below (in the SAME OCR pass's own coordinates --
+    # confirmed real gaps between contract text lines run ~28px here,
+    # comfortably wider than the ~7px margin this normally adds, but
+    # nothing upstream guarantees that on every document/layout). Without
+    # this, a document with genuinely tight line spacing could have this
+    # margin bleed the redaction box into an unrelated line below --
+    # worse than the clipping it's meant to fix. own_boxes excludes this
+    # field's own words so a multi-word/multi-line field's later word
+    # never counts as "the next line."
+    own_boxes = {tuple(w["box"]) for w in words}
+    below_tops = [w["box"][1] for w in all_words if tuple(w["box"]) not in own_boxes and w["box"][1] >= y2]
+    bottom_margin = round(h * _BOTTOM_MARGIN_PCT)
+    if below_tops:
+        bottom_margin = min(bottom_margin, max((min(below_tops) - y2) // 2, 0))
+
+    return x1 - round(h * _LEFT_MARGIN_PCT), y1, x2 + round(h * _RIGHT_MARGIN_PCT), y2 + bottom_margin
 
 
 def _matches_accepted_value(field: str, cleaned: str, fields: dict) -> bool:
@@ -270,14 +304,17 @@ def _matches_accepted_value(field: str, cleaned: str, fields: dict) -> bool:
 
 
 def _box_pct(box: tuple[int, int, int, int], img_h: int, img_w: int) -> dict:
-    # Clamp -- _union_box's new horizontal margin can push x1 below 0 or x2
-    # past img_w for a value sitting near the page edge; an unclamped
-    # negative/over-bound x_pct or w_pct would be a real invalid percentage
-    # downstream (redaction coordinates are documented as percentages,
-    # never absolute pixels, and never negative).
+    # Clamp -- _union_box's horizontal margin can push x1 below 0 or x2
+    # past img_w for a value sitting near the page edge, and (#310) its
+    # bottom margin can now push y2 past img_h the same way for a value
+    # sitting near the page's bottom edge; an unclamped negative/over-bound
+    # percentage would be a real invalid percentage downstream (redaction
+    # coordinates are documented as percentages, never absolute pixels,
+    # never negative).
     x1, y1, x2, y2 = box
     x1 = max(x1, 0)
     x2 = min(x2, img_w)
+    y2 = min(y2, img_h)
     return {
         "x_pct": x1 / img_w,
         "y_pct": y1 / img_h,
@@ -456,7 +493,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                 {
                     "field": field,
                     "value": value,
-                    **_box_pct(_union_box(overlapping), img_h, img_w),
+                    **_box_pct(_union_box(overlapping, word_spans), img_h, img_w),
                     "detection_method": "regex",
                 }
             )
@@ -483,7 +520,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                 {
                     "field": field,
                     "value": cleaned,
-                    **_box_pct(_union_box(overlapping), img_h, img_w),
+                    **_box_pct(_union_box(overlapping, word_spans), img_h, img_w),
                     "detection_method": "regex",
                 }
             )
@@ -518,7 +555,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                     {
                         "field": field,
                         "value": target,
-                        **_box_pct(_union_box(overlapping), img_h, img_w),
+                        **_box_pct(_union_box(overlapping, word_spans), img_h, img_w),
                         "detection_method": "regex",
                     }
                 )
@@ -542,7 +579,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                 {
                     "field": "annual_salary",
                     "value": cleaned,
-                    **_box_pct(_union_box(overlapping), img_h, img_w),
+                    **_box_pct(_union_box(overlapping, word_spans), img_h, img_w),
                     "detection_method": "regex",
                 }
             )
@@ -568,7 +605,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                         {
                             "field": "income",
                             "value": cleaned,
-                            **_box_pct(_union_box(overlapping), img_h, img_w),
+                            **_box_pct(_union_box(overlapping, word_spans), img_h, img_w),
                             "detection_method": "regex",
                         }
                     )
@@ -596,7 +633,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                     {
                         "field": "income",
                         "value": amount_match.group(0),
-                        **_box_pct(_union_box(overlapping), img_h, img_w),
+                        **_box_pct(_union_box(overlapping, word_spans), img_h, img_w),
                         "detection_method": "regex",
                     }
                 )
@@ -825,9 +862,10 @@ if __name__ == "__main__":
     def test_single_word_box():
         # Real confirmed fix, asymmetric: box height is 35-20=15, so
         # left margin = round(15*0.35) = 5px, right margin = round(15*0.15)
-        # = 2px; x1=95-5=90, x2=150+2=152. y1/y2 stay exact -- margin is
-        # horizontal only (matches the confirmed evidence; no vertical
-        # clipping was observed in either inspection).
+        # = 2px; x1=95-5=90, x2=150+2=152. y1 stays exact -- no ascender
+        # clipping was ever observed. y2 gets a #310 bottom margin =
+        # round(15*0.35) = 5px (no words below in this fixture to clamp
+        # against) -> y2=35+5=40.
         with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_word_reconstruction):
             fields = {"account_number": "1234 5678"}
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
@@ -837,7 +875,7 @@ if __name__ == "__main__":
         assert abs(acct_boxes[0]["x_pct"] - 90 / 400) < 1e-6
         assert abs(acct_boxes[0]["y_pct"] - 20 / 100) < 1e-6
         assert abs(acct_boxes[0]["w_pct"] - (152 - 90) / 400) < 1e-6
-        assert abs(acct_boxes[0]["h_pct"] - (35 - 20) / 100) < 1e-6
+        assert abs(acct_boxes[0]["h_pct"] - (40 - 20) / 100) < 1e-6
 
 
     def test_union_box_margin_clamps_at_image_edge():
@@ -861,6 +899,29 @@ if __name__ == "__main__":
         assert len(acct_boxes) == 1
         assert acct_boxes[0]["x_pct"] == 0.0
         assert abs(acct_boxes[0]["x_pct"] + acct_boxes[0]["w_pct"] - 1.0) < 1e-6
+
+    def test_union_box_bottom_margin_clamped_by_gap_to_next_line():
+        # Issue #310 -- without clamping, this box's own #310 bottom
+        # margin (round(15*0.35)=5px) would push y2 from 35 to 40,
+        # crossing into "Next" which starts at y=37 -- only a 2px real
+        # gap. Clamped to half that gap (1px) instead: y2=35+1=36.
+        def _fake_tight_line_spacing(*args, **kwargs):
+            text = "Account: 1234 5678\nNext line"
+            word_spans = [
+                {"word": "Account:", "box": (10, 20, 90, 35), "start": 0, "end": 8},
+                {"word": "1234", "box": (95, 20, 120, 35), "start": 9, "end": 13},
+                {"word": "5678", "box": (125, 20, 150, 35), "start": 14, "end": 18},
+                {"word": "Next", "box": (10, 37, 50, 50), "start": 20, "end": 24},
+            ]
+            return text, word_spans
+
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_tight_line_spacing):
+            fields = {"account_number": "1234 5678"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        acct_boxes = [b for b in boxes if b["field"] == "account_number"]
+        assert len(acct_boxes) == 1
+        assert abs(acct_boxes[0]["y_pct"] - 20 / 100) < 1e-6
+        assert abs(acct_boxes[0]["h_pct"] - (36 - 20) / 100) < 1e-6
 
     def test_absent_field_no_box():
         with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_word_reconstruction):
@@ -1203,6 +1264,7 @@ if __name__ == "__main__":
         test_all_spans_satisfy_text_slice_invariant,
         test_single_word_box,
         test_union_box_margin_clamps_at_image_edge,
+        test_union_box_bottom_margin_clamped_by_gap_to_next_line,
         test_absent_field_no_box,
         test_value_not_in_fields_produces_no_box,
         test_annual_salary_field_produces_box,
