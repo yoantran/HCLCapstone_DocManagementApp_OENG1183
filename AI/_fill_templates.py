@@ -287,6 +287,18 @@ PAYSLIP_LABEL_FILLERS = [
     (re.compile(r"Account\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_account_number, "account_number"),
 ]
 
+# Issue #313 -- the template's real placeholder text is "*Annual salary:
+# [if applicable] $00,000" (confirmed via direct inspection), the exact
+# same "$00,000" shape _apply_numeric_placeholders already blanket-fills
+# with no label awareness -- which is exactly why this value went
+# untracked as its own field before now: it silently fell into the
+# generic pass and only ever got recorded as a "salary" list entry, never
+# as "annual_salary". Handled here instead, BEFORE _apply_numeric_
+# placeholders runs on the same paragraph text, so once this replaces the
+# literal "$00,000" the generic pass's `_DOLLAR_THOUSANDS_RE` no longer
+# matches it -- no double-counting into the "salary" list.
+ANNUAL_SALARY_PLACEHOLDER_RE = re.compile(r"Annual\s*salary\s*:\s*\[if applicable\]\s*(\$00,000)", re.IGNORECASE)
+
 
 def fill_docx_payslip(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
     if seed is not None:
@@ -300,6 +312,17 @@ def fill_docx_payslip(src_path: str, dst_path: str, seed: int | None = None) -> 
     def record(field_key: str, value: str) -> None:
         ground_truth.setdefault(field_key, []).append(value)
 
+    # Issue #313 -- ANNUAL_SALARY_PLACEHOLDER_RE only matches the literal
+    # "$00,000" placeholder text; the "Annual salary" cell is visited
+    # twice (same merged-cell paragraph-aliasing already documented for
+    # employer/pay-period elsewhere in this file), but the first visit's
+    # replacement makes the placeholder gone by the second visit, so it
+    # naturally never re-matches -- confirmed via direct testing, not
+    # assumed. No risk of two independently-randomized values.
+    label_fillers = PAYSLIP_LABEL_FILLERS + [
+        (ANNUAL_SALARY_PLACEHOLDER_RE, fake_dollar_thousands, "annual_salary"),
+    ]
+
     for table in doc.tables:
         for row in table.rows:
             row_label = row.cells[0].text.strip().lower()
@@ -308,7 +331,7 @@ def fill_docx_payslip(src_path: str, dst_path: str, seed: int | None = None) -> 
                     text = p.text
                     if not text.strip():
                         continue
-                    new_text, recorded = _apply_label_fillers(text, PAYSLIP_LABEL_FILLERS)
+                    new_text, recorded = _apply_label_fillers(text, label_fillers)
                     new_text, salary_values = _apply_numeric_placeholders(new_text)
                     if new_text != text:
                         _set_paragraph_text(p, new_text)
