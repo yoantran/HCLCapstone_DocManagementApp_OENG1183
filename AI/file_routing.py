@@ -127,12 +127,14 @@ def stack_pages_vertically(images: list[np.ndarray]) -> np.ndarray:
 
 
 def convert_docx_to_pdf_bytes(docx_bytes: bytes, timeout: float = 60.0) -> bytes:
-    """Issue #208 -- lets a docx reuse render_pdf_first_page and
-    resolve_item_boxes_via_pdf_text unchanged, by converting it to a PDF
-    first (same mechanism measure_accuracy_image.py's docx_to_pngs already
-    proved out, minus the multi-page loop -- this pipeline only ever
-    redacts page 1, same simplification render_pdf_first_page already
-    makes). A unique -env:UserInstallation profile directory per call is
+    """Issue #208 -- lets a docx reuse render_pdf_all_pages/
+    render_pdf_first_page and resolve_item_boxes_via_pdf_text unchanged, by
+    converting it to a PDF first (same mechanism measure_accuracy_image.py's
+    docx_to_pngs already proved out). Issue #283 -- main.py's caller renders
+    every page for a text-native item's span, not just page 1 (see
+    render_pdf_all_pages's own docstring); this function only handles the
+    docx->pdf conversion step, the multi-page-vs-first-page choice is the
+    caller's. A unique -env:UserInstallation profile directory per call is
     required, not optional -- concurrent soffice invocations sharing the
     default profile lock each other out under real concurrent requests,
     not just a hypothetical race. Must be a proper file:// URI
