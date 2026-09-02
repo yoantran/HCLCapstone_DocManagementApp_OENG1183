@@ -6,11 +6,13 @@ from field_extraction_en import (
     ABN_RE,
     PHONE_RE,
     SALARY_RE,
+    ANNUAL_SALARY_RE,
     LABEL_PATTERNS,
     INCOME_LABEL_PATTERNS,
     BALANCE_SHEET_VALUE_PATTERNS,
     _BALANCE_SHEET_LABEL_RE,
     _clean_label_value,
+    parse_currency_amount,
     parse_currency_amount_balance_sheet,
 )
 
@@ -23,10 +25,11 @@ _REGEX_LIST_FIELDS = {
 # Field keys Module 3 is configured to detect and redact -- derived from
 # the detectors themselves (not detection results), so a real detection
 # miss on a given document degrades to a missing black box rather than
-# silently reporting the field as "safe to show raw." annual_salary has
-# no dedicated regex/label detector but is still a real sensitive field
-# extracted by field_extraction_en.py -- included explicitly so it's
-# never silently omitted.
+# silently reporting the field as "safe to show raw." annual_salary isn't
+# in any of the dicts above (it has its own ANNUAL_SALARY_RE-based
+# detector, handled separately in find_sensitive_spans/find_sensitive_boxes
+# -- see #305) so it's included explicitly here too, otherwise it would be
+# silently omitted from this set despite being a real detected field.
 SENSITIVE_FIELD_KEYS = sorted(
     set(_REGEX_LIST_FIELDS)
     | set(LABEL_PATTERNS)
@@ -96,6 +99,34 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
             spans.append(
                 {
                     "field": field,
+                    "value": cleaned,
+                    "start": start,
+                    "end": end,
+                    "detection_method": "regex",
+                }
+            )
+
+    # Issue #305 -- annual_salary is in SENSITIVE_FIELD_KEYS (so BE
+    # correctly strips it from aiResult.fields) but had no detector here at
+    # all: 25/25 real payslips with a correctly-extracted annual_salary got
+    # zero redaction spans, leaving the real dollar figure fully visible in
+    # the rendered preview. ANNUAL_SALARY_RE's group(1) is already the
+    # clean "$67,000" value (not a raw rest-of-line capture), so this can
+    # cross-check against the already-parsed target directly -- same
+    # "search for the value, not just the label" rigor #289/#303 use.
+    if fields.get("annual_salary") is not None:
+        target = fields["annual_salary"]
+        for match in ANNUAL_SALARY_RE.finditer(text):
+            result = _cleaned_span(match)
+            if result is None:
+                continue
+            cleaned, start, end = result
+            amount = parse_currency_amount(cleaned)
+            if amount is None or abs(amount - target) >= 0.01:
+                continue
+            spans.append(
+                {
+                    "field": "annual_salary",
                     "value": cleaned,
                     "start": start,
                     "end": end,
@@ -456,6 +487,29 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                 }
             )
 
+    # Issue #305 -- box-side counterpart to the span-side fix above.
+    if fields.get("annual_salary") is not None:
+        target = fields["annual_salary"]
+        for match in ANNUAL_SALARY_RE.finditer(text):
+            result = _cleaned_span(match)
+            if result is None:
+                continue
+            cleaned, start, end = result
+            amount = parse_currency_amount(cleaned)
+            if amount is None or abs(amount - target) >= 0.01:
+                continue
+            overlapping = _words_overlapping_span(word_spans, start, end)
+            if not overlapping:
+                continue
+            boxes.append(
+                {
+                    "field": "annual_salary",
+                    "value": cleaned,
+                    **_box_pct(_union_box(overlapping), img_h, img_w),
+                    "detection_method": "regex",
+                }
+            )
+
     if fields.get("income") is not None:
         # income's fields value is a parsed float, not the raw printed
         # string -- unlike the other label-anchored fields, there's no
@@ -651,6 +705,24 @@ if __name__ == "__main__":
         assert len(income_spans) == 1
         assert income_spans[0]["value"] == "$718.66"
 
+    def test_annual_salary_field_produces_span():
+        # Issue #305 -- annual_salary was in SENSITIVE_FIELD_KEYS but had
+        # zero span detection: 25/25 real payslips with a correctly-
+        # extracted annual_salary got no redaction span for it.
+        text = "*Annual salary: [if applicable]\n$67,000\nOther figure: $50,000"
+        fields = {"annual_salary": 67000.0}
+        spans = find_sensitive_spans(text, fields)
+        salary_spans = [s for s in spans if s["field"] == "annual_salary"]
+        assert len(salary_spans) == 1
+        assert salary_spans[0]["value"] == "$67,000"
+        assert text[salary_spans[0]["start"]:salary_spans[0]["end"]] == "$67,000"
+
+    def test_annual_salary_field_absent_produces_no_span():
+        text = "Annual salary: $67,000"
+        fields = {"annual_salary": None}
+        spans = find_sensitive_spans(text, fields)
+        assert [s for s in spans if s["field"] == "annual_salary"] == []
+
     def test_all_spans_satisfy_text_slice_invariant():
         text = (
             "ABN: 12 345 978 910\n"
@@ -735,6 +807,30 @@ if __name__ == "__main__":
             fields = {"account_number": "9999 9999"}
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
         assert [b for b in boxes if b["field"] == "account_number"] == []
+
+    def _fake_annual_salary_reconstruction(*args, **kwargs):
+        text = "Annual salary: $67,000"
+        word_spans = [
+            {"word": "Annual", "box": (10, 20, 60, 35), "start": 0, "end": 6},
+            {"word": "salary:", "box": (65, 20, 120, 35), "start": 7, "end": 14},
+            {"word": "$67,000", "box": (125, 20, 180, 35), "start": 15, "end": 22},
+        ]
+        return text, word_spans
+
+    def test_annual_salary_field_produces_box():
+        # Issue #305 -- box-side counterpart to the span-side fix above.
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_annual_salary_reconstruction):
+            fields = {"annual_salary": 67000.0}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        salary_boxes = [b for b in boxes if b["field"] == "annual_salary"]
+        assert len(salary_boxes) == 1
+        assert salary_boxes[0]["value"] == "$67,000"
+
+    def test_annual_salary_field_absent_produces_no_box():
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_annual_salary_reconstruction):
+            fields = {"annual_salary": None}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        assert [b for b in boxes if b["field"] == "annual_salary"] == []
 
     def test_apply_redaction_image_blacks_out_region_only():
         image = np.full((100, 200, 3), 255, dtype=np.uint8)  # all white
@@ -983,11 +1079,15 @@ if __name__ == "__main__":
         test_label_anchored_field_does_not_redact_a_different_value,
         test_absent_field_produces_no_span,
         test_income_field_uses_matching_basis_pattern,
+        test_annual_salary_field_produces_span,
+        test_annual_salary_field_absent_produces_no_span,
         test_all_spans_satisfy_text_slice_invariant,
         test_single_word_box,
         test_union_box_margin_clamps_at_image_edge,
         test_absent_field_no_box,
         test_value_not_in_fields_produces_no_box,
+        test_annual_salary_field_produces_box,
+        test_annual_salary_field_absent_produces_no_box,
         test_apply_redaction_image_blacks_out_region_only,
         test_apply_redaction_image_no_items_returns_unchanged_copy,
         test_balance_sheet_totals_are_sensitive_field_keys,
