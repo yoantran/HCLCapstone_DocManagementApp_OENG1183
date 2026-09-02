@@ -461,6 +461,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                 }
             )
 
+    fields_boxed = set()
     for field, pattern in LABEL_PATTERNS.items():
         if not fields.get(field):
             continue
@@ -486,6 +487,42 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                     "detection_method": "regex",
                 }
             )
+            fields_boxed.add(field)
+
+    # Issue #306 -- build_word_reconstruction's own per-line "\n" join can
+    # split a label from its value onto separate OCR lines exactly like
+    # module2_ocr_extraction._repair_line_split_fields already works
+    # around on the extraction side (its spatial adjacent-box lookup, not
+    # a flat-text regex) -- but there was no equivalent repair here, so a
+    # value recovered via that repair got zero boxes even though the same
+    # label pattern loop above never found a same-line match to reject.
+    # Confirmed real: a photographed payslip's name/income, both extracted
+    # correctly via the repair, produced zero boxes -- every box came back
+    # tagged for an unrelated field. Falls back to searching for the
+    # ALREADY-KNOWN value directly, same "search for the value, not just
+    # the label" approach #289/#303/#305 already use for their own
+    # versions of this exact limitation.
+    for field in LABEL_PATTERNS:
+        target = fields.get(field)
+        if not target or field in fields_boxed:
+            continue
+        search_from = 0
+        while True:
+            idx = text.find(target, search_from)
+            if idx == -1:
+                break
+            end = idx + len(target)
+            overlapping = _words_overlapping_span(word_spans, idx, end)
+            if overlapping:
+                boxes.append(
+                    {
+                        "field": field,
+                        "value": target,
+                        **_box_pct(_union_box(overlapping), img_h, img_w),
+                        "detection_method": "regex",
+                    }
+                )
+            search_from = end
 
     # Issue #305 -- box-side counterpart to the span-side fix above.
     if fields.get("annual_salary") is not None:
@@ -518,6 +555,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
         # Accept the first clean match, same limitation find_sensitive_spans
         # already has for this field.
         pattern = INCOME_LABEL_PATTERNS.get(fields.get("income_basis"))
+        income_boxed = False
         if pattern is not None:
             for match in pattern.finditer(text):
                 result = _cleaned_span(match)
@@ -534,6 +572,34 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                             "detection_method": "regex",
                         }
                     )
+                    income_boxed = True
+                break
+
+        if not income_boxed:
+            # Issue #306 -- same label/value OCR-line split as the
+            # fallback above, but income has no fixed printed string form
+            # to search for literally (a parsed float, same limitation the
+            # comment above already notes) -- falls back to scanning for a
+            # "$"-shaped bare amount whose PARSED value matches the
+            # already-known target, same approach the balance-sheet (#303)
+            # and annual_salary (#305) fallbacks already use for this
+            # exact limitation.
+            target = fields["income"]
+            for amount_match in _BALANCE_SHEET_BARE_AMOUNT_RE.finditer(text):
+                amount = parse_currency_amount(amount_match.group(0))
+                if amount is None or abs(amount - target) >= 0.01:
+                    continue
+                overlapping = _words_overlapping_span(word_spans, amount_match.start(), amount_match.end())
+                if not overlapping:
+                    continue
+                boxes.append(
+                    {
+                        "field": "income",
+                        "value": amount_match.group(0),
+                        **_box_pct(_union_box(overlapping), img_h, img_w),
+                        "detection_method": "regex",
+                    }
+                )
                 break
 
     if any(fields.get(f) is not None for f in BALANCE_SHEET_VALUE_PATTERNS):
@@ -832,6 +898,59 @@ if __name__ == "__main__":
             boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
         assert [b for b in boxes if b["field"] == "annual_salary"] == []
 
+    def _fake_label_value_split_reconstruction(*args, **kwargs):
+        # Simulates the real confirmed failure (#306): label and value land
+        # on separate OCR lines, so LABEL_PATTERNS's same-line capture is
+        # empty and the loop above finds nothing to reject or accept.
+        text = "Employee:\nRymer, Mark\n"
+        word_spans = [
+            {"word": "Employee:", "box": (10, 5, 70, 20), "start": 0, "end": 9},
+            {"word": "Rymer,", "box": (10, 25, 60, 40), "start": 10, "end": 16},
+            {"word": "Mark", "box": (65, 25, 100, 40), "start": 17, "end": 21},
+        ]
+        return text, word_spans
+
+    def test_label_value_line_split_falls_back_to_value_search_for_box():
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_label_value_split_reconstruction):
+            fields = {"name": "Rymer, Mark"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        name_boxes = [b for b in boxes if b["field"] == "name"]
+        assert len(name_boxes) == 1
+        assert name_boxes[0]["value"] == "Rymer, Mark"
+
+    def test_label_value_fallback_does_not_duplicate_when_same_line_already_boxed():
+        def _fake_same_line(*args, **kwargs):
+            text = "Employee: Rymer, Mark\n"
+            word_spans = [
+                {"word": "Employee:", "box": (10, 5, 70, 20), "start": 0, "end": 9},
+                {"word": "Rymer,", "box": (75, 5, 120, 20), "start": 10, "end": 16},
+                {"word": "Mark", "box": (125, 5, 160, 20), "start": 17, "end": 21},
+            ]
+            return text, word_spans
+
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_same_line):
+            fields = {"name": "Rymer, Mark"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        name_boxes = [b for b in boxes if b["field"] == "name"]
+        assert len(name_boxes) == 1
+
+    def test_income_line_split_falls_back_to_bare_amount_search_for_box():
+        def _fake_income_split(*args, **kwargs):
+            text = "Gross Pay\n$718.66\n"
+            word_spans = [
+                {"word": "Gross", "box": (10, 5, 50, 20), "start": 0, "end": 5},
+                {"word": "Pay", "box": (55, 5, 80, 20), "start": 6, "end": 9},
+                {"word": "$718.66", "box": (10, 25, 70, 40), "start": 10, "end": 17},
+            ]
+            return text, word_spans
+
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_income_split):
+            fields = {"income": 718.66, "income_basis": "gross"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        income_boxes = [b for b in boxes if b["field"] == "income"]
+        assert len(income_boxes) == 1
+        assert income_boxes[0]["value"] == "$718.66"
+
     def test_apply_redaction_image_blacks_out_region_only():
         image = np.full((100, 200, 3), 255, dtype=np.uint8)  # all white
         items = [{"field": "bsb", "value": "x", "x_pct": 0.25, "y_pct": 0.25, "w_pct": 0.25, "h_pct": 0.25}]
@@ -1088,6 +1207,9 @@ if __name__ == "__main__":
         test_value_not_in_fields_produces_no_box,
         test_annual_salary_field_produces_box,
         test_annual_salary_field_absent_produces_no_box,
+        test_label_value_line_split_falls_back_to_value_search_for_box,
+        test_label_value_fallback_does_not_duplicate_when_same_line_already_boxed,
+        test_income_line_split_falls_back_to_bare_amount_search_for_box,
         test_apply_redaction_image_blacks_out_region_only,
         test_apply_redaction_image_no_items_returns_unchanged_copy,
         test_balance_sheet_totals_are_sensitive_field_keys,
