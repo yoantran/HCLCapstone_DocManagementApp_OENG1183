@@ -49,6 +49,16 @@ def _cleaned_span(match: re.Match) -> tuple[str, int, int] | None:
     return cleaned, start, start + len(cleaned)
 
 
+# Issue #303 -- candidate finder for the balance-sheet value fallback
+# below. Requires a literal "$" prefix -- every real balance-sheet
+# dollar figure seen across this whole project's real templates has
+# one, and requiring it avoids false-matching an unrelated bare
+# number (a page number, a date, a ratio) that happens to equal the
+# target. parse_currency_amount_balance_sheet does the real parsing/
+# validation; this only needs to generate plausible candidates.
+_BALANCE_SHEET_BARE_AMOUNT_RE = re.compile(r"\$\s*\d[\d,.\s]*\d|\$\s*\d")
+
+
 def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
     spans = []
 
@@ -122,13 +132,15 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
                 break
 
     for field, pattern in BALANCE_SHEET_VALUE_PATTERNS.items():
-        if fields.get(field) is None:
+        target = fields.get(field)
+        if target is None:
             continue
         # Same limitation as income above -- fields[field] is a parsed
         # float with no fixed printed string form ("$87,500.00", "87,500",
         # "87500" are all possible depending on the cell), so there's no
         # exact-match cross-check available. First clean match only, same
         # accepted trade-off (#214).
+        found = False
         for match in pattern.finditer(text):
             result = _cleaned_span(match)
             if result is None:
@@ -140,6 +152,33 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
                     "value": cleaned,
                     "start": start,
                     "end": end,
+                    "detection_method": "regex",
+                }
+            )
+            found = True
+            break
+        if found:
+            continue
+        # Issue #303 -- some real templates never write "Total Current
+        # Assets"/"Total Current Liabilities" as literal combined text
+        # at all (the section-header + bare "Total" row shape #167/#297
+        # already handle on the extraction side) -- the label search
+        # above can never match these, even when extraction resolved
+        # the value correctly. Confirmed real: 5/5 fields extracted
+        # correctly on a real balance sheet, only 3/5 got a span. Falls
+        # back to searching for the ALREADY-KNOWN value directly, same
+        # "search for the value, not the label" approach #289 already
+        # uses on the image path.
+        for amount_match in _BALANCE_SHEET_BARE_AMOUNT_RE.finditer(text):
+            amount = parse_currency_amount_balance_sheet(amount_match.group(0))
+            if amount is None or abs(amount - target) >= 0.01:
+                continue
+            spans.append(
+                {
+                    "field": field,
+                    "value": amount_match.group(0),
+                    "start": amount_match.start(),
+                    "end": amount_match.end(),
                     "detection_method": "regex",
                 }
             )
@@ -751,6 +790,32 @@ if __name__ == "__main__":
         spans = find_sensitive_spans(text, fields)
         assert [s for s in spans if s["field"] == "total_assets"] == []
 
+    def test_balance_sheet_field_falls_back_to_bare_value_when_label_absent():
+        # Issue #303 -- confirmed real on Balance-sheet-template-FILLED-
+        # 300.docx: total_current_assets/total_current_liabilities never
+        # appear as literal "Total Current Assets ..." text (resolved via
+        # the section-header + bare "Total" row shape instead), so the
+        # label-based search above never matches -- even though
+        # extraction resolved the value correctly. Falls back to finding
+        # the already-known value directly.
+        text = "Current Assets\nCash $10,000\nInventory $2,000\nTotal $92,000\nFixed Assets"
+        fields = {"total_current_assets": 92000.0}
+        spans = find_sensitive_spans(text, fields)
+        matched = [s for s in spans if s["field"] == "total_current_assets"]
+        assert len(matched) == 1
+        assert matched[0]["value"] == "$92,000"
+        assert text[matched[0]["start"]:matched[0]["end"]] == "$92,000"
+
+    def test_balance_sheet_field_fallback_does_not_fire_when_label_already_matched():
+        # The fallback must only run when the label search found nothing
+        # -- a field whose label DOES appear literally should keep using
+        # that match, not also add a second fallback span.
+        text = "Total Assets  $87,500.00"
+        fields = {"total_assets": 87500.0}
+        spans = find_sensitive_spans(text, fields)
+        matched = [s for s in spans if s["field"] == "total_assets"]
+        assert len(matched) == 1
+
     def _empty_word_reconstruction(*args, **kwargs):
         return "", []
 
@@ -929,6 +994,8 @@ if __name__ == "__main__":
         test_balance_sheet_field_finds_value_on_docx_joined_row,
         test_balance_sheet_field_skips_parenthetical_alternate_name,
         test_balance_sheet_field_absent_produces_no_span,
+        test_balance_sheet_field_falls_back_to_bare_value_when_label_absent,
+        test_balance_sheet_field_fallback_does_not_fire_when_label_already_matched,
         test_balance_sheet_field_box_found_via_table_cell,
         test_balance_sheet_field_no_matching_cell_produces_no_box,
         test_balance_sheet_field_disambiguates_duplicate_value_by_row_label,
