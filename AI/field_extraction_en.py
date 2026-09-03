@@ -785,6 +785,128 @@ def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict, pref
                 result[field] = candidate
 
 
+# Issue #317 -- PPStructureV3's table-structure model can drop a row
+# ENTIRELY out of the detected table's HTML/cell structure when its own
+# label wraps across an unusually large number of visual fragments.
+# Confirmed real on 2 documents: "TOTAL LIABILITIES" split 5 ways ("TOT"/
+# "AL"/"LIAB"/"ILITI"/"ES") and "NET ASSETS (NET WORTH)" split 6 ways
+# both caused the whole row to vanish from table_rows -- even though
+# every fragment, label AND values, is still correctly OCR'd and present
+# in the table's own raw fragment list (table_ocr_pred, same source
+# #289/#316 already trust for balance-sheet box-finding). This bypasses
+# the lossy table_rows/HTML step for exactly the fields still unresolved
+# after the normal extraction pass, reconstructing the row directly from
+# fragment positions instead.
+#
+# Real evidence behind the constants below, from both confirmed cases:
+# the label column's own fragments sit in a very tight left band (x1
+# 159-162 across every real label-column fragment in the same tables --
+# "Total", "Long", "Equi"... all included -- confirmed via direct real
+# fragment dump), while the FIRST value column starts at x1 ~231-233 --
+# only ~72px to the right, narrower than an earlier 80px cutoff first
+# tried here, which wrongly swept value column 1 into the label band and
+# broke both the label match and the value recovery (caught by running
+# this against the real repro, not assumed correct from the design
+# alone). 50px sits comfortably between the label band's own ~3px
+# spread and the real ~72px gap to value column 1.
+#
+# A vertical-gap reset was tried first to bound where one row's label
+# ends and the next begins -- also wrong, also caught by the real repro:
+# this table's ENTIRE left column is one continuous tightly-packed stack
+# of single-word fragments top to bottom (every real gap checked, within
+# a wrapped label AND between two genuinely different rows, sits in the
+# same -5 to 25px band), so a gap threshold can't tell "TOT"+"AL"
+# (belongs together) apart from "ities"+"Loan" (two different rows) --
+# any threshold either merges unrelated rows or fails to merge a real
+# wrapped label. Matching by shortest-window-from-each-start instead
+# sidesteps the ambiguity entirely: try every possible starting
+# fragment, extend forward until the label pattern matches, stop at the
+# first (topmost) start that succeeds. _MAX_LABEL_FRAGMENTS=8 is a
+# generous cap above the largest real case seen (6, "NET ASSETS (NET
+# WORTH)") -- bounds the search, not expected to matter in practice
+# since real label text is distinctive enough that an accidental match
+# spanning unrelated rows was not observed on either real case tested.
+_LABEL_COLUMN_MAX_WIDTH = 50
+_MAX_LABEL_FRAGMENTS = 8
+_ROW_RECOVERY_VALUE_WINDOW = 60
+_ROW_RECOVERY_COLUMN_TOLERANCE = 20
+
+
+def _recover_row_value(value_frags: list[tuple], row_y1: float) -> float | None:
+    windowed = [
+        (x1, text, box)
+        for y1, x1, text, box in value_frags
+        if row_y1 - 5 <= y1 <= row_y1 + _ROW_RECOVERY_VALUE_WINDOW
+    ]
+    if not windowed:
+        return None
+    windowed.sort(key=lambda entry: entry[0])
+    columns: list[list[tuple]] = []
+    for entry in windowed:
+        if columns and entry[0] - columns[-1][-1][0] <= _ROW_RECOVERY_COLUMN_TOLERANCE:
+            columns[-1].append(entry)
+        else:
+            columns.append([entry])
+
+    # Rightmost column wins (#295's already-established "current period
+    # is the last column" convention) -- try right to left, returning
+    # the first column whose own fragments (reading-order sorted, top to
+    # bottom) parse as a real amount.
+    for column in reversed(columns):
+        column_sorted = sorted(column, key=lambda entry: entry[2][1])  # by y1
+        joined = _despace("".join(entry[1] for entry in column_sorted))
+        amount = parse_currency_amount_balance_sheet(joined)
+        if amount is not None:
+            return amount
+    return None
+
+
+def recover_dropped_balance_sheet_rows(table_ocr_preds: list[dict], fields: dict) -> None:
+    missing = [f for f in _BALANCE_SHEET_LABEL_RE if fields.get(f) is None]
+    if not missing or not table_ocr_preds:
+        return
+
+    for table in table_ocr_preds:
+        texts = table.get("texts", [])
+        boxes = table.get("boxes", [])
+        if not texts or not missing:
+            continue
+        left_x = min(b[0] for b in boxes)
+        label_frags = sorted(
+            (b[1], b[0], t, b) for t, b in zip(texts, boxes) if b[0] - left_x < _LABEL_COLUMN_MAX_WIDTH
+        )
+        value_frags = [
+            (b[1], b[0], t, b) for t, b in zip(texts, boxes) if b[0] - left_x >= _LABEL_COLUMN_MAX_WIDTH
+        ]
+
+        for field in list(missing):
+            pattern = _BALANCE_SHEET_LABEL_RE[field]
+            row_y1 = None
+            for start in range(len(label_frags)):
+                run_text = ""
+                for end in range(start, min(start + _MAX_LABEL_FRAGMENTS, len(label_frags))):
+                    run_text += label_frags[end][2]
+                    # .match(), not .search() -- anchors at position 0 so
+                    # the label must genuinely BEGIN at this start
+                    # fragment. .search() matched anywhere in the
+                    # accumulated text, including deeper inside a run
+                    # that started at an unrelated earlier "Total" (the
+                    # long-term-liabilities section's own bare-Total
+                    # label) -- confirmed real, caught by running this
+                    # against the real repro, not assumed correct.
+                    if pattern.match(_despace(run_text)):
+                        row_y1 = label_frags[start][0]
+                        break
+                if row_y1 is not None:
+                    break
+            if row_y1 is None:
+                continue
+            candidate = _recover_row_value(value_frags, row_y1)
+            if candidate is not None:
+                fields[field] = candidate
+                missing.remove(field)
+
+
 # Issue #270 class A -- LABEL_PATTERNS["name"] only matches label wording
 # actually observed in the corpus ("*Employee:", "Employee Name:"). A real
 # payslip using different wording (confirmed real case: "Pay Slip For:",
@@ -939,3 +1061,81 @@ def extract_fields_from_text_en(
         fields.update(balance_sheet_fields)
     fields["_balance_sheet_section"] = final_section
     return fields
+
+
+if __name__ == "__main__":
+    def _make_frag(text, x1, y1, x2, y2):
+        return text, [x1, y1, x2, y2]
+
+    # Real fragment coordinates from Balance-sheet-template-FILLED-304_p2
+    # (issue #317's own repro) -- a preceding, unrelated bare "Total" row
+    # (long-term liabilities, all-zero values) immediately followed by
+    # the real "TOTAL LIABILITIES" row, wrapped 5 ways ("TOT"/"AL"/
+    # "LIAB"/"ILITI"/"ES"). Kept as real coordinates, not simplified,
+    # because a simplified fixture would not have caught either of the
+    # two real bugs found verifying this against the actual documents
+    # (an overly-wide label/value column threshold, and an unanchored
+    # regex search that credited the wrong "Total" as the match start).
+    _REAL_304_FRAGMENTS = [
+        _make_frag("Total", 160, 690, 220, 718),
+        _make_frag("0", 232, 692, 253, 717),
+        _make_frag("0", 305, 691, 325, 717),
+        _make_frag("0", 377, 692, 398, 717),
+        _make_frag("0", 449, 692, 470, 717),
+        _make_frag("0", 521, 691, 542, 717),
+        _make_frag("TOT", 160, 718, 211, 745),
+        _make_frag("$124", 233, 718, 289, 744),
+        _make_frag("$59,", 304, 716, 354, 747),
+        _make_frag("$126", 377, 718, 433, 745),
+        _make_frag("$142", 449, 718, 504, 744),
+        _make_frag("$36,", 519, 714, 570, 749),
+        _make_frag("AL", 160, 741, 196, 771),
+        _make_frag(",000", 231, 741, 284, 772),
+        _make_frag("000", 304, 741, 352, 772),
+        _make_frag(",000", 375, 741, 428, 772),
+        _make_frag(",000", 447, 742, 499, 772),
+        _make_frag("000", 520, 741, 568, 772),
+        _make_frag("LIAB", 161, 769, 216, 796),
+        _make_frag("ILITI", 161, 795, 217, 820),
+        _make_frag("ES", 160, 819, 195, 848),
+    ]
+
+    def _table_ocr_preds(fragments):
+        return [{"texts": [t for t, _ in fragments], "boxes": [b for _, b in fragments]}]
+
+    def test_recover_dropped_row_finds_real_value():
+        fields = {"total_liabilities": None, "total_current_liabilities": 104000.0}
+        recover_dropped_balance_sheet_rows(_table_ocr_preds(_REAL_304_FRAGMENTS), fields)
+        assert fields["total_liabilities"] == 36000.0
+
+    def test_recover_dropped_row_does_not_overwrite_resolved_field():
+        fields = {"total_liabilities": 999.0}
+        recover_dropped_balance_sheet_rows(_table_ocr_preds(_REAL_304_FRAGMENTS), fields)
+        assert fields["total_liabilities"] == 999.0
+
+    def test_recover_dropped_row_leaves_unrecoverable_field_none():
+        fields = {"total_equity": None}
+        recover_dropped_balance_sheet_rows(_table_ocr_preds(_REAL_304_FRAGMENTS), fields)
+        assert fields["total_equity"] is None
+
+    def test_recover_dropped_row_does_not_credit_wrong_earlier_total():
+        # Issue #317 regression guard -- .search() (not anchored) matched
+        # "TOTAL" from the earlier unrelated long-term-liabilities row
+        # concatenated all the way through to the real row's own "ES",
+        # crediting the WRONG start index and pulling the all-zero
+        # long-term row's values instead of the real ones. Confirmed
+        # real: this returned 0.0, not 36000.0, before the .match() fix.
+        fields = {"total_liabilities": None}
+        recover_dropped_balance_sheet_rows(_table_ocr_preds(_REAL_304_FRAGMENTS), fields)
+        assert fields["total_liabilities"] != 0.0
+
+    tests = [
+        test_recover_dropped_row_finds_real_value,
+        test_recover_dropped_row_does_not_overwrite_resolved_field,
+        test_recover_dropped_row_leaves_unrecoverable_field_none,
+        test_recover_dropped_row_does_not_credit_wrong_earlier_total,
+    ]
+    for test in tests:
+        test()
+        print(f"PASS {test.__name__}")
+    print(f"\n{len(tests)} tests passed")
