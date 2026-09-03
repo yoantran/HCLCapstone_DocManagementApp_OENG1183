@@ -29,6 +29,7 @@ from field_extraction_en import (
     _looks_like_name,
     extract_fields_from_text_en,
     parse_currency_amount,
+    recover_dropped_balance_sheet_rows,
 )
 
 
@@ -198,6 +199,13 @@ def extract_fields(image, lang: str = "en", initial_section: str | None = None) 
     # reaches anything else (module3_redaction, BE storage, etc.).
     balance_sheet_section = fields.pop("_balance_sheet_section", None)
     _repair_line_split_fields(doc["lines"], text, fields)
+    # Issue #317 -- a balance-sheet row can be entirely dropped from
+    # table_rows when its own label wraps across an unusually large
+    # number of visual fragments (real confirmed cases: "TOTAL
+    # LIABILITIES" split 5 ways, "NET ASSETS (NET WORTH)" split 6 ways).
+    # Reconstructs it directly from the table's raw fragment positions
+    # for whichever balance-sheet fields are still unresolved.
+    recover_dropped_balance_sheet_rows(doc["table_ocr_preds"], fields)
     return {
         "fields": fields,
         "line_boxes": doc["lines"],
