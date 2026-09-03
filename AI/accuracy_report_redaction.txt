@@ -2,217 +2,27 @@ iou_threshold=0.5
 Documents scored: 108
 
 Per-field accuracy (correct / total ground-truth boxes):
-  name           :  31 /  36  (86.1%)
-  address        :  17 /  18  (94.4%)
+  name           :  36 /  36  (100.0%)
+  address        :  18 /  18  (100.0%)
   abn            :  18 /  18  (100.0%)
   bsb            :  18 /  18  (100.0%)
   account_number :  18 /  18  (100.0%)
   income         :  36 /  36  (100.0%)
-  salary         : 303 / 306  (99.0%)
-  total_current_assets:   0 /  18  (0.0%)
-  total_assets   :   0 /  18  (0.0%)
-  total_current_liabilities:   0 /  18  (0.0%)
-  total_liabilities:   0 /  18  (0.0%)
-  total_equity   :   0 /  18  (0.0%)
+  salary         : 304 / 306  (99.3%)
+  total_current_assets:  18 /  18  (100.0%)
+  total_assets   :  18 /  18  (100.0%)
+  total_current_liabilities:  18 /  18  (100.0%)
+  total_liabilities:  17 /  18  (94.4%)
+  total_equity   :  17 /  18  (94.4%)
 
-Overall: 441 / 540  (81.7%)
+Overall: 536 / 540  (99.3%)
 
-Misses (99):
-  part-time-employment-contract-FILLED-101_p0.png
-    field=address best_iou=0.463 gt_box={'field': 'address', 'x_pct': 0.1709613478691774, 'y_pct': 0.2133933014419304, 'w_pct': 0.44301288404360756, 'h_pct': 0.02623688155922039}
-  part-time-employment-contract-FILLED-108_p0.png
-    field=name best_iou=0.447 gt_box={'field': 'name', 'x_pct': 0.15609514370664024, 'y_pct': 0.17891054282124075, 'w_pct': 0.13082259663032705, 'h_pct': 0.0239880059970015}
-  part-time-employment-contract-FILLED-111_p0.png
-    field=name best_iou=0.476 gt_box={'field': 'name', 'x_pct': 0.15609514370664024, 'y_pct': 0.18040979319605335, 'w_pct': 0.12388503468780972, 'h_pct': 0.022488755622188907}
-  part-time-employment-contract-FILLED-112_p0.png
-    field=name best_iou=0.418 gt_box={'field': 'name', 'x_pct': 0.15510406342913777, 'y_pct': 0.17591204207161557, 'w_pct': 0.09613478691774034, 'h_pct': 0.02848575712143928}
-  part-time-employment-contract-FILLED-113_p0.png
-    field=name best_iou=0.486 gt_box={'field': 'name', 'x_pct': 0.1531219028741328, 'y_pct': 0.17966016800864704, 'w_pct': 0.155599603567889, 'h_pct': 0.023238380809595203}
-  part-time-employment-contract-FILLED-114_p0.png
-    field=name best_iou=0.446 gt_box={'field': 'name', 'x_pct': 0.1531219028741328, 'y_pct': 0.17741129244642814, 'w_pct': 0.1199207135777998, 'h_pct': 0.029985007496251874}
+Misses (4):
+  Pay-slip-template-sts-FILLED-119_p3.png
+    field=salary best_iou=0.494 gt_box={'field': 'salary', 'x_pct': 0.8982777179763186, 'y_pct': 0.29013254786450665, 'w_pct': 0.08503767491926803, 'h_pct': 0.030927835051546393}
   Pay-slip-template-sts-FILLED-122_p2.png
-    field=salary best_iou=0.483 gt_box={'field': 'salary', 'x_pct': 0.1426264800861141, 'y_pct': 0.40102171331529873, 'w_pct': 0.08503767491926803, 'h_pct': 0.026053639846743294}
-  Pay-slip-template-sts-FILLED-132_p2.png
-    field=salary best_iou=0.472 gt_box={'field': 'salary', 'x_pct': 0.306243272335845, 'y_pct': 0.4212005264457615, 'w_pct': 0.09903121636167922, 'h_pct': 0.03065134099616858}
-  Pay-slip-template-sts-FILLED-135_p2.png
-    field=salary best_iou=0.446 gt_box={'field': 'salary', 'x_pct': 0.14155005382131325, 'y_pct': 0.39948915211176966, 'w_pct': 0.09257265877287406, 'h_pct': 0.027586206896551724}
-  Balance-sheet-template-FILLED-300_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5823378633967656, 'y_pct': 0.6766405719724823, 'w_pct': 0.07423211710375288, 'h_pct': 0.04645685592776938}
-  Balance-sheet-template-FILLED-300_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5823378633967656, 'y_pct': 0.5120489604281684, 'w_pct': 0.06825939513017598, 'h_pct': 0.039634986810243356}
-  Balance-sheet-template-FILLED-300_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.2113832979633807, 'w_pct': 0.059726985385778364, 'h_pct': 0.037217405072658694}
-  Balance-sheet-template-FILLED-300_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5823378633967656, 'y_pct': 0.5521552538341806, 'w_pct': 0.06569966830102347, 'h_pct': 0.040706537630094464}
-  Balance-sheet-template-FILLED-300_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.584897590225918, 'y_pct': 0.6527585581602663, 'w_pct': 0.06655293661629558, 'h_pct': 0.040706537630094464}
-  Balance-sheet-template-FILLED-301_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.6778472518047032, 'w_pct': 0.053754263412201464, 'h_pct': 0.042233462705746794}
-  Balance-sheet-template-FILLED-301_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5908702731411632, 'y_pct': 0.511466101999718, 'w_pct': 0.06058025370105036, 'h_pct': 0.043132164062494205}
-  Balance-sheet-template-FILLED-301_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.20963872336592257, 'w_pct': 0.05546076098441366, 'h_pct': 0.03896197135137655}
-  Balance-sheet-template-FILLED-301_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.5527367537437792, 'w_pct': 0.06228671221493076, 'h_pct': 0.04070655094007891}
-  Balance-sheet-template-FILLED-301_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5874573170550705, 'y_pct': 0.6515955450310846, 'w_pct': 0.06399320978714307, 'h_pct': 0.04303263043837979}
-  Balance-sheet-template-FILLED-302_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.6784505779115643, 'w_pct': 0.059726985385778364, 'h_pct': 0.042233490324245615}
-  Balance-sheet-template-FILLED-302_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.5114660886589437, 'w_pct': 0.05802048781356617, 'h_pct': 0.03905211504101869}
-  Balance-sheet-template-FILLED-302_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.21138328964464045, 'w_pct': 0.06399320978714307, 'h_pct': 0.03896197135137655}
-  Balance-sheet-template-FILLED-302_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.5544813200224971, 'w_pct': 0.05631399024135386, 'h_pct': 0.03896198466136103}
-  Balance-sheet-template-FILLED-302_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5874573170550705, 'y_pct': 0.6550846775885204, 'w_pct': 0.05887375612883816, 'h_pct': 0.03721741838264314}
-  Balance-sheet-template-FILLED-303_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5823378633967656, 'y_pct': 0.6790539040184252, 'w_pct': 0.06313994147187107, 'h_pct': 0.04042345676666481}
-  Balance-sheet-template-FILLED-303_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5823378633967656, 'y_pct': 0.5103003584612686, 'w_pct': 0.06313994147187107, 'h_pct': 0.042549332315592436}
-  Balance-sheet-template-FILLED-303_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5823378633967656, 'y_pct': 0.20963872336592257, 'w_pct': 0.07423211710375288, 'h_pct': 0.04128807746964633}
-  Balance-sheet-template-FILLED-303_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.584897590225918, 'y_pct': 0.5538998201128985, 'w_pct': 0.06399320978714307, 'h_pct': 0.037217405072658694}
-  Balance-sheet-template-FILLED-303_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5874573170550705, 'y_pct': 0.6515955450310846, 'w_pct': 0.06399320978714307, 'h_pct': 0.04477719671709768}
-  Balance-sheet-template-FILLED-304_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.6772438980793433, 'w_pct': 0.06740612681490399, 'h_pct': 0.044043468644828776}
-  Balance-sheet-template-FILLED-304_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.5120489470873941, 'w_pct': 0.06569970735935526, 'h_pct': 0.04313217740326847}
-  Balance-sheet-template-FILLED-304_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.21196480286422348, 'w_pct': 0.06569970735935526, 'h_pct': 0.03779894491221053}
+    field=salary best_iou=0.480 gt_box={'field': 'salary', 'x_pct': 0.8907427341227125, 'y_pct': 0.8, 'w_pct': 0.08719052744886975, 'h_pct': 0.013793103448275862}
   Balance-sheet-template-FILLED-304_p2.png
     field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5797781365676131, 'y_pct': 0.5515737073396365, 'w_pct': 0.06825939513017598, 'h_pct': 0.04361416362293946}
-  Balance-sheet-template-FILLED-304_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5857508194828583, 'y_pct': 0.6521770649056599, 'w_pct': 0.06569970735935526, 'h_pct': 0.04303263709337202}
-  Balance-sheet-template-FILLED-305_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.6766405719724823, 'w_pct': 0.06569970735935526, 'h_pct': 0.04464682237018858}
-  Balance-sheet-template-FILLED-305_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.584897590225918, 'y_pct': 0.511466101999718, 'w_pct': 0.06655293661629558, 'h_pct': 0.0413835887771431}
-  Balance-sheet-template-FILLED-305_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5883105463120107, 'y_pct': 0.21138328964464045, 'w_pct': 0.05460753172747346, 'h_pct': 0.03954351119092844}
-  Balance-sheet-template-FILLED-305_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5883105463120107, 'y_pct': 0.5521552538341806, 'w_pct': 0.05204780489832106, 'h_pct': 0.040706537630094464}
-  Balance-sheet-template-FILLED-305_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5857508194828583, 'y_pct': 0.6533401113098025, 'w_pct': 0.06825943418850766, 'h_pct': 0.03896198466136103}
-  Balance-sheet-template-FILLED-306_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.584897590225918, 'y_pct': 0.6772438980793433, 'w_pct': 0.06313994147187107, 'h_pct': 0.044043468644828776}
-  Balance-sheet-template-FILLED-306_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.5103003584612686, 'w_pct': 0.05204780489832106, 'h_pct': 0.042549332315592436}
-  Balance-sheet-template-FILLED-306_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.20905719683635512, 'w_pct': 0.06655293661629547, 'h_pct': 0.040706550940078884}
-  Balance-sheet-template-FILLED-306_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.584897590225918, 'y_pct': 0.5515737273046132, 'w_pct': 0.06911266344544797, 'h_pct': 0.04303263043837979}
-  Balance-sheet-template-FILLED-306_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5857508194828583, 'y_pct': 0.6521770316306988, 'w_pct': 0.06825943418850766, 'h_pct': 0.04070655094007891}
-  Balance-sheet-template-FILLED-307_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.6790539040184252, 'w_pct': 0.06655293661629547, 'h_pct': 0.04102681049202472}
-  Balance-sheet-template-FILLED-307_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.5103003584612686, 'w_pct': 0.059726985385778364, 'h_pct': 0.04313219074404273}
-  Balance-sheet-template-FILLED-307_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.20963872336592257, 'w_pct': 0.06569970735935526, 'h_pct': 0.040706537630094436}
-  Balance-sheet-template-FILLED-307_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5823378633967656, 'y_pct': 0.5527367537437792, 'w_pct': 0.060580214642718566, 'h_pct': 0.04070655094007891}
-  Balance-sheet-template-FILLED-307_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5874573170550705, 'y_pct': 0.6510139918815484, 'w_pct': 0.06399320978714307, 'h_pct': 0.044195670187530234}
-  Balance-sheet-template-FILLED-308_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.6790539040184252, 'w_pct': 0.05802048781356617, 'h_pct': 0.04042345676666481}
-  Balance-sheet-template-FILLED-308_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.5108832102193319, 'w_pct': 0.05546076098441366, 'h_pct': 0.0431321840736556}
-  Balance-sheet-template-FILLED-308_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.20963872336592257, 'w_pct': 0.054607492669141666, 'h_pct': 0.040706537630094436}
-  Balance-sheet-template-FILLED-308_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.5509921874650613, 'w_pct': 0.05631399024135386, 'h_pct': 0.0424511172187968}
-  Balance-sheet-template-FILLED-308_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5823378633967656, 'y_pct': 0.6527585581602663, 'w_pct': 0.06399320978714307, 'h_pct': 0.04303264374836413}
-  Balance-sheet-template-FILLED-309_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.6772438980793433, 'w_pct': 0.05802048781356617, 'h_pct': 0.04464682237018869}
-  Balance-sheet-template-FILLED-309_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5908702731411632, 'y_pct': 0.5120489604281684, 'w_pct': 0.051194536583048955, 'h_pct': 0.03905212838179295}
-  Balance-sheet-template-FILLED-309_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5883105463120107, 'y_pct': 0.21138328964464045, 'w_pct': 0.057167258556625966, 'h_pct': 0.037217405072658666}
-  Balance-sheet-template-FILLED-309_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.5509921874650613, 'w_pct': 0.06569970735935526, 'h_pct': 0.04477719671709768}
-  Balance-sheet-template-FILLED-309_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5857508194828583, 'y_pct': 0.6527585581602663, 'w_pct': 0.06228671221493076, 'h_pct': 0.03896197135137658}
-  Balance-sheet-template-FILLED-310_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.6790539040184252, 'w_pct': 0.057167258556625966, 'h_pct': 0.042836816431106706}
-  Balance-sheet-template-FILLED-310_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.5108832102193319, 'w_pct': 0.06313998053020287, 'h_pct': 0.044297914271330674}
-  Balance-sheet-template-FILLED-310_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.21022023658550557, 'w_pct': 0.06399320978714307, 'h_pct': 0.03954351119092844}
-  Balance-sheet-template-FILLED-310_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.5538997934929296, 'w_pct': 0.06399320978714307, 'h_pct': 0.03838045813179358}
-  Balance-sheet-template-FILLED-310_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5874573170550705, 'y_pct': 0.6521770316306988, 'w_pct': 0.05546076098441366, 'h_pct': 0.04128806415966191}
-  Balance-sheet-template-FILLED-311_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.6808639099575072, 'w_pct': 0.05887375612883816, 'h_pct': 0.04042345676666481}
-  Balance-sheet-template-FILLED-311_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.5126318121862317, 'w_pct': 0.053754263412201464, 'h_pct': 0.039052108370631444}
-  Balance-sheet-template-FILLED-311_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5883105463120107, 'y_pct': 0.21138328964464045, 'w_pct': 0.053754263412201464, 'h_pct': 0.03779894491221053}
-  Balance-sheet-template-FILLED-311_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.5509921874650613, 'w_pct': 0.054607492669141666, 'h_pct': 0.0424511172187968}
-  Balance-sheet-template-FILLED-311_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5883105463120107, 'y_pct': 0.6521770316306988, 'w_pct': 0.06058025370105036, 'h_pct': 0.04303263043837979}
-  Balance-sheet-template-FILLED-312_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.6784505779115643, 'w_pct': 0.05460753172747346, 'h_pct': 0.042836816431106595}
-  Balance-sheet-template-FILLED-312_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.511466101999718, 'w_pct': 0.05460753172747346, 'h_pct': 0.0413835887771431}
-  Balance-sheet-template-FILLED-312_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.20963872336592257, 'w_pct': 0.06058025370105036, 'h_pct': 0.03896197135137655}
-  Balance-sheet-template-FILLED-312_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.5509921874650613, 'w_pct': 0.06569970735935526, 'h_pct': 0.0424511172187968}
-  Balance-sheet-template-FILLED-312_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5883105463120107, 'y_pct': 0.6527585581602663, 'w_pct': 0.06313998053020287, 'h_pct': 0.040706537630094464}
-  Balance-sheet-template-FILLED-313_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.6784505779115643, 'w_pct': 0.059726985385778364, 'h_pct': 0.04102681049202461}
-  Balance-sheet-template-FILLED-313_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.5114660886589437, 'w_pct': 0.05802048781356617, 'h_pct': 0.04080071700791832}
-  Balance-sheet-template-FILLED-313_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.20963872336592257, 'w_pct': 0.06228671221493076, 'h_pct': 0.040706537630094436}
-  Balance-sheet-template-FILLED-313_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.5527367537437792, 'w_pct': 0.059726985385778364, 'h_pct': 0.04070655094007891}
-  Balance-sheet-template-FILLED-313_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5883105463120107, 'y_pct': 0.6515955450310846, 'w_pct': 0.053754263412201464, 'h_pct': 0.0424511172187968}
-  Balance-sheet-template-FILLED-314_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.6790539040184252, 'w_pct': 0.06058025370105036, 'h_pct': 0.04042345676666481}
-  Balance-sheet-template-FILLED-314_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.5126318121862317, 'w_pct': 0.05460753172747346, 'h_pct': 0.04080071033753119}
-  Balance-sheet-template-FILLED-314_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.584897590225918, 'y_pct': 0.20963872336592257, 'w_pct': 0.06058021464271868, 'h_pct': 0.040706537630094436}
-  Balance-sheet-template-FILLED-314_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5857508194828583, 'y_pct': 0.5527367537437792, 'w_pct': 0.06058025370105036, 'h_pct': 0.0424511172187968}
   Balance-sheet-template-FILLED-314_p2.png
     field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5874573170550705, 'y_pct': 0.6533401113098025, 'w_pct': 0.05802048781356617, 'h_pct': 0.03896198466136103}
-  Balance-sheet-template-FILLED-315_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.6766405719724823, 'w_pct': 0.06228671221493076, 'h_pct': 0.042233490324245615}
-  Balance-sheet-template-FILLED-315_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.5126318121862317, 'w_pct': 0.053754263412201464, 'h_pct': 0.039052108370631444}
-  Balance-sheet-template-FILLED-315_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5883105463120107, 'y_pct': 0.21138328964464045, 'w_pct': 0.06569970735935526, 'h_pct': 0.03896197135137655}
-  Balance-sheet-template-FILLED-315_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5883105463120107, 'y_pct': 0.5527367537437792, 'w_pct': 0.06313998053020287, 'h_pct': 0.04128806415966191}
-  Balance-sheet-template-FILLED-315_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5883105463120107, 'y_pct': 0.6550846775885204, 'w_pct': 0.053754263412201464, 'h_pct': 0.03721741838264314}
-  Balance-sheet-template-FILLED-316_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.6766405719724823, 'w_pct': 0.06569970735935526, 'h_pct': 0.0440434962633276}
-  Balance-sheet-template-FILLED-316_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5857508194828583, 'y_pct': 0.5108832102193319, 'w_pct': 0.06569970735935526, 'h_pct': 0.044297914271330674}
-  Balance-sheet-template-FILLED-316_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5883105463120107, 'y_pct': 0.20905719683635512, 'w_pct': 0.06313998053020287, 'h_pct': 0.04012503772049586}
-  Balance-sheet-template-FILLED-316_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.5509921874650613, 'w_pct': 0.054607492669141666, 'h_pct': 0.0424511172187968}
-  Balance-sheet-template-FILLED-316_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5883105463120107, 'y_pct': 0.6515955317211003, 'w_pct': 0.057167258556625966, 'h_pct': 0.041288077469646245}
-  Balance-sheet-template-FILLED-317_p0.png
-    field=total_current_assets best_iou=0.000 gt_box={'field': 'total_current_assets', 'x_pct': 0.5874573170550705, 'y_pct': 0.6784505779115643, 'w_pct': 0.05802048781356617, 'h_pct': 0.042233490324245615}
-  Balance-sheet-template-FILLED-317_p1.png
-    field=total_assets best_iou=0.000 gt_box={'field': 'total_assets', 'x_pct': 0.5883105463120107, 'y_pct': 0.5132146906258435, 'w_pct': 0.057167258556625966, 'h_pct': 0.037303513074118944}
-  Balance-sheet-template-FILLED-317_p2.png
-    field=total_current_liabilities best_iou=0.000 gt_box={'field': 'total_current_liabilities', 'x_pct': 0.5883105463120107, 'y_pct': 0.21138328964464045, 'w_pct': 0.053754263412201464, 'h_pct': 0.03779894491221053}
-  Balance-sheet-template-FILLED-317_p2.png
-    field=total_liabilities best_iou=0.000 gt_box={'field': 'total_liabilities', 'x_pct': 0.5874573170550705, 'y_pct': 0.5544813200224971, 'w_pct': 0.054607492669141666, 'h_pct': 0.03721741838264314}
-  Balance-sheet-template-FILLED-317_p2.png
-    field=total_equity best_iou=0.000 gt_box={'field': 'total_equity', 'x_pct': 0.5883105463120107, 'y_pct': 0.6527585515052741, 'w_pct': 0.06313998053020287, 'h_pct': 0.0389619780063688}
