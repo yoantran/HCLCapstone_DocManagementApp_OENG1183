@@ -57,6 +57,12 @@ image = (
         "paddleocr==3.7.0",
         "paddlex[ocr]==3.7.2",
         "onnxruntime==1.28.0",
+        # Issue #270 -- spaCy NER fallback (field_extraction_en.py's `name`
+        # field), same pin as requirements.txt. Missing here left this
+        # image unable to cold-start at all (ModuleNotFoundError on any
+        # container that wasn't already warm/snapshotted from before #270).
+        "spacy==3.8.16",
+        "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#egg=en_core_web_sm==3.8.0",
     )
     # GPU build, not the CPU paddlepaddle==3.3.1 pinned in requirements.txt
     # -- the wheel bundles its own CUDA runtime, no local CUDA/cuDNN setup
