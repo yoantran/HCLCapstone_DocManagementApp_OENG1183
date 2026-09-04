@@ -1,0 +1,18 @@
+iou_threshold=0.5
+Documents scored: 8
+
+Per-field accuracy (correct / total ground-truth boxes):
+  abn                      :   2 /   2  (100.0%)
+  account_number           :   2 /   2  (100.0%)
+  address                  :   1 /   1  (100.0%)
+  bsb                      :   2 /   2  (100.0%)
+  name                     :   3 /   3  (100.0%)
+  total_assets             :   6 /   6  (100.0%)
+  total_current_assets     :   6 /   6  (100.0%)
+  total_current_liabilities:   6 /   6  (100.0%)
+  total_equity             :   6 /   6  (100.0%)
+  total_liabilities        :   6 /   6  (100.0%)
+
+Overall: 40 / 40  (100.0%)
+
+Misses (0):
