@@ -146,7 +146,7 @@ export const NotificationBell = ({ userId, userEmail }) => {
                 <MarkAllReadOnOpen markAllReadRef={markAllReadRef} />
                 <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5 dark:border-slate-700">
                     <span className="font-semibold text-slate-700 dark:text-slate-200">
-                        Notifications ({unreadCount})
+                        Notifications ({notifications.length})
                     </span>
                 </div>
 
