@@ -979,6 +979,49 @@ if __name__ == "__main__":
         assert len(name_boxes) == 1
         assert name_boxes[0]["value"] == "Rymer, Mark"
 
+    def _fake_bsb_line_split_reconstruction(*args, **kwargs):
+        # Issue #322 -- #306's fallback loops generically over every
+        # LABEL_PATTERNS field (not just name), so bsb/account_number
+        # should already be covered by construction -- but no real image
+        # in the corpus has ever exercised this specific line-split
+        # scenario for these two fields (checked: zero real, non-
+        # synthetic photographed samples in redaction_ground_truth.json
+        # have bsb/account_number ground truth at all), so it was never
+        # actually verified. Same crafted-fragment methodology already
+        # established for name's own #306 test above (this file's own
+        # precedent for this class of self-check, not a real image).
+        text = "BSB:\n123-456\n"
+        word_spans = [
+            {"word": "BSB:", "box": (10, 5, 50, 20), "start": 0, "end": 4},
+            {"word": "123-456", "box": (10, 25, 80, 40), "start": 5, "end": 12},
+        ]
+        return text, word_spans
+
+    def test_bsb_line_split_falls_back_to_value_search_for_box():
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_bsb_line_split_reconstruction):
+            fields = {"bsb": "123-456"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        bsb_boxes = [b for b in boxes if b["field"] == "bsb"]
+        assert len(bsb_boxes) == 1
+        assert bsb_boxes[0]["value"] == "123-456"
+
+    def _fake_account_number_line_split_reconstruction(*args, **kwargs):
+        text = "Account:\n1234 5678\n"
+        word_spans = [
+            {"word": "Account:", "box": (10, 5, 70, 20), "start": 0, "end": 8},
+            {"word": "1234", "box": (10, 25, 45, 40), "start": 9, "end": 13},
+            {"word": "5678", "box": (50, 25, 85, 40), "start": 14, "end": 18},
+        ]
+        return text, word_spans
+
+    def test_account_number_line_split_falls_back_to_value_search_for_box():
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_account_number_line_split_reconstruction):
+            fields = {"account_number": "1234 5678"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        account_boxes = [b for b in boxes if b["field"] == "account_number"]
+        assert len(account_boxes) == 1
+        assert account_boxes[0]["value"] == "1234 5678"
+
     def test_label_value_fallback_does_not_duplicate_when_same_line_already_boxed():
         def _fake_same_line(*args, **kwargs):
             text = "Employee: Rymer, Mark\n"
@@ -1270,6 +1313,8 @@ if __name__ == "__main__":
         test_annual_salary_field_produces_box,
         test_annual_salary_field_absent_produces_no_box,
         test_label_value_line_split_falls_back_to_value_search_for_box,
+        test_bsb_line_split_falls_back_to_value_search_for_box,
+        test_account_number_line_split_falls_back_to_value_search_for_box,
         test_label_value_fallback_does_not_duplicate_when_same_line_already_boxed,
         test_income_line_split_falls_back_to_bare_amount_search_for_box,
         test_apply_redaction_image_blacks_out_region_only,
