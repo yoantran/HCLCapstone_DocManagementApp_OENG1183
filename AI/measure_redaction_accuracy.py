@@ -3,10 +3,20 @@ Real accuracy measurement for Module 3's redaction box positioning
 (find_sensitive_boxes(), the image-path track) against human-annotated
 ground truth -- issue #81's own stated, never-measured success criteria.
 
-Text-native redaction is not measured here: find_sensitive_spans()'s own
-self-check already enforces text[start:end] == value as a hard invariant,
-so its positional accuracy is exact by construction whenever the field
-itself extracts correctly (#131 already measured that at 100%).
+Text-native redaction's SPAN correctness (find_sensitive_spans's own
+self-check enforcing text[start:end] == value as a hard invariant) is
+not measured here -- that's exact by construction whenever the field
+itself extracts correctly (#131 already measured that at 100%). Issue
+#325/#327 -- that invariant does NOT cover the separate, later PIXEL
+BOX resolution step a text-native document's span goes through at
+preview time (file_routing.resolve_item_boxes_via_pdf_text): #327 found
+and fixed a real, confirmed, live case where that step silently
+produced zero boxes for every real balance-sheet total on a real docx
+upload, because nothing was measuring it -- this docstring's own
+earlier, now-corrected claim ("exact by construction") was itself part
+of why that real defect went unnoticed. See
+measure_text_native_redaction_accuracy.py, the sibling scorer for that
+specific step.
 """
 
 import json
