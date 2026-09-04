@@ -173,6 +173,36 @@ def convert_docx_to_pdf_bytes(docx_bytes: bytes, timeout: float = 60.0) -> bytes
         return docx_path.with_suffix(".pdf").read_bytes()
 
 
+def _find_dewrapped_span(tp, value: str) -> tuple[int, int] | None:
+    """Issue #327 -- fallback for resolve_item_boxes_via_pdf_text's exact
+    tp.search() when a value's own literal characters got split by a real
+    \\r\\n line-wrap inside the PDF's text layer (LibreOffice wrapping a
+    narrow table-cell value). Builds a \\r/\\n-stripped copy of the page's
+    full text alongside a same-length index map (dewrapped position ->
+    original tp character index), searches for `value` in the dewrapped
+    copy via plain substring search, then translates a match's [start,
+    end) back into the ORIGINAL character range tp.count_rects/get_rect
+    require -- those operate on tp's own unstripped character indices,
+    not the dewrapped string's positions."""
+    raw = tp.get_text_range()
+    dewrapped_chars = []
+    index_map = []
+    for i, ch in enumerate(raw):
+        if ch in "\r\n":
+            continue
+        dewrapped_chars.append(ch)
+        index_map.append(i)
+    dewrapped = "".join(dewrapped_chars)
+
+    pos = dewrapped.find(value)
+    if pos == -1:
+        return None
+    end_pos = pos + len(value) - 1
+    orig_start = index_map[pos]
+    orig_end = index_map[end_pos]
+    return orig_start, orig_end - orig_start + 1
+
+
 def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list[dict]:
     """Issue #208 -- a text-native document's redaction.items are spans
     (character offsets into extracted text, see pipeline.py's
@@ -201,13 +231,30 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
     An item whose value isn't found in the text layer is dropped, not
     guessed at -- same accepted "skip, don't fabricate a box" pattern
     module3_redaction.find_sensitive_boxes already uses when a match has
-    no overlapping OCR word box. A real, confirmed cause: some balance-
-    sheet templates' table cells are narrow enough that LibreOffice's own
-    docx->pdf conversion wraps a value like "$140,000" across two lines,
-    splitting it in the text layer -- a rendering-fidelity limitation of
-    the conversion step itself, not something to special-case here (see
-    #208's own issue history). SENSITIVE_FIELD_KEYS still strips the
-    field from aiResult.fields regardless of whether its box resolves."""
+    no overlapping OCR word box. SENSITIVE_FIELD_KEYS still strips the
+    field from aiResult.fields regardless of whether its box resolves.
+
+    Issue #327 -- a docx upload's own value (extracted via python-docx's
+    clean cell text at upload time, e.g. "$92,000", no internal
+    whitespace) can fail to literally match here even though it's really
+    on the page: LibreOffice's OWN docx->pdf conversion (this function
+    always searches a FRESH re-conversion, not the bytes extraction ran
+    against) wraps a narrow table cell's value across the PDF's own text
+    layer -- confirmed real via a direct raw-text dump: "$92,000" appears
+    as "$92,\r\n000", literal \r\n mid-number. tp.search() is a literal,
+    non-fuzzy substring search, so it can never match across that break.
+    Confirmed real and reproduced twice independently: 0/5 real balance-
+    sheet totals resolved on a real multi-page docx-derived PDF before
+    this fix. _find_dewrapped_span falls back to searching a \r\n-
+    stripped copy of the page's own text (offset-mapped back to the
+    original character indices count_rects/get_rect need) only when the
+    exact literal search above finds nothing -- the common, unaffected
+    case (confirmed real: 8/9 real non-tabular payslip fields on the
+    same conversion path) pays no extra cost. Strips ONLY \r/\n, not all
+    whitespace -- real inter-word spaces are the genuine separators
+    between adjacent values/words in the source content, and stripping
+    them too would risk gluing two unrelated real values together into a
+    false-positive match."""
     pdf = pdfium.PdfDocument(pdf_bytes)
     try:
         sizes = [page.get_size() for page in pdf]
@@ -233,7 +280,14 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
                 tp = page.get_textpage()
                 match = tp.search(value, index=0).get_next()
                 if match is None:
-                    continue
+                    # Issue #327 -- exact search found nothing on this
+                    # page; try the \r\n-dewrapped fallback before moving
+                    # to the next page (still scoped to THIS page's own
+                    # text, matching the exact search's own per-page
+                    # scoping above).
+                    match = _find_dewrapped_span(tp, value)
+                    if match is None:
+                        continue
                 start, count = match
                 n_rects = tp.count_rects(start, count)
                 if n_rects == 0:
@@ -261,3 +315,65 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
         return resolved
     finally:
         pdf.close()
+
+
+if __name__ == "__main__":
+    # reportlab is a one-off dev-tool dependency for these self-checks
+    # only (imported inside this guard, never at module load time, so
+    # production's own import chain never needs it) -- same precedent
+    # _make_scanned_pdf_sample.py already established this session, and
+    # confirmed already available in this venv from that work.
+    import tempfile
+
+    from reportlab.pdfgen import canvas
+
+    def _build_pdf(lines: list[tuple[int, int, str]]) -> bytes:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            path = tmp.name
+        c = canvas.Canvas(path, pagesize=(300, 200))
+        for x, y, text in lines:
+            c.drawString(x, y, text)
+        c.save()
+        with open(path, "rb") as f:
+            return f.read()
+
+    def test_resolve_finds_value_on_a_single_line():
+        pdf_bytes = _build_pdf([(20, 150, "Total $92,000 value")])
+        resolved = resolve_item_boxes_via_pdf_text(pdf_bytes, [{"field": "total_current_assets", "value": "$92,000"}])
+        assert len(resolved) == 1
+        assert "x_pct" in resolved[0]
+
+    def test_resolve_falls_back_to_dewrapped_search_when_value_wraps():
+        # Issue #327 -- real confirmed artifact: pdfium inserts a literal
+        # \r\n between two visually-separate drawString calls, same as
+        # LibreOffice's own docx->pdf conversion wrapping a narrow table
+        # cell's value mid-number (confirmed via a direct raw-text dump
+        # on a real converted document). Two-line layout here reproduces
+        # that exact shape (verified: pdfium reads this back as
+        # "Total $92,\r\n000 value").
+        pdf_bytes = _build_pdf([(20, 150, "Total $92,"), (20, 130, "000 value")])
+        resolved = resolve_item_boxes_via_pdf_text(pdf_bytes, [{"field": "total_current_assets", "value": "$92,000"}])
+        assert len(resolved) == 1
+        assert "x_pct" in resolved[0]
+
+    def test_resolve_drops_item_when_value_genuinely_absent():
+        pdf_bytes = _build_pdf([(20, 150, "Nothing relevant here")])
+        resolved = resolve_item_boxes_via_pdf_text(pdf_bytes, [{"field": "total_assets", "value": "$92,000"}])
+        assert resolved == []
+
+    def test_resolve_passes_through_items_that_already_have_x_pct():
+        pdf_bytes = _build_pdf([(20, 150, "irrelevant")])
+        item = {"field": "bsb", "value": "123-456", "x_pct": 0.1, "y_pct": 0.1, "w_pct": 0.1, "h_pct": 0.1}
+        resolved = resolve_item_boxes_via_pdf_text(pdf_bytes, [item])
+        assert resolved == [item]
+
+    tests = [
+        test_resolve_finds_value_on_a_single_line,
+        test_resolve_falls_back_to_dewrapped_search_when_value_wraps,
+        test_resolve_drops_item_when_value_genuinely_absent,
+        test_resolve_passes_through_items_that_already_have_x_pct,
+    ]
+    for test in tests:
+        test()
+        print(f"PASS {test.__name__}")
+    print(f"\n{len(tests)} tests passed")
