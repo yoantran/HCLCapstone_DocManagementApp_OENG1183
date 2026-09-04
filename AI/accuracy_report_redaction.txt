@@ -1,21 +1,21 @@
 iou_threshold=0.5
-Documents scored: 108
+Documents scored: 109
 
 Per-field accuracy (correct / total ground-truth boxes):
-  name           :  36 /  36  (100.0%)
+  name           :  37 /  37  (100.0%)
   address        :  18 /  18  (100.0%)
-  abn            :  18 /  18  (100.0%)
+  abn            :  19 /  19  (100.0%)
   bsb            :  18 /  18  (100.0%)
   account_number :  18 /  18  (100.0%)
-  income         :  36 /  36  (100.0%)
-  salary         : 304 / 306  (99.3%)
+  income         :  37 /  37  (100.0%)
+  salary         : 327 / 329  (99.4%)
   total_current_assets:  18 /  18  (100.0%)
   total_assets   :  18 /  18  (100.0%)
   total_current_liabilities:  18 /  18  (100.0%)
   total_liabilities:  18 /  18  (100.0%)
   total_equity   :  18 /  18  (100.0%)
 
-Overall: 538 / 540  (99.6%)
+Overall: 564 / 566  (99.6%)
 
 Misses (2):
   Pay-slip-template-sts-FILLED-119_p3.png
