@@ -166,17 +166,37 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
         target = fields.get(field)
         if target is None:
             continue
-        # Same limitation as income above -- fields[field] is a parsed
-        # float with no fixed printed string form ("$87,500.00", "87,500",
-        # "87500" are all possible depending on the cell), so there's no
-        # exact-match cross-check available. First clean match only, same
-        # accepted trade-off (#214).
+        # fields[field] is a parsed float with no fixed printed string
+        # form ("$87,500.00", "87,500", "87500" are all possible
+        # depending on the cell) -- but the label pattern's own trailing
+        # "rest of line" capture ([^\[\n]*) can sweep up MORE than just
+        # the one target value when a real docx table row joins several
+        # year-columns onto one line ("$74,000 $97,000 $135,000
+        # $144,000 $84,000" -- confirmed real, Balance-sheet-template-
+        # FILLED-300.docx's total_assets/total_liabilities/total_equity
+        # rows). Issue #327 -- accepting that whole blob as the span's
+        # own value was a real, confirmed downstream problem: when
+        # main.py's /apply-redaction later searches a FRESH LibreOffice-
+        # converted PDF's own text for this literal blob string, the PDF
+        # doesn't insert the same space characters between adjacent
+        # table cells that python-docx's row-joining does, so the exact
+        # blob can never be found there -- real dollar figures stayed
+        # completely unredacted in the rendered preview. Only accept the
+        # match if it actually PARSES to the known target (confirmed
+        # real: a blob parses to its FIRST value only, e.g. 74000.0 for
+        # a total_assets target of 84000.0 -- reliably distinguishable,
+        # not a coincidence). Anything else -- blob, wrong value, or
+        # unparseable -- falls through to the #303 fallback below, which
+        # already correctly isolates just the one matching bare value.
         found = False
         for match in pattern.finditer(text):
             result = _cleaned_span(match)
             if result is None:
                 continue
             cleaned, start, end = result
+            amount = parse_currency_amount_balance_sheet(cleaned)
+            if amount is None or abs(amount - target) >= 0.01:
+                continue
             spans.append(
                 {
                     "field": field,
@@ -1091,6 +1111,27 @@ if __name__ == "__main__":
         assert len(current_spans) == 1
         assert current_spans[0]["value"] == "$45,000.00"
 
+    def test_balance_sheet_field_multi_value_row_isolates_target_not_whole_blob():
+        # Issue #327 -- a real multi-year comparative balance sheet joins
+        # ALL year-columns onto one line ("Total Assets $74,000 $97,000
+        # $135,000 $144,000 $84,000", confirmed real on Balance-sheet-
+        # template-FILLED-300.docx). The label pattern's own trailing
+        # "rest of line" capture used to accept the WHOLE blob as the
+        # span value -- real, confirmed downstream problem: that exact
+        # blob string can never be found later when main.py searches a
+        # freshly-converted PDF's own text (which doesn't insert the
+        # same space characters between adjacent table cells), so real
+        # dollar figures stayed completely unredacted in the rendered
+        # preview. Must isolate just the ONE value that matches the
+        # known target, not the whole line.
+        text = "Total Assets $74,000 $97,000 $135,000 $144,000 $84,000"
+        fields = {"total_assets": 84000.0}
+        spans = find_sensitive_spans(text, fields)
+        assets_spans = [s for s in spans if s["field"] == "total_assets"]
+        assert len(assets_spans) == 1
+        assert assets_spans[0]["value"] == "$84,000"
+        assert text[assets_spans[0]["start"]:assets_spans[0]["end"]] == "$84,000"
+
     def test_balance_sheet_field_skips_parenthetical_alternate_name():
         # Real filled template (#215): "NET ASSETS (NET WORTH) $45,000" --
         # the parenthetical alternate-name sits between label and value.
@@ -1321,6 +1362,7 @@ if __name__ == "__main__":
         test_apply_redaction_image_no_items_returns_unchanged_copy,
         test_balance_sheet_totals_are_sensitive_field_keys,
         test_balance_sheet_field_finds_value_on_docx_joined_row,
+        test_balance_sheet_field_multi_value_row_isolates_target_not_whole_blob,
         test_balance_sheet_field_skips_parenthetical_alternate_name,
         test_balance_sheet_field_absent_produces_no_span,
         test_balance_sheet_field_falls_back_to_bare_value_when_label_absent,
