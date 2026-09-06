@@ -47,6 +47,7 @@ class RedactedPreviewServiceTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked") // ArgumentCaptor.forClass(Map.class) is Mockito's own idiom for a generic type
     void generateAsyncMarksReadyAndNotifiesOnSuccess() throws Exception {
         service = new RedactedPreviewService(documentRepository, supabaseStorageService, restTemplate, messagingTemplate);
         ReflectionTestUtils.setField(service, "aiServiceUrl", "http://fake-ai");
@@ -69,13 +70,14 @@ class RedactedPreviewServiceTest {
         assertEquals("generated/path.png", doc.getRedactedPreviewPath());
         verify(documentRepository).save(doc);
 
-        ArgumentCaptor<Map> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
         verify(messagingTemplate).convertAndSendToUser(
                 eq("staff1@hcl.com"), eq("/queue/redacted-preview-status"), payloadCaptor.capture());
         assertEquals("READY", payloadCaptor.getValue().get("status"));
     }
 
     @Test
+    @SuppressWarnings("unchecked") // ArgumentCaptor.forClass(Map.class) is Mockito's own idiom for a generic type
     void generateAsyncMarksFailedAndNotifiesOnError() throws Exception {
         service = new RedactedPreviewService(documentRepository, supabaseStorageService, restTemplate, messagingTemplate);
         ReflectionTestUtils.setField(service, "aiServiceUrl", "http://fake-ai");
@@ -93,7 +95,7 @@ class RedactedPreviewServiceTest {
         assertEquals("Supabase download failed", doc.getRedactedPreviewFailureReason());
         verify(documentRepository).save(doc);
 
-        ArgumentCaptor<Map> payloadCaptor = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<Map<String, Object>> payloadCaptor = ArgumentCaptor.forClass(Map.class);
         verify(messagingTemplate).convertAndSendToUser(
                 eq("staff1@hcl.com"), eq("/queue/redacted-preview-status"), payloadCaptor.capture());
         assertEquals("FAILED", payloadCaptor.getValue().get("status"));
