@@ -32,11 +32,30 @@ app = FastAPI()
 # -- getting that wrong risks silent wrong OCR output, not just a crash,
 # so this doesn't add real throughput (matches the issue's own "doesn't
 # add true parallelism" framing) until that's verified safe to remove.
-_process_lock = threading.Lock()
+#
+# Issue #341 -- this lock (originally scoped to /process's own OCR model
+# safety) is also the ONLY thing standing between a real crash/corruption
+# risk on /apply-redaction, which was found to have never received #195's
+# fix at all: it ran its entire pdfium/LibreOffice/cv2 pipeline directly
+# in the coroutine body, with no offload and no lock. pypdfium2 (and the
+# underlying PDFium C library it wraps) is explicitly documented as not
+# thread-safe -- "not allowed to call pdfium functions simultaneously
+# across different threads, not even with different documents" (pdfium
+# upstream guidance; see also pypdfium2-team/pypdfium2#303). /process's
+# own pipeline (pipeline.py, module2_text_extraction.py) also calls
+# pdfium, so a /process call already dispatched to its background thread
+# and a concurrent /apply-redaction call running synchronously on the
+# event loop could genuinely call pdfium from two different OS threads
+# at the same real moment under real concurrent usage -- a live hazard,
+# not just a slowness one. Renamed from _process_lock (misleadingly
+# implied /process-only scope) since it now guards both endpoints against
+# the same real shared constraint: PDFium's global, not per-endpoint or
+# per-document, thread-safety limitation.
+_native_library_lock = threading.Lock()
 
 
 def _process_document_serialized(**kwargs) -> dict:
-    with _process_lock:
+    with _native_library_lock:
         return process_document(**kwargs)
 
 # Permissive local-dev CORS -- lets a standalone local HTML demo page (or
@@ -81,6 +100,18 @@ async def apply_redaction(
     items: str = Form(...),
 ) -> Response:
     file_bytes = await file.read()
+    png_bytes = await asyncio.to_thread(
+        _apply_redaction_serialized, file_bytes, items, file.filename or ""
+    )
+    return Response(content=png_bytes, media_type="image/png")
+
+
+def _apply_redaction_serialized(file_bytes: bytes, items: str, filename: str) -> bytes:
+    with _native_library_lock:
+        return _apply_redaction_sync(file_bytes, items, filename)
+
+
+def _apply_redaction_sync(file_bytes: bytes, items: str, filename: str) -> bytes:
     try:
         redaction_items = json.loads(items)
     except json.JSONDecodeError:
@@ -122,7 +153,7 @@ async def apply_redaction(
     # a text-native item isn't a workaround, it's the correct behavior.
     is_text_native_item_shape = any("x_pct" not in item for item in redaction_items)
 
-    filename = (file.filename or "").lower()
+    filename = filename.lower()
     if filename.endswith(".docx"):
         try:
             file_bytes = file_routing.convert_docx_to_pdf_bytes(file_bytes)
@@ -167,4 +198,4 @@ async def apply_redaction(
     if not ok:
         raise HTTPException(status_code=500, detail="failed to encode redacted image")
 
-    return Response(content=buf.tobytes(), media_type="image/png")
+    return buf.tobytes()
