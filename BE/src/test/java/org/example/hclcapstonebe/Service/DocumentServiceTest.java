@@ -3,10 +3,12 @@ package org.example.hclcapstonebe.Service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
+import org.example.hclcapstonebe.DTO.Response.RedactedPreviewResponse;
 import org.example.hclcapstonebe.Entities.Department;
 import org.example.hclcapstonebe.Entities.Document;
 import org.example.hclcapstonebe.Entities.User;
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
+import org.example.hclcapstonebe.Enums.RedactedPreviewStatus;
 import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.example.hclcapstonebe.Exception.AppException;
 import org.example.hclcapstonebe.Mapper.DocumentMapper;
@@ -18,18 +20,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -38,6 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,7 +49,7 @@ class DocumentServiceTest {
     @Mock private SupabaseStorageService supabaseStorageService;
     @Mock private ClamAvScannerService clamAvScannerService;
     @Mock private AiProcessingService aiProcessingService;
-    @Mock private RestTemplate restTemplate;
+    @Mock private RedactedPreviewService redactedPreviewService;
 
     @InjectMocks
     private DocumentService documentService;
@@ -253,10 +251,15 @@ class DocumentServiceTest {
         assertFalse(result.has("redaction"));
     }
 
-    @Test
-    void getRedactedPreview_nonOwnerInDepartment_returnsRedactedBytes() {
-        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
+    // ─── REDACTED PREVIEW: eligibility gate (unchanged by the async rewrite) ──
+    // These exercise the same isOwner/sameDepartment/format/redactionItems
+    // checks the old synchronous getRedactedPreview had -- only the tail end
+    // (kick off async generation instead of calling AI inline) changed, so
+    // buildDoc()'s default null redactedPreviewStatus (== NOT_STARTED) means
+    // every eligible case here should kick off generation and return GENERATING.
 
+    @Test
+    void getRedactedPreviewStatus_nonOwnerInDepartment_kicksOffGeneration() {
         UUID deptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
         UUID otherStaffId = UUID.randomUUID();
@@ -277,24 +280,18 @@ class DocumentServiceTest {
 
         when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
-        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
-        byte[] redactedBytes = "redacted-bytes".getBytes();
-        when(restTemplate.exchange(
-                eq("http://ai-service:8000/apply-redaction"),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                eq(byte[].class)
-        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
 
-        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com");
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "manager1@hcl.com", false);
 
-        assertArrayEquals(redactedBytes, result);
+        assertEquals(RedactedPreviewStatus.GENERATING, response.getStatus());
+        assertEquals(RedactedPreviewStatus.GENERATING, doc.getRedactedPreviewStatus());
+        verify(documentRepository).save(doc);
+        verify(redactedPreviewService).generateAsync(eq(doc.getId()), eq("manager1@hcl.com"), any(JsonNode.class));
     }
 
     @Test
-    void getRedactedPreview_ownerWithNoDepartment_succeeds() {
-        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
-
+    void getRedactedPreviewStatus_ownerWithNoDepartment_kicksOffGeneration() {
         UUID deptId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
 
@@ -312,22 +309,16 @@ class DocumentServiceTest {
 
         when(userRepository.findByEmailAndIsDeletedFalse("owner1@hcl.com")).thenReturn(Optional.of(owner));
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
-        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
-        byte[] redactedBytes = "redacted-bytes".getBytes();
-        when(restTemplate.exchange(
-                eq("http://ai-service:8000/apply-redaction"),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                eq(byte[].class)
-        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
 
-        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "owner1@hcl.com");
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "owner1@hcl.com", false);
 
-        assertArrayEquals(redactedBytes, result);
+        assertEquals(RedactedPreviewStatus.GENERATING, response.getStatus());
+        verify(redactedPreviewService).generateAsync(eq(doc.getId()), eq("owner1@hcl.com"), any(JsonNode.class));
     }
 
     @Test
-    void getRedactedPreview_wrongDepartment_isForbidden() {
+    void getRedactedPreviewStatus_wrongDepartment_isForbidden() {
         UUID deptId = UUID.randomUUID();
         UUID otherDeptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
@@ -346,12 +337,13 @@ class DocumentServiceTest {
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
 
         AppException ex = assertThrows(AppException.class, () ->
-                documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com"));
+                documentService.getRedactedPreviewStatus(doc.getId().toString(), "manager1@hcl.com", false));
         assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
+        verify(redactedPreviewService, never()).generateAsync(any(), any(), any());
     }
 
     @Test
-    void getRedactedPreview_pdfFormat_failsClosedNotImplemented() {
+    void getRedactedPreviewStatus_pdfFormat_failsClosedNotImplemented() {
         UUID deptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
         UUID otherStaffId = UUID.randomUUID();
@@ -369,17 +361,15 @@ class DocumentServiceTest {
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
 
         AppException ex = assertThrows(AppException.class, () ->
-                documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com"));
+                documentService.getRedactedPreviewStatus(doc.getId().toString(), "manager1@hcl.com", false));
         assertEquals(HttpStatus.NOT_IMPLEMENTED, ex.getStatus());
     }
 
     @Test
-    void getRedactedPreview_scannedPdf_returnsRedactedBytes() {
+    void getRedactedPreviewStatus_scannedPdf_kicksOffGeneration() {
         // Issue #207 -- a scanned PDF (processing_path == "ocr") already
         // has real box coordinates from the OCR path at upload time, so
-        // it must get a preview too, same as PNG/JPG/JPEG.
-        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
-
+        // it must be eligible too, same as PNG/JPG/JPEG.
         UUID deptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
         UUID otherStaffId = UUID.randomUUID();
@@ -401,31 +391,22 @@ class DocumentServiceTest {
 
         when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
-        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
-        byte[] redactedBytes = "redacted-bytes".getBytes();
-        when(restTemplate.exchange(
-                eq("http://ai-service:8000/apply-redaction"),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                eq(byte[].class)
-        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
 
-        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com");
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "manager1@hcl.com", false);
 
-        assertArrayEquals(redactedBytes, result);
+        assertEquals(RedactedPreviewStatus.GENERATING, response.getStatus());
+        verify(redactedPreviewService).generateAsync(eq(doc.getId()), eq("manager1@hcl.com"), any(JsonNode.class));
     }
 
     @Test
-    void getRedactedPreview_textNativePdf_returnsRedactedBytes() {
+    void getRedactedPreviewStatus_textNativePdf_kicksOffGeneration() {
         // Issue #208 -- a real text-native PDF (processing_path ==
-        // "text_native") now gets a preview too: AI's /apply-redaction
-        // renders the page itself and resolves each stored span's box by
-        // searching the rendered page's own text layer, so BE doesn't
-        // need real box coordinates to already exist -- it just passes
-        // the stored span items straight through, same as any other
-        // format.
-        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
-
+        // "text_native") is eligible too: AI's /apply-redaction renders the
+        // page itself and resolves each stored span's box by searching the
+        // rendered page's own text layer, so BE doesn't need real box
+        // coordinates to already exist -- it just passes the stored span
+        // items straight through, same as any other format.
         UUID deptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
         UUID otherStaffId = UUID.randomUUID();
@@ -447,27 +428,17 @@ class DocumentServiceTest {
 
         when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
-        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
-        byte[] redactedBytes = "redacted-bytes".getBytes();
-        when(restTemplate.exchange(
-                eq("http://ai-service:8000/apply-redaction"),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                eq(byte[].class)
-        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
 
-        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com");
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "manager1@hcl.com", false);
 
-        assertArrayEquals(redactedBytes, result);
+        assertEquals(RedactedPreviewStatus.GENERATING, response.getStatus());
+        verify(redactedPreviewService).generateAsync(eq(doc.getId()), eq("manager1@hcl.com"), any(JsonNode.class));
     }
 
     @Test
-    void getRedactedPreview_textNativeDocx_returnsRedactedBytes() {
+    void getRedactedPreviewStatus_textNativeDocx_kicksOffGeneration() {
         // Issue #208 -- same as the PDF case above, but for a docx.
-        // AI converts docx->pdf via LibreOffice before rendering/searching;
-        // BE's own gate just needs to allow DOCX + "text_native" through.
-        ReflectionTestUtils.setField(documentService, "aiServiceUrl", "http://ai-service:8000");
-
         UUID deptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
         UUID otherStaffId = UUID.randomUUID();
@@ -489,22 +460,16 @@ class DocumentServiceTest {
 
         when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
-        when(supabaseStorageService.downloadFile("documents", "abc_test.pdf")).thenReturn("raw-bytes".getBytes());
-        byte[] redactedBytes = "redacted-bytes".getBytes();
-        when(restTemplate.exchange(
-                eq("http://ai-service:8000/apply-redaction"),
-                eq(HttpMethod.POST),
-                any(HttpEntity.class),
-                eq(byte[].class)
-        )).thenReturn(new ResponseEntity<>(redactedBytes, HttpStatus.OK));
 
-        byte[] result = documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com");
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "manager1@hcl.com", false);
 
-        assertArrayEquals(redactedBytes, result);
+        assertEquals(RedactedPreviewStatus.GENERATING, response.getStatus());
+        verify(redactedPreviewService).generateAsync(eq(doc.getId()), eq("manager1@hcl.com"), any(JsonNode.class));
     }
 
     @Test
-    void getRedactedPreview_textNativeCsv_stillFailsClosedNotImplemented() {
+    void getRedactedPreviewStatus_textNativeCsv_stillFailsClosedNotImplemented() {
         // Issue #208 explicitly scopes the widened gate to PDF/DOCX only
         // -- a CSV has no renderable page at all, so it must keep 501ing
         // even with a real text_native processing_path and real spans.
@@ -531,12 +496,12 @@ class DocumentServiceTest {
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
 
         AppException ex = assertThrows(AppException.class, () ->
-                documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com"));
+                documentService.getRedactedPreviewStatus(doc.getId().toString(), "manager1@hcl.com", false));
         assertEquals(HttpStatus.NOT_IMPLEMENTED, ex.getStatus());
     }
 
     @Test
-    void getRedactedPreview_noRedactionItems_failsClosedUnprocessable() {
+    void getRedactedPreviewStatus_noRedactionItems_failsClosedUnprocessable() {
         UUID deptId = UUID.randomUUID();
         UUID managerId = UUID.randomUUID();
         UUID otherStaffId = UUID.randomUUID();
@@ -557,7 +522,118 @@ class DocumentServiceTest {
         when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
 
         AppException ex = assertThrows(AppException.class, () ->
-                documentService.getRedactedPreview(doc.getId().toString(), "manager1@hcl.com"));
+                documentService.getRedactedPreviewStatus(doc.getId().toString(), "manager1@hcl.com", false));
         assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, ex.getStatus());
+    }
+
+    // ─── REDACTED PREVIEW: status-transition logic (new for the async rewrite) ──
+
+    @Test
+    void getRedactedPreviewStatus_alreadyGenerating_returnsGeneratingWithoutReKickingOff() {
+        UUID deptId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        User owner = new User();
+        owner.setId(ownerId);
+
+        String aiResultWithItems = """
+                {"fields":{"bsb":"123-456"},"sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"boxes","items":[{"field":"bsb","value":"123-456","x_pct":0.1,"y_pct":0.1,"w_pct":0.2,"h_pct":0.1}]}}
+                """;
+        Document doc = buildDoc(ownerId, deptId, aiResultWithItems);
+        doc.setFormat(DocumentFormatEnum.PNG);
+        doc.setRedactedPreviewStatus(RedactedPreviewStatus.GENERATING);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("owner1@hcl.com")).thenReturn(Optional.of(owner));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "owner1@hcl.com", false);
+
+        assertEquals(RedactedPreviewStatus.GENERATING, response.getStatus());
+        verify(redactedPreviewService, never()).generateAsync(any(), any(), any());
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
+    void getRedactedPreviewStatus_ready_returnsSignedUrl() {
+        UUID deptId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        User owner = new User();
+        owner.setId(ownerId);
+
+        String aiResultWithItems = """
+                {"fields":{"bsb":"123-456"},"sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"boxes","items":[{"field":"bsb","value":"123-456","x_pct":0.1,"y_pct":0.1,"w_pct":0.2,"h_pct":0.1}]}}
+                """;
+        Document doc = buildDoc(ownerId, deptId, aiResultWithItems);
+        doc.setFormat(DocumentFormatEnum.PNG);
+        doc.setRedactedPreviewStatus(RedactedPreviewStatus.READY);
+        doc.setRedactedPreviewPath("some/path.png");
+
+        when(userRepository.findByEmailAndIsDeletedFalse("owner1@hcl.com")).thenReturn(Optional.of(owner));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+        when(supabaseStorageService.generateSignedUrl(eq("documents"), eq("some/path.png"), anyInt()))
+                .thenReturn("https://signed.example/some/path.png");
+
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "owner1@hcl.com", false);
+
+        assertEquals(RedactedPreviewStatus.READY, response.getStatus());
+        assertEquals("https://signed.example/some/path.png", response.getPreviewUrl());
+        verify(redactedPreviewService, never()).generateAsync(any(), any(), any());
+    }
+
+    @Test
+    void getRedactedPreviewStatus_failed_doesNotRetryWithoutExplicitFlag() {
+        UUID deptId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        User owner = new User();
+        owner.setId(ownerId);
+
+        String aiResultWithItems = """
+                {"fields":{"bsb":"123-456"},"sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"boxes","items":[{"field":"bsb","value":"123-456","x_pct":0.1,"y_pct":0.1,"w_pct":0.2,"h_pct":0.1}]}}
+                """;
+        Document doc = buildDoc(ownerId, deptId, aiResultWithItems);
+        doc.setFormat(DocumentFormatEnum.PNG);
+        doc.setRedactedPreviewStatus(RedactedPreviewStatus.FAILED);
+        doc.setRedactedPreviewFailureReason("boom");
+
+        when(userRepository.findByEmailAndIsDeletedFalse("owner1@hcl.com")).thenReturn(Optional.of(owner));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "owner1@hcl.com", false);
+
+        assertEquals(RedactedPreviewStatus.FAILED, response.getStatus());
+        assertEquals("boom", response.getFailureReason());
+        verify(redactedPreviewService, never()).generateAsync(any(), any(), any());
+    }
+
+    @Test
+    void getRedactedPreviewStatus_failed_retriesWhenRetryFlagSet() {
+        UUID deptId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        User owner = new User();
+        owner.setId(ownerId);
+
+        String aiResultWithItems = """
+                {"fields":{"bsb":"123-456"},"sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"boxes","items":[{"field":"bsb","value":"123-456","x_pct":0.1,"y_pct":0.1,"w_pct":0.2,"h_pct":0.1}]}}
+                """;
+        Document doc = buildDoc(ownerId, deptId, aiResultWithItems);
+        doc.setFormat(DocumentFormatEnum.PNG);
+        doc.setRedactedPreviewStatus(RedactedPreviewStatus.FAILED);
+        doc.setRedactedPreviewFailureReason("boom");
+
+        when(userRepository.findByEmailAndIsDeletedFalse("owner1@hcl.com")).thenReturn(Optional.of(owner));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "owner1@hcl.com", true);
+
+        assertEquals(RedactedPreviewStatus.GENERATING, response.getStatus());
+        assertNull(doc.getRedactedPreviewFailureReason());
+        verify(redactedPreviewService).generateAsync(eq(doc.getId()), eq("owner1@hcl.com"), any(JsonNode.class));
     }
 }
