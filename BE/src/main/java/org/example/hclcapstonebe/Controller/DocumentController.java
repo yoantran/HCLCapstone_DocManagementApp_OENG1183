@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
+import org.example.hclcapstonebe.DTO.Response.RedactedPreviewResponse;
 import org.example.hclcapstonebe.Service.DocumentService;
 import org.springframework.http.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -263,19 +264,26 @@ public class DocumentController {
     }
 
     @Operation(
-            summary = "Get redacted preview for non-owner viewing",
+            summary = "Get/kick off redacted preview generation for non-owner viewing",
             description = """
-                Returns a redacted PNG rendering of the document for someone who is
-                NOT the uploader (e.g. a Manager reviewing a department document).
+                Redacted preview generation runs asynchronously (server-side call to
+                Modal's /apply-redaction has unbounded-looking tail latency -- see
+                issues #337/#338) rather than blocking this request. Returns
+                NOT_STARTED/GENERATING/READY/FAILED immediately; NOT_STARTED
+                transitions to GENERATING and kicks off generation as a side effect
+                of this same call. Poll this endpoint (or subscribe to the
+                /user/queue/redacted-preview-status WebSocket push) until READY,
+                then use the returned previewUrl (a signed Supabase URL) directly.
                 Never returns the raw original. Supports image formats (PNG/JPG/JPEG),
                 scanned PDFs (OCR processing path), and text-native PDF/DOCX (rendered
                 and redacted server-side via AI's /apply-redaction). CSV has no
                 renderable page and returns 501 -- never falls back to the unredacted
-                file.
+                file. A FAILED status only retries when this is called again with
+                retry=true -- never automatically.
                 """
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Redacted image bytes (image/png)"),
+            @ApiResponse(responseCode = "200", description = "Status payload: {status, previewUrl, failureReason}"),
             @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department"),
             @ApiResponse(responseCode = "404", description = "Document not found"),
             @ApiResponse(responseCode = "422", description = "Document has no redaction data yet"),
@@ -283,14 +291,14 @@ public class DocumentController {
     })
     @GetMapping("/{id}/redacted-preview")
     @AuditAction("Viewed redacted preview '{documentId}'")
-    public ResponseEntity<byte[]> getRedactedPreview(
+    public ResponseEntity<RedactedPreviewResponse> getRedactedPreview(
             @Parameter(description = "UUID of the document", example = "doc-uuid-001")
             @PathVariable("id") String documentId,
+            @Parameter(description = "Explicitly re-trigger generation after a FAILED status. Never applied automatically.")
+            @RequestParam(value = "retry", required = false, defaultValue = "false") boolean retry,
             @AuthenticationPrincipal UserDetails userDetails) {
-        byte[] preview = documentService.getRedactedPreview(documentId, userDetails.getUsername());
-        return ResponseEntity.ok()
-                .contentType(MediaType.IMAGE_PNG)
-                .body(preview);
+        return ResponseEntity.ok(
+                documentService.getRedactedPreviewStatus(documentId, userDetails.getUsername(), retry));
     }
 
     @Operation(
