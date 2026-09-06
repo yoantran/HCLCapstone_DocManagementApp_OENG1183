@@ -44,8 +44,24 @@ public class AppConfig {
         // changing the configured timeout values or any calling code --
         // AiProcessingService's existing broad catch already handles
         // whatever exception this now reliably throws.
+        // 5s connectTimeout was too short -- reproduced live (2026-09-06): a
+        // request against a cold Modal container failed with "HTTP connect
+        // timed out". Bumped to 30s, then 90s, and BOTH still failed cold
+        // with the identical error -- container-side probing (docker exec +
+        // wget against Modal's own /docs) showed connect-phase duration is
+        // NOT simple TCP latency: it varied 7.6s / 7.6s / 12.7s / >60s
+        // (timed out) across back-to-back calls, and a real upload still hit
+        // the wall at ~90s. Modal's ASGI ingress appears to hold the
+        // connection open while provisioning a cold container for ANY
+        // request, including trivial ones -- the JDK HttpClient counts that
+        // stall against connectTimeout, not the 180s readTimeout below. That
+        // stall isn't reliably shorter than the cold-start budget this file
+        // already accepts for the read phase (see the 60s->180s history
+        // above), so give connect the same 180s rather than keep guessing a
+        // smaller number empirically -- each guess costs a real Modal
+        // cold-start to disprove.
         HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(180))
                 .build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
         factory.setReadTimeout(Duration.ofSeconds(180));
