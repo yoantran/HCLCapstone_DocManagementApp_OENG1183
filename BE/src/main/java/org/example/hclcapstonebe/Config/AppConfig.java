@@ -63,8 +63,36 @@ public class AppConfig {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(180))
                 .build();
+        // 180s readTimeout was tuned around /process's cold-start OCR
+        // duration and covered it fine, but this same RestTemplate also
+        // serves /apply-redaction (page re-render for the redacted preview),
+        // which is a separate, real bottleneck: confirmed live (2026-09-06)
+        // it can take ~240s end-to-end, exceeding 180s. When readTimeout
+        // fires mid-body-read, JDK's HttpClient cancels the response
+        // subscription and Spring wraps the resulting IOException in a
+        // RestClientException whose message ("Error while extracting
+        // response for type ... and content type ...") is textually
+        // indistinguishable from a "no compatible converter" error -- this
+        // previously looked like a byte[]/image-png HttpMessageConverter
+        // bug and wasted a diagnosis cycle before the real cause (timeout,
+        // not conversion) was found. See AiServiceRestTemplateTimeoutTest
+        // for a reproduction of this exact failure mode.
+        //
+        // First bumped to 300s ("clears the observed ~240s worst case with
+        // margin") -- confirmed live (2026-09-06) that ALSO wasn't enough: a
+        // real /apply-redaction call failed at ~302s, worse than the
+        // earlier ~240s sample from only two live data points. Unlike
+        // /process's connectTimeout (see above), this endpoint's tail
+        // latency doesn't look reliably bounded -- a bigger number here is
+        // a bigger safety margin, not a guarantee. 600s (~2x the worst
+        // observed sample) is a pragmatic stop-gap, not a real fix: the
+        // actual fix is making /apply-redaction async like /process
+        // (aiProcessed) already is, so no request thread blocks on Modal's
+        // unpredictable cold-start tail at all -- tracked separately rather
+        // than done here, since it's a cross-stack (BE+FE) redesign beyond
+        // this timeout bug's scope.
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
-        factory.setReadTimeout(Duration.ofSeconds(180));
+        factory.setReadTimeout(Duration.ofSeconds(600));
         return new RestTemplate(factory);
     }
 
