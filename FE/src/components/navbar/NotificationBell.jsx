@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Client } from '@stomp/stompjs';
 import { getRequest, patchRequest } from '../../api/apiHelpers';
+import { useWebSocket } from '../../context/WebSocketContext.jsx';
 import bellOn from '../../assets/bell-on.svg';
 import bellOff from '../../assets/bell-off.svg';
 import { formatDate } from '../../utils/formatFields';
@@ -37,48 +37,23 @@ export const NotificationBell = ({ userId, userEmail }) => {
         if (userId) fetchNotifications();
     }, [userId]);
 
-    // connect ws
+    // ws push via the shared connection
+    const { subscribe } = useWebSocket();
+
     useEffect(() => {
-        if (!userEmail) return;
-
-        const token = localStorage.getItem('token');
-
-        const stompClient = new Client({
-            brokerURL: `ws://localhost:8080/ws?token=${token}`,
-            reconnectDelay: 5000,
-
-            connectHeaders: {
-                Authorization: token ? `Bearer ${token}` : '',
-            },
-            debug: (str) => console.log(' [STOMP Debug Input]:', str),
+        const unsubscribe = subscribe('/user/queue/notifications', (rawNoti) => {
+            const normalizedNoti = {
+                id: rawNoti.id,
+                content: rawNoti.content,
+                triggeredDocumentId: rawNoti.triggeredDocumentId || rawNoti.documentId,
+                triggeredDocumentName: rawNoti.triggeredDocumentName || rawNoti.documentName,
+                hasRead: rawNoti.hasRead !== undefined ? rawNoti.hasRead : false,
+                createdAt: rawNoti.createdAt || new Date().toISOString()
+            };
+            setNotifications((prev) => [normalizedNoti, ...prev]);
         });
-
-        stompClient.onConnect = () => {
-            stompClient.subscribe(`/user/queue/notifications`, (message) => {
-                if (message.body) {
-                    try {
-                        const rawNoti = JSON.parse(message.body);
-                        // console.log("RECEIVED RAW SOCKET ALERT!:", rawNoti);
-
-                        const normalizedNoti = {
-                            id: rawNoti.id,
-                            content: rawNoti.content,
-                            triggeredDocumentId: rawNoti.triggeredDocumentId || rawNoti.documentId,
-                            triggeredDocumentName: rawNoti.triggeredDocumentName || rawNoti.documentName,
-                            hasRead: rawNoti.hasRead !== undefined ? rawNoti.hasRead : false,
-                            createdAt: rawNoti.createdAt || new Date().toISOString()
-                        };
-                        setNotifications((prev) => [normalizedNoti, ...prev]);
-                    } catch (err) {
-                        console.error("Error parsing socket body: ", err);
-                    }
-                }
-            });
-        };
-
-        stompClient.activate();
-        return () => stompClient.deactivate();
-    }, [userEmail]);
+        return unsubscribe;
+    }, [subscribe]);
 
 
     // route to `/documents` & push read noti request -- navigation must

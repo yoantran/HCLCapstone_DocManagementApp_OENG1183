@@ -10,6 +10,7 @@ import {
 import { customNavbarTheme } from "../components/navbar/index.jsx";
 import UserDropdown from "../components/userDropdown/index.jsx";
 import { NotificationBell } from '../components/navbar/NotificationBell.jsx';
+import { WebSocketProvider } from "../context/WebSocketContext.jsx";
 import { BsGithub, BsGlobe } from "react-icons/bs";
 import Footer from "../components/footer/index.jsx";
 
@@ -26,6 +27,7 @@ export default function MainLayout() {
 
 
     return (
+        <WebSocketProvider>
         <div
             className="border-r border-(--cool-gray-200) h-screen w-screen overflow-y-scroll wrap-anywhere flex flex-col"
         >
@@ -116,5 +118,6 @@ export default function MainLayout() {
                 <Footer className="bg-transparent border-0 rounded-none px-0 " />
             </div>
         </div>
+        </WebSocketProvider>
     );
 }

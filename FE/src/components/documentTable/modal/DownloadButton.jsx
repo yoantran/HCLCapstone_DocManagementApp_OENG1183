@@ -1,6 +1,6 @@
 import { Button, Spinner } from "flowbite-react";
 import { toast } from "react-toastify";
-import { getRequest, getBlobRequest } from "../../../api/apiHelpers";
+import { getRequest } from "../../../api/apiHelpers";
 
 export const DownloadButton = ({
     file,
@@ -21,9 +21,18 @@ export const DownloadButton = ({
 
                 if (downloadFile.requesterIsOwner === false) {
                     try {
-                        redactedUrl = await getBlobRequest({
+                        const preview = await getRequest({
                             url: `/documents/${downloadFile.id}/redacted-preview`
                         });
+                        if (preview.status === "READY") {
+                            redactedUrl = preview.previewUrl;
+                        } else if (preview.status === "GENERATING") {
+                            toast.info("Preview is still generating — try again in a moment.");
+                            return;
+                        } else if (preview.status === "FAILED") {
+                            toast.error(`Preview failed: ${preview.failureReason || "unknown error"}`);
+                            return;
+                        }
                     } catch (err) {
                         const status = err.response?.status;
                         if (status === 501) {
@@ -54,11 +63,6 @@ export const DownloadButton = ({
                 window.document.body.appendChild(link);
                 link.click();
                 link.remove();
-
-                // Only revoke if DownloadButton created this URL itself
-                if (detailUrl) {
-                    URL.revokeObjectURL(redactedUrl);
-                }
 
                 return;
             }

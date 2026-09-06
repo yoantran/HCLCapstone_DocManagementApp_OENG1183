@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PublicViewer } from "../components/documentProcess/view"
 import { DocInfo } from "../components/documentProcess/view/docInfo/DocInfo";
-import { getRequest, getBlobRequest } from "../api/apiHelpers";
+import { getRequest } from "../api/apiHelpers";
 import { DeleteAction } from "../components/action/DeleteAction.jsx";
 import { DownloadButton } from "../components/documentTable/modal/DownloadButton";
 import { Alert } from "flowbite-react";
 import { getScanStatusInfo } from "../utils/scanHelper.js";
+import { useWebSocket } from "../context/WebSocketContext.jsx";
 
 function DocumentBlocked({ document }) {
     const scanInfo = getScanStatusInfo(document);
@@ -34,6 +35,9 @@ export default function ViewDocument() {
     const [parsedAiResult, setParsedAiResult] = useState(null);
     const [redactedPreviewUrl, setRedactedPreviewUrl] = useState(null);
     const [previewError, setPreviewError] = useState(null);
+    const [previewStatus, setPreviewStatus] = useState(null);
+    const [previewFailureReason, setPreviewFailureReason] = useState(null);
+    const { subscribe } = useWebSocket();
 
     const navigate = useNavigate();
 
@@ -56,10 +60,16 @@ export default function ViewDocument() {
                     }
                 }
 
-                // fetch redacted preview for non-owners viewing documents
+                // fetch redacted preview status for non-owners viewing documents
                 if (response.aiProcessed && response.requesterIsOwner === false) {
-                    getBlobRequest({ url: `/documents/${documentId}/redacted-preview` })
-                        .then(setRedactedPreviewUrl)
+                    getRequest({ url: `/documents/${documentId}/redacted-preview` })
+                        .then((preview) => {
+                            setPreviewStatus(preview.status);
+                            setPreviewFailureReason(preview.failureReason);
+                            if (preview.status === "READY") {
+                                setRedactedPreviewUrl(preview.previewUrl);
+                            }
+                        })
                         .catch((err) => {
                             console.error("Failed to fetch redacted preview:", err);
                             setPreviewError(err.response?.status ?? null);    // only CSV unsupported
@@ -86,13 +96,25 @@ export default function ViewDocument() {
         return () => clearInterval(interval);
     }, [document, fetchDocument]);
 
+    // primary path: live push when generation finishes
     useEffect(() => {
-        return () => {
-            if (redactedPreviewUrl) {
-                URL.revokeObjectURL(redactedPreviewUrl);
+        if (!document?.id) return;
+        return subscribe('/user/queue/redacted-preview-status', (payload) => {
+            if (payload.documentId !== document.id) return;
+            setPreviewStatus(payload.status);
+            setPreviewFailureReason(payload.failureReason);
+            if (payload.status === 'READY') {
+                fetchDocument(); // re-fetch to obtain the signed previewUrl
             }
-        };
-    }, [redactedPreviewUrl]);
+        });
+    }, [document?.id, subscribe, fetchDocument]);
+
+    // fallback: poll while GENERATING in case the WS push is missed
+    useEffect(() => {
+        if (previewStatus !== 'GENERATING') return;
+        const interval = setInterval(fetchDocument, 10000);
+        return () => clearInterval(interval);
+    }, [previewStatus, fetchDocument]);
 
     if (!document) return null;
     const canView = document.accessible;
@@ -143,7 +165,20 @@ export default function ViewDocument() {
                     <div className="w-full max-w-6xl rounded-lg bg-white shadow italic">
                         {document.requesterIsOwner === false ? (
                             // non-owner: show redacted preview
-                            previewError === 501 ? (
+                            previewStatus === "GENERATING" ? (
+                                <p className="p-6 text-gray-500 text-sm">Generating redacted preview…</p>
+                            ) : previewStatus === "FAILED" ? (
+                                <p className="p-6 text-gray-500 text-sm">
+                                    Preview failed: {previewFailureReason || "unknown error"}.{" "}
+                                    <button
+                                        type="button"
+                                        className="underline cursor-pointer"
+                                        onClick={fetchDocument}
+                                    >
+                                        Retry
+                                    </button>
+                                </p>
+                            ) : previewError === 501 ? (
                                 <p className="p-6 text-gray-500 text-sm">Preview not available for this format.</p>
                             ) : previewError === 422 ? (
                                 <p className="p-6 text-gray-500 text-sm">AI processing not complete yet. Check back shortly.</p>

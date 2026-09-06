@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from '../../../context/AuthContext.jsx';
 import {
     Modal,
@@ -13,7 +13,8 @@ import { DownloadButton } from "./DownloadButton";
 import { DeleteAction } from "../../action/DeleteAction.jsx";
 import { formatDate, formatSize } from '../../../utils/formatFields';
 import { getScanStatusInfo } from '../../../utils/scanHelper.js';
-import { getBlobRequest } from '../../../api/apiHelpers.js';
+import { getRequest } from '../../../api/apiHelpers.js';
+import { useWebSocket } from '../../../context/WebSocketContext.jsx';
 
 export const DocumentModal = ({
     document,
@@ -35,60 +36,61 @@ export const DocumentModal = ({
             ? redactedPreview.url
             : null;
 
-    const [previewError, setPreviewError] = useState(null);
-    const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+    const [previewStatus, setPreviewStatus] = useState(null); // NOT_STARTED|GENERATING|READY|FAILED
+    const [previewFailureReason, setPreviewFailureReason] = useState(null);
+    const [previewError, setPreviewError] = useState(null); // HTTP status for 501/422/etc, distinct from a GENERATING/FAILED status body
 
+    const { subscribe } = useWebSocket();
     const navigate = useNavigate();
 
-    // background fetch when modal opens for non-owner image docs
+    const fetchPreviewStatus = useCallback((retry = false) => {
+        if (!document?.id) return;
+        getRequest({
+            url: `/documents/${document.id}/redacted-preview`,
+            params: retry ? { retry: true } : {},
+        })
+            .then((res) => {
+                setPreviewStatus(res.status);
+                setPreviewFailureReason(res.failureReason);
+                if (res.status === 'READY') {
+                    setRedactedPreview({ documentId: document.id, url: res.previewUrl });
+                }
+            })
+            .catch((err) => {
+                setPreviewError(err.response?.status ?? null);
+            });
+    }, [document?.id]);
+
+    // kick off / check status when modal opens for a non-owner viewing an
+    // AI-processed document
     useEffect(() => {
         if (!show || !document) return;
         if (!document.aiProcessed) return;
+        if (document.requesterIsOwner !== false) return;
+        fetchPreviewStatus();
+    }, [show, document?.id, document?.requesterIsOwner, document?.aiProcessed, fetchPreviewStatus]);
 
-        let cancelled = false;
-        let fetchedUrl = null;
-
-        setTimeout(() => {
-            setIsLoadingPreview(true);
-        }, 0);
-
-        getBlobRequest({
-            url: `/documents/${document.id}/redacted-preview`,
-        })
-            .then((url) => {
-                if (cancelled) {
-                    URL.revokeObjectURL(url);
-                    return;
-                }
-                fetchedUrl = url;
-
-                setRedactedPreview({
-                    documentId: document.id,
-                    url,
-                });
-
-                setIsLoadingPreview(false);
-            })
-            .catch((err) => {
-                if (cancelled) return;
-
-                setPreviewError(err.response?.status ?? null);
-                setIsLoadingPreview(false);
-            });
-
-        return () => {
-            cancelled = true;
-
-            if (fetchedUrl) {
-                URL.revokeObjectURL(fetchedUrl);
+    // primary path: live push when generation finishes
+    useEffect(() => {
+        if (!document?.id) return;
+        return subscribe('/user/queue/redacted-preview-status', (payload) => {
+            if (payload.documentId !== document.id) return;
+            setPreviewStatus(payload.status);
+            setPreviewFailureReason(payload.failureReason);
+            if (payload.status === 'READY') {
+                fetchPreviewStatus(); // one more GET to obtain the signed previewUrl
             }
-        };
-    }, [
-        show,
-        document?.id,
-        document?.requesterIsOwner,
-        document?.aiProcessed,
-    ]);
+        });
+    }, [document?.id, subscribe, fetchPreviewStatus]);
+
+    // fallback: poll while GENERATING in case the WS push is missed
+    useEffect(() => {
+        if (previewStatus !== 'GENERATING') return;
+        const interval = setInterval(() => fetchPreviewStatus(), 10000);
+        return () => clearInterval(interval);
+    }, [previewStatus, fetchPreviewStatus]);
+
+    const isLoadingPreview = document?.requesterIsOwner === false && previewStatus === 'GENERATING';
 
     const handleViewDocument = () => {
         navigate(`../view-document/${document.id}`);
@@ -172,8 +174,24 @@ export const DocumentModal = ({
                                         : `/documents/mine/${document.id}`
                                 }
                                 className="w-full mt-4 cursor-pointer border border-(--lighter-blue-300) hover:bg-(--dark-blue-700)"
-                                isLoadingPreview={document.requesterIsOwner === false && isLoadingPreview}
+                                isLoadingPreview={isLoadingPreview}
                             />
+
+                            {document.requesterIsOwner === false && previewStatus === 'GENERATING' && (
+                                <p className="text-sm text-gray-400 mt-2">Generating redacted preview…</p>
+                            )}
+                            {document.requesterIsOwner === false && previewStatus === 'FAILED' && (
+                                <p className="text-sm text-red-400 mt-2">
+                                    Preview failed: {previewFailureReason || 'unknown error'}.{' '}
+                                    <button
+                                        type="button"
+                                        className="underline cursor-pointer"
+                                        onClick={() => fetchPreviewStatus(true)}
+                                    >
+                                        Retry
+                                    </button>
+                                </p>
+                            )}
 
                             <Button
                                 onClick={handleViewDocument}

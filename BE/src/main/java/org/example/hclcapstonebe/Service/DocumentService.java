@@ -1,6 +1,7 @@
 package org.example.hclcapstonebe.Service;
 
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
+import org.example.hclcapstonebe.DTO.Response.RedactedPreviewResponse;
 import org.example.hclcapstonebe.Entities.Department;
 import org.example.hclcapstonebe.Entities.Document;
 import org.example.hclcapstonebe.Entities.Notification;
@@ -8,6 +9,7 @@ import org.example.hclcapstonebe.Entities.User;
 
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
+import org.example.hclcapstonebe.Enums.RedactedPreviewStatus;
 import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.example.hclcapstonebe.Exception.AppException;
 import org.example.hclcapstonebe.Exception.InvalidFileSignatureException;
@@ -20,19 +22,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.BufferedInputStream;
@@ -59,11 +51,8 @@ public class DocumentService {
     private final ClamAvScannerService clamAvScannerService;
     private final DocumentSanitizerService documentSanitizerService;
     private final AiProcessingService aiProcessingService;
-    private final RestTemplate restTemplate;
+    private final RedactedPreviewService redactedPreviewService;
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    @Value("${ai.service.url}")
-    private String aiServiceUrl;
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
@@ -324,7 +313,7 @@ public class DocumentService {
      * need to exist ahead of time. CSV still 501s -- no renderable page
      * exists for a spreadsheet at all.
      */
-    public byte[] getRedactedPreview(String docId, String currentUserEmail) {
+    public RedactedPreviewResponse getRedactedPreviewStatus(String docId, String currentUserEmail, boolean retry) {
         User requester = getUserByEmail(currentUserEmail);
         Document doc = getDocumentOrThrow(docId);
 
@@ -360,8 +349,31 @@ public class DocumentService {
             throw new AppException("Document has no redaction data yet", HttpStatus.UNPROCESSABLE_ENTITY);
         }
 
-        byte[] originalBytes = supabaseStorageService.downloadFile(BUCKET, doc.getDocumentLink());
-        return callApplyRedaction(originalBytes, doc.getName(), redactionItems);
+        RedactedPreviewStatus status = doc.getRedactedPreviewStatus();
+        boolean shouldKickOff = status == null
+                || status == RedactedPreviewStatus.NOT_STARTED
+                || (retry && status == RedactedPreviewStatus.FAILED);
+
+        if (shouldKickOff) {
+            doc.setRedactedPreviewStatus(RedactedPreviewStatus.GENERATING);
+            doc.setRedactedPreviewFailureReason(null);
+            documentRepository.save(doc);
+            redactedPreviewService.generateAsync(doc.getId(), currentUserEmail, redactionItems);
+            return new RedactedPreviewResponse(RedactedPreviewStatus.GENERATING, null, null);
+        }
+
+        if (status == RedactedPreviewStatus.READY) {
+            String signedUrl = supabaseStorageService.generateSignedUrl(
+                    BUCKET, doc.getRedactedPreviewPath(), SIGNED_URL_TTL);
+            return new RedactedPreviewResponse(RedactedPreviewStatus.READY, signedUrl, null);
+        }
+
+        if (status == RedactedPreviewStatus.FAILED) {
+            return new RedactedPreviewResponse(RedactedPreviewStatus.FAILED, null, doc.getRedactedPreviewFailureReason());
+        }
+
+        // GENERATING
+        return new RedactedPreviewResponse(RedactedPreviewStatus.GENERATING, null, null);
     }
 
     private JsonNode extractRedactionItems(String aiResultJson) {
@@ -387,40 +399,6 @@ public class DocumentService {
             return processingPath != null && processingPath.isTextual() ? processingPath.asText() : null;
         } catch (JsonProcessingException e) {
             return null;
-        }
-    }
-
-    private byte[] callApplyRedaction(byte[] fileBytes, String filename, JsonNode redactionItems) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-
-        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("file", new ByteArrayResource(fileBytes) {
-            @Override
-            public String getFilename() {
-                return filename;
-            }
-        });
-        try {
-            body.add("items", objectMapper.writeValueAsString(redactionItems));
-        } catch (JsonProcessingException e) {
-            throw new AppException("Failed to serialize redaction items", HttpStatus.INTERNAL_SERVER_ERROR);
-        }
-
-        HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
-        try {
-            ResponseEntity<byte[]> response = restTemplate.exchange(
-                    aiServiceUrl + "/apply-redaction", HttpMethod.POST, request, byte[].class
-            );
-            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
-                throw new AppException("AI apply-redaction failed: " + response.getStatusCode(),
-                        HttpStatus.INTERNAL_SERVER_ERROR);
-            }
-            return response.getBody();
-        } catch (AppException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new AppException("AI apply-redaction error: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
