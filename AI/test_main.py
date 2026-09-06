@@ -1,4 +1,6 @@
 import sys
+import threading
+import time
 from unittest.mock import patch
 
 sys.path.insert(0, ".")
@@ -11,7 +13,7 @@ from fastapi.testclient import TestClient
 
 import file_routing
 import module1_opencv
-from main import app
+from main import _apply_redaction_serialized, _native_library_lock, app
 
 client = TestClient(app)
 
@@ -409,6 +411,54 @@ def test_apply_redaction_ocr_shape_multipage_pdf_lands_on_composite():
     # sanity: the composite's own upper (page 0) region must stay
     # unredacted -- only the requested 0.6-0.7 band was asked for
     assert arr[int(0.1 * h), int(0.2 * w)].tolist() != [0, 0, 0]
+
+
+def test_apply_redaction_and_process_share_the_same_lock():
+    """Issue #341 -- /apply-redaction never received #195's offload+lock
+    treatment: it ran its whole pdfium/LibreOffice/cv2 pipeline directly
+    in the coroutine body, no lock, no thread offload. /process's own
+    pipeline also calls pdfium, and pdfium is documented as unsafe to call
+    from two threads at once even across different documents -- so a
+    /process call already running in its background thread and a
+    concurrent /apply-redaction call (which ran straight on the event
+    loop) could genuinely call pdfium from two OS threads at the same
+    real moment. This proves _apply_redaction_serialized actually blocks
+    on the same lock _process_document_serialized uses, not just that it
+    doesn't crash when called alone -- a lock only used by one of the two
+    call sites wouldn't have fixed the real hazard."""
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_lock():
+        with _native_library_lock:
+            entered.set()
+            release.wait(timeout=5)
+
+    holder = threading.Thread(target=hold_lock)
+    holder.start()
+    assert entered.wait(timeout=2), "lock-holding thread never acquired the lock"
+
+    def call_apply_redaction():
+        try:
+            # items="[]" fails the non-empty-list check almost immediately
+            # once the lock is actually acquired -- this test only cares
+            # about *when* it acquires the lock, not the redaction result.
+            _apply_redaction_serialized(b"not a real file", "[]", "x.png")
+        except Exception:
+            pass
+
+    caller = threading.Thread(target=call_apply_redaction)
+    caller.start()
+    time.sleep(0.3)
+    assert caller.is_alive(), (
+        "_apply_redaction_serialized proceeded while the lock was held elsewhere -- "
+        "not actually serialized against /process"
+    )
+
+    release.set()
+    caller.join(timeout=5)
+    assert not caller.is_alive(), "_apply_redaction_serialized never proceeded after the lock was released"
+    holder.join(timeout=5)
 
 
 def run_all():
