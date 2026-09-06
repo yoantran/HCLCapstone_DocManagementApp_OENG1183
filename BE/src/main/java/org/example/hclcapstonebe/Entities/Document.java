@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.DocumentTypeEnum;
+import org.example.hclcapstonebe.Enums.RedactedPreviewStatus;
 import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -87,6 +88,19 @@ public class Document {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private String aiResult;
+
+    // No @Column(nullable = false) / @Builder.Default here deliberately --
+    // existing rows will have NULL after the schema updates (ddl-auto=update
+    // adds the column but doesn't backfill existing rows), so every read
+    // site must treat null the same as NOT_STARTED rather than relying on a
+    // DB-level default.
+    @Enumerated(EnumType.STRING)
+    private RedactedPreviewStatus redactedPreviewStatus;
+
+    private String redactedPreviewPath;
+
+    @Column(length = 500)
+    private String redactedPreviewFailureReason;
 
     private BigDecimal proposedRepaymentAmount;
 }
