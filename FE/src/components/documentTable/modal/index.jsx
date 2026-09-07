@@ -39,6 +39,7 @@ export const DocumentModal = ({
     const [previewStatus, setPreviewStatus] = useState(null); // NOT_STARTED|GENERATING|READY|FAILED
     const [previewFailureReason, setPreviewFailureReason] = useState(null);
     const [previewError, setPreviewError] = useState(null); // HTTP status for 501/422/etc, distinct from a GENERATING/FAILED status body
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
     const { subscribe } = useWebSocket();
     const navigate = useNavigate();
@@ -89,6 +90,16 @@ export const DocumentModal = ({
         const interval = setInterval(() => fetchPreviewStatus(), 10000);
         return () => clearInterval(interval);
     }, [previewStatus, fetchPreviewStatus]);
+
+    // live "how long has this been going" counter -- purely cosmetic, resets
+    // whenever GENERATING (re)starts so it never carries over from a prior
+    // wait on a different document
+    useEffect(() => {
+        if (previewStatus !== 'GENERATING') return;
+        setElapsedSeconds(0);
+        const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+        return () => clearInterval(interval);
+    }, [previewStatus]);
 
     const isLoadingPreview = document?.requesterIsOwner === false && previewStatus === 'GENERATING';
 
@@ -178,7 +189,10 @@ export const DocumentModal = ({
                             />
 
                             {document.requesterIsOwner === false && previewStatus === 'GENERATING' && (
-                                <p className="text-sm text-gray-400 mt-2">Generating redacted preview…</p>
+                                <div className="text-sm text-gray-400 mt-2">
+                                    <p>You can close this and keep browsing — we'll notify you via the bell icon when it's ready.</p>
+                                    <p className="mt-1">Generating redacted preview… ({elapsedSeconds}s)</p>
+                                </div>
                             )}
                             {document.requesterIsOwner === false && previewStatus === 'FAILED' && (
                                 <p className="text-sm text-red-400 mt-2">

@@ -6,9 +6,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.hclcapstonebe.Entities.Document;
+import org.example.hclcapstonebe.Entities.Notification;
+import org.example.hclcapstonebe.Entities.User;
 import org.example.hclcapstonebe.Enums.RedactedPreviewStatus;
 import org.example.hclcapstonebe.Exception.AppException;
 import org.example.hclcapstonebe.Repository.DocumentRepository;
+import org.example.hclcapstonebe.Repository.NotificationRepository;
+import org.example.hclcapstonebe.Repository.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
@@ -44,6 +48,8 @@ public class RedactedPreviewService {
     private final SupabaseStorageService supabaseStorageService;
     private final RestTemplate restTemplate;
     private final SimpMessagingTemplate messagingTemplate;
+    private final NotificationRepository notificationRepository;
+    private final UserRepository userRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${ai.service.url}")
@@ -68,6 +74,7 @@ public class RedactedPreviewService {
             documentRepository.save(doc);
 
             notifyRequester(requesterEmail, documentId, RedactedPreviewStatus.READY, null);
+            notifyBell(requesterEmail, doc, "Redacted preview ready: " + doc.getName());
         } catch (Exception e) {
             log.warn("Redacted preview generation failed for document {}: {}", documentId, e.getMessage());
             doc.setRedactedPreviewStatus(RedactedPreviewStatus.FAILED);
@@ -75,6 +82,7 @@ public class RedactedPreviewService {
             documentRepository.save(doc);
 
             notifyRequester(requesterEmail, documentId, RedactedPreviewStatus.FAILED, e.getMessage());
+            notifyBell(requesterEmail, doc, "Redacted preview failed: " + doc.getName());
         }
     }
 
@@ -112,5 +120,43 @@ public class RedactedPreviewService {
         payload.put("status", status.name());
         payload.put("failureReason", failureReason);
         messagingTemplate.convertAndSendToUser(requesterEmail, "/queue/redacted-preview-status", payload);
+    }
+
+    /**
+     * Also surfaces completion through the bell (same Notification entity +
+     * /queue/notifications channel DocumentService.sendNotificationToManager
+     * already uses), so a requester who navigated away before /queue
+     * /redacted-preview-status was delivered still finds out -- the bell's
+     * own history (GET /notifications) persists it past a page reload,
+     * unlike the status-only push above. Failure here must never override
+     * the already-decided READY/FAILED write, so it's isolated in its own
+     * try/catch rather than allowed to propagate.
+     */
+    private void notifyBell(String requesterEmail, Document doc, String content) {
+        try {
+            User requester = userRepository.findByEmailAndIsDeletedFalse(requesterEmail).orElse(null);
+            if (requester == null) {
+                return;
+            }
+
+            Notification notification = Notification.builder()
+                    .triggeredDocument(doc)
+                    .content(content)
+                    .receiver(requester)
+                    .build();
+            notificationRepository.save(notification);
+
+            Map<String, Object> wsPayload = new HashMap<>();
+            wsPayload.put("id", notification.getId());
+            wsPayload.put("content", content);
+            wsPayload.put("documentId", doc.getId());
+            wsPayload.put("documentName", doc.getName());
+            wsPayload.put("hasRead", false);
+            wsPayload.put("createdAt", java.time.LocalDateTime.now().toString());
+
+            messagingTemplate.convertAndSendToUser(requesterEmail, "/queue/notifications", wsPayload);
+        } catch (Exception e) {
+            log.warn("Failed to send bell notification for document {}: {}", doc.getId(), e.getMessage());
+        }
     }
 }

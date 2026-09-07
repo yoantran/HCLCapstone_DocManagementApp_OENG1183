@@ -37,6 +37,7 @@ export default function ViewDocument() {
     const [previewError, setPreviewError] = useState(null);
     const [previewStatus, setPreviewStatus] = useState(null);
     const [previewFailureReason, setPreviewFailureReason] = useState(null);
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const { subscribe } = useWebSocket();
 
     const navigate = useNavigate();
@@ -116,6 +117,16 @@ export default function ViewDocument() {
         return () => clearInterval(interval);
     }, [previewStatus, fetchDocument]);
 
+    // live "how long has this been going" counter -- purely cosmetic, resets
+    // whenever GENERATING (re)starts so it never carries over from a prior
+    // wait on a different document
+    useEffect(() => {
+        if (previewStatus !== 'GENERATING') return;
+        setElapsedSeconds(0);
+        const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+        return () => clearInterval(interval);
+    }, [previewStatus]);
+
     if (!document) return null;
     const canView = document.accessible;
 
@@ -166,7 +177,10 @@ export default function ViewDocument() {
                         {document.requesterIsOwner === false ? (
                             // non-owner: show redacted preview
                             previewStatus === "GENERATING" ? (
-                                <p className="p-6 text-gray-500 text-sm">Generating redacted preview…</p>
+                                <div className="p-6 text-gray-500 text-sm">
+                                    <p>You can navigate away and keep browsing — we'll notify you via the bell icon when it's ready.</p>
+                                    <p className="mt-1">Generating redacted preview… ({elapsedSeconds}s)</p>
+                                </div>
                             ) : previewStatus === "FAILED" ? (
                                 <p className="p-6 text-gray-500 text-sm">
                                     Preview failed: {previewFailureReason || "unknown error"}.{" "}

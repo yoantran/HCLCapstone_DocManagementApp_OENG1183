@@ -3,8 +3,12 @@ package org.example.hclcapstonebe.Service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.hclcapstonebe.Entities.Document;
+import org.example.hclcapstonebe.Entities.Notification;
+import org.example.hclcapstonebe.Entities.User;
 import org.example.hclcapstonebe.Enums.RedactedPreviewStatus;
 import org.example.hclcapstonebe.Repository.DocumentRepository;
+import org.example.hclcapstonebe.Repository.NotificationRepository;
+import org.example.hclcapstonebe.Repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -35,6 +39,10 @@ class RedactedPreviewServiceTest {
     private RestTemplate restTemplate;
     @Mock
     private SimpMessagingTemplate messagingTemplate;
+    @Mock
+    private NotificationRepository notificationRepository;
+    @Mock
+    private UserRepository userRepository;
 
     private RedactedPreviewService service;
 
@@ -46,10 +54,18 @@ class RedactedPreviewServiceTest {
         return doc;
     }
 
+    private User sampleUser(String email) {
+        User user = new User();
+        user.setId(UUID.randomUUID());
+        user.setEmail(email);
+        return user;
+    }
+
     @Test
     @SuppressWarnings("unchecked") // ArgumentCaptor.forClass(Map.class) is Mockito's own idiom for a generic type
     void generateAsyncMarksReadyAndNotifiesOnSuccess() throws Exception {
-        service = new RedactedPreviewService(documentRepository, supabaseStorageService, restTemplate, messagingTemplate);
+        service = new RedactedPreviewService(documentRepository, supabaseStorageService, restTemplate,
+                messagingTemplate, notificationRepository, userRepository);
         ReflectionTestUtils.setField(service, "aiServiceUrl", "http://fake-ai");
 
         UUID docId = UUID.randomUUID();
@@ -62,6 +78,8 @@ class RedactedPreviewServiceTest {
                 .thenReturn(ResponseEntity.ok(fakePng));
         when(supabaseStorageService.uploadFile(eq("documents"), eq(fakePng), anyString(), eq("image/png")))
                 .thenReturn("generated/path.png");
+        when(userRepository.findByEmailAndIsDeletedFalse("staff1@hcl.com"))
+                .thenReturn(Optional.of(sampleUser("staff1@hcl.com")));
 
         JsonNode items = new ObjectMapper().readTree("[{\"page\":1}]");
         service.generateAsync(docId, "staff1@hcl.com", items);
@@ -74,12 +92,22 @@ class RedactedPreviewServiceTest {
         verify(messagingTemplate).convertAndSendToUser(
                 eq("staff1@hcl.com"), eq("/queue/redacted-preview-status"), payloadCaptor.capture());
         assertEquals("READY", payloadCaptor.getValue().get("status"));
+
+        // bell notification -- durable via /notifications history, not just
+        // the status-only push above
+        verify(notificationRepository).save(any(Notification.class));
+        ArgumentCaptor<Map<String, Object>> bellPayloadCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("staff1@hcl.com"), eq("/queue/notifications"), bellPayloadCaptor.capture());
+        assertEquals(doc.getId(), bellPayloadCaptor.getValue().get("documentId"));
+        assertEquals(false, bellPayloadCaptor.getValue().get("hasRead"));
     }
 
     @Test
     @SuppressWarnings("unchecked") // ArgumentCaptor.forClass(Map.class) is Mockito's own idiom for a generic type
     void generateAsyncMarksFailedAndNotifiesOnError() throws Exception {
-        service = new RedactedPreviewService(documentRepository, supabaseStorageService, restTemplate, messagingTemplate);
+        service = new RedactedPreviewService(documentRepository, supabaseStorageService, restTemplate,
+                messagingTemplate, notificationRepository, userRepository);
         ReflectionTestUtils.setField(service, "aiServiceUrl", "http://fake-ai");
 
         UUID docId = UUID.randomUUID();
@@ -87,6 +115,8 @@ class RedactedPreviewServiceTest {
         when(documentRepository.findById(docId)).thenReturn(Optional.of(doc));
         when(supabaseStorageService.downloadFile(anyString(), anyString()))
                 .thenThrow(new RuntimeException("Supabase download failed"));
+        when(userRepository.findByEmailAndIsDeletedFalse("staff1@hcl.com"))
+                .thenReturn(Optional.of(sampleUser("staff1@hcl.com")));
 
         JsonNode items = new ObjectMapper().readTree("[{\"page\":1}]");
         service.generateAsync(docId, "staff1@hcl.com", items);
@@ -99,5 +129,40 @@ class RedactedPreviewServiceTest {
         verify(messagingTemplate).convertAndSendToUser(
                 eq("staff1@hcl.com"), eq("/queue/redacted-preview-status"), payloadCaptor.capture());
         assertEquals("FAILED", payloadCaptor.getValue().get("status"));
+
+        verify(notificationRepository).save(any(Notification.class));
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("staff1@hcl.com"), eq("/queue/notifications"), any(Map.class));
+    }
+
+    @Test
+    void generateAsyncSkipsBellNotificationWhenRequesterNotFound() throws Exception {
+        service = new RedactedPreviewService(documentRepository, supabaseStorageService, restTemplate,
+                messagingTemplate, notificationRepository, userRepository);
+        ReflectionTestUtils.setField(service, "aiServiceUrl", "http://fake-ai");
+
+        UUID docId = UUID.randomUUID();
+        Document doc = sampleDocument(docId);
+        when(documentRepository.findById(docId)).thenReturn(Optional.of(doc));
+        when(supabaseStorageService.downloadFile(eq("documents"), eq("some/path.docx")))
+                .thenReturn(new byte[]{1, 2, 3});
+        byte[] fakePng = new byte[]{4, 5, 6};
+        when(restTemplate.exchange(eq("http://fake-ai/apply-redaction"), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                .thenReturn(ResponseEntity.ok(fakePng));
+        when(supabaseStorageService.uploadFile(eq("documents"), eq(fakePng), anyString(), eq("image/png")))
+                .thenReturn("generated/path.png");
+        when(userRepository.findByEmailAndIsDeletedFalse("ghost@hcl.com")).thenReturn(Optional.empty());
+
+        JsonNode items = new ObjectMapper().readTree("[{\"page\":1}]");
+        // requester lookup failing must not stop the READY write or the
+        // existing status-only push -- only the bell notification is skipped
+        service.generateAsync(docId, "ghost@hcl.com", items);
+
+        assertEquals(RedactedPreviewStatus.READY, doc.getRedactedPreviewStatus());
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("ghost@hcl.com"), eq("/queue/redacted-preview-status"), any(Map.class));
+        verify(notificationRepository, never()).save(any(Notification.class));
+        verify(messagingTemplate, never()).convertAndSendToUser(
+                eq("ghost@hcl.com"), eq("/queue/notifications"), any(Map.class));
     }
 }
