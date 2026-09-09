@@ -188,16 +188,22 @@ def lines_to_text(lines: list[dict]) -> str:
     return "\n".join(line["text"] for line in lines)
 
 
-def extract_fields(image, lang: str = "en", initial_section: str | None = None) -> dict:
+def extract_fields(
+    image, lang: str = "en", initial_section: str | None = None, initial_prefer_col: int | None = None
+) -> dict:
     doc = ocr_document(image, lang=lang)
     text = lines_to_text(doc["lines"])
     table_rows = [row for html in doc["tables"] for row in html_table_to_rows(html)]
-    fields = extract_fields_from_text_en(text, table_rows=table_rows or None, initial_section=initial_section)
+    fields = extract_fields_from_text_en(
+        text, table_rows=table_rows or None, initial_section=initial_section, initial_prefer_col=initial_prefer_col
+    )
     # Issue #297 -- carried purely for a per-page caller (pipeline.py's
     # OCR-path loop) to thread into the NEXT page's initial_section; not
     # a real redaction/extraction field, popped out before `fields`
     # reaches anything else (module3_redaction, BE storage, etc.).
     balance_sheet_section = fields.pop("_balance_sheet_section", None)
+    # Issue #345 -- same carry, for the period-column preference.
+    balance_sheet_prefer_col = fields.pop("_balance_sheet_prefer_col", None)
     _repair_line_split_fields(doc["lines"], text, fields)
     # Issue #317 -- a balance-sheet row can be entirely dropped from
     # table_rows when its own label wraps across an unusually large
@@ -213,6 +219,7 @@ def extract_fields(image, lang: str = "en", initial_section: str | None = None) 
         "table_ocr_preds": doc["table_ocr_preds"],
         "text": text,
         "balance_sheet_section": balance_sheet_section,
+        "balance_sheet_prefer_col": balance_sheet_prefer_col,
     }
 
 

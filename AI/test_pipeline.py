@@ -143,8 +143,8 @@ def test_ocr_path_multipage_merges_fields_and_places_boxes_on_correct_page():
          patch.object(
              module2_ocr_extraction, "extract_fields",
              side_effect=[
-                 {"fields": page0_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None},
-                 {"fields": page1_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None},
+                 {"fields": page0_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None, "balance_sheet_prefer_col": None},
+                 {"fields": page1_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None, "balance_sheet_prefer_col": None},
              ],
          ), \
          patch("module3_redaction.find_sensitive_boxes", side_effect=[page0_boxes, page1_boxes]):
@@ -187,8 +187,8 @@ def test_ocr_path_carries_balance_sheet_section_across_pages():
          patch.object(
              module2_ocr_extraction, "extract_fields",
              side_effect=[
-                 {"fields": base_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": "total_current_liabilities"},
-                 {"fields": {**base_fields, "total_current_liabilities": 45000.0}, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None},
+                 {"fields": base_fields, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": "total_current_liabilities", "balance_sheet_prefer_col": None},
+                 {"fields": {**base_fields, "total_current_liabilities": 45000.0}, "line_boxes": [], "tables": [], "table_ocr_preds": [], "text": "", "balance_sheet_section": None, "balance_sheet_prefer_col": None},
              ],
          ) as mock_extract, \
          patch("module3_redaction.find_sensitive_boxes", return_value=[]):
@@ -226,6 +226,39 @@ def test_text_native_pdf_carries_balance_sheet_section_across_pages():
 
     assert result["error"] is None
     assert result["fields"]["total_current_liabilities"] == 45000.0
+
+
+def test_text_native_pdf_carries_balance_sheet_prefer_col_across_pages():
+    # Issue #345 -- same page-boundary gap #297 fixed for section-tracking,
+    # confirmed real on Balance-sheet-template-FILLED-300.pdf: its period
+    # header ("[Year1]".."[Year5]") lands on one page while the actual
+    # Total Assets row sits on the next. Page 1's table has ONLY a
+    # current-is-leftmost header (so a rightmost-fallback would pick the
+    # wrong, older figure); page 2's has ONLY the values row -- proves
+    # pipeline.py's own text-native loop threads the detected column
+    # across its iterations, not just that extract_balance_sheet_fields_en
+    # can do it in isolation (test_field_extraction_en.py already covers
+    # that).
+    fake_page = np.full((20, 20, 3), 255, dtype=np.uint8)
+    with patch("pipeline.render_pdf_all_pages", return_value=[fake_page, fake_page]), \
+         patch.object(
+             module2_ocr_extraction, "ocr_document",
+             side_effect=[
+                 {"tables": ["<table>page1</table>"]},
+                 {"tables": ["<table>page2</table>"]},
+             ],
+         ), \
+         patch.object(
+             module2_ocr_extraction, "html_table_to_rows",
+             side_effect=[
+                 [["", "CURRENT YR.", "PRIOR YR."]],
+                 [["Total Assets", "$120,000.00", "$100,000.00"]],
+             ],
+         ):
+        result = process_document("balance-sheet.pdf", _PDF_BYTES)
+
+    assert result["error"] is None
+    assert result["fields"]["total_assets"] == 120000.0
 
 
 def run_all():

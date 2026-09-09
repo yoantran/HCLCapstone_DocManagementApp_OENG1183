@@ -502,16 +502,38 @@ def _detect_current_period_column(table_rows: list[list[str]]) -> int | None:
     most recent period. None if no real header is found -- callers fall
     back to the old rightmost-wins behavior unchanged, so tables without
     a recognizable header (most docx tables, single-value-column rows)
-    see no behavior change at all."""
+    see no behavior change at all.
+
+    Issue #345 -- confirmed real on Balance-sheet-template-FILLED-300.pdf:
+    its actual OCR'd header cells read "[Yea r1]".."[Yea r5]" (the same
+    #226 mid-word-wrap artifact _despace() already exists to undo), which
+    _NUMBERED_PERIOD_RE can never match un-despaced -- the space sits
+    INSIDE "Year" itself (between "Yea" and "r1"), not between "Year" and
+    the digit, so no amount of `\\s*` placement in the pattern can bridge
+    it. Despacing unconditionally would fix that but silently BREAK the
+    already-working "CURRENT YR."/"PRIOR YEAR" cases just above (a real
+    regression, caught by this file's own existing tests): those rely on
+    the genuine inter-word space to satisfy `\\bCURRENT\\b`'s trailing
+    boundary, and joining them into "CURRENTYR." destroys it. Only fall
+    back to a despaced retry when the RAW cell matches nothing at all --
+    every previously-working case still matches on its first, un-mangled
+    attempt and is never re-evaluated."""
     for row in table_rows:
         current_idx: int | None = None
         prior_idx: int | None = None
         numbered: list[tuple[int, int]] = []  # (period number, column index)
         matches = 0
         for idx, cell in enumerate(row):
-            cell = cell.strip()
-            if not cell:
+            raw_cell = cell.strip()
+            if not raw_cell:
                 continue
+            cell = raw_cell
+            if not (
+                _CURRENT_PERIOD_RE.search(raw_cell)
+                or _PRIOR_PERIOD_RE.search(raw_cell)
+                or _NUMBERED_PERIOD_RE.search(raw_cell)
+            ):
+                cell = _despace(raw_cell)
             if _CURRENT_PERIOD_RE.search(cell):
                 current_idx = idx
                 matches += 1
@@ -648,8 +670,8 @@ def _resolve_value(
 
 
 def extract_balance_sheet_fields_en(
-    table_rows: list[list[str]], initial_section: str | None = None
-) -> tuple[dict, str | None]:
+    table_rows: list[list[str]], initial_section: str | None = None, initial_prefer_col: int | None = None
+) -> tuple[dict, str | None, int | None]:
     """Pair a bare label cell with its adjacent value cell(s) -- same
     algorithm as field_extraction.py's extract_from_table_rows (VN era),
     ported to English balance-sheet labels. Real templates put the label
@@ -692,10 +714,27 @@ def extract_balance_sheet_fields_en(
     that state OUT to seed the next page's call -- the same "only the
     first bare Total after a header counts" reset logic below already
     applies identically whether the header came from this page or was
-    carried in from the previous one."""
+    carried in from the previous one.
+
+    Issue #345 -- the SAME cross-page gap #297 fixed for section-tracking
+    also affects _detect_current_period_column: confirmed real on
+    Balance-sheet-template-FILLED-300.pdf, whose "[Year1]".."[Year5]"
+    header row lands on page 0 while the actual Total Assets values sit
+    on page 1. Scoped to a single page's table_rows, the header can never
+    be seen on the page that needs it, so #182's column detection always
+    returned None here and silently fell back to "last parseable cell" --
+    which then picked up a value displaced to the end of a page's own
+    OCR-corrupted row (a duplicated label token pushed the real 3rd-year
+    value, $135,000, past the genuinely-rightmost $84,000). initial_prefer_col/
+    the returned prefer_col carry the detected column across calls the
+    same way initial_section/current_section_field already do -- unlike
+    section, this never resets once found, since it's a document-wide
+    property (which physical column is "current"), not per-occurrence
+    state."""
     result: dict[str, float | None] = {field: None for field in _BALANCE_SHEET_LABEL_RE}
     current_section_field: str | None = initial_section
-    prefer_col = _detect_current_period_column(table_rows)
+    detected_prefer_col = _detect_current_period_column(table_rows)
+    prefer_col = detected_prefer_col if detected_prefer_col is not None else initial_prefer_col
     for row_idx, row in enumerate(table_rows):
         for i, cell in enumerate(row):
             cell = cell.strip()
@@ -753,7 +792,7 @@ def extract_balance_sheet_fields_en(
     if any(v is None for v in result.values()):
         _fuzzy_fill_remaining_fields(table_rows, result, prefer_col)
 
-    return result, current_section_field
+    return result, current_section_field, prefer_col
 
 
 def _fuzzy_fill_remaining_fields(table_rows: list[list[str]], result: dict, prefer_col: int | None = None) -> None:
@@ -1031,7 +1070,8 @@ def extract_name_via_ner_en(text: str) -> str | None:
 
 
 def extract_fields_from_text_en(
-    text: str, table_rows: list[list[str]] | None = None, initial_section: str | None = None
+    text: str, table_rows: list[list[str]] | None = None, initial_section: str | None = None,
+    initial_prefer_col: int | None = None,
 ) -> dict:
     fields = extract_regex_fields_en(text)
     fields.update(extract_label_anchored_en(text))
@@ -1045,9 +1085,15 @@ def extract_fields_from_text_en(
     # layer for a caller that needs to thread it across pages (module2_
     # ocr_extraction.extract_fields does, and pops this back out before
     # returning -- never meant to reach a real consumer of `fields`).
+    # Issue #345 -- same carry, for the period-column preference (see
+    # extract_balance_sheet_fields_en's own docstring for why this needs
+    # its own cross-page state alongside section).
     final_section = initial_section
+    final_prefer_col = initial_prefer_col
     if table_rows:
-        balance_sheet_fields, final_section = extract_balance_sheet_fields_en(table_rows, initial_section)
+        balance_sheet_fields, final_section, final_prefer_col = extract_balance_sheet_fields_en(
+            table_rows, initial_section, initial_prefer_col
+        )
         # Issue #219 -- SALARY_RE is payslip-domain (a single colon-anchored
         # dollar figure); a table containing real balance-sheet totals means
         # this is balance-sheet-shaped, where every dollar amount is a false
@@ -1060,6 +1106,7 @@ def extract_fields_from_text_en(
             fields["salary"] = []
         fields.update(balance_sheet_fields)
     fields["_balance_sheet_section"] = final_section
+    fields["_balance_sheet_prefer_col"] = final_prefer_col
     return fields
 
 
