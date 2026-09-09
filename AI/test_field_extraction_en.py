@@ -195,7 +195,7 @@ def test_balance_sheet_picks_current_column_when_current_is_leftmost():
         ["", "CURRENT YR.", "[PRIOR"],
         ["Total current assets", "$120,000.00", "$100,000.00"],
     ]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_assets"] == 120000.0
 
 
@@ -206,7 +206,7 @@ def test_balance_sheet_picks_current_column_when_current_is_rightmost():
         ["", "PRIOR YEAR", "CURRENT YEAR"],
         ["Total Assets", "$100,000.00", "$120,000.00"],
     ]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_assets"] == 120000.0
 
 
@@ -217,7 +217,7 @@ def test_balance_sheet_picks_highest_numbered_period_column():
         ["", "FY1", "FY2", "FY3"],
         ["Total Liabilities", "$50,000.00", "$60,000.00", "$70,000.00"],
     ]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_liabilities"] == 70000.0
 
 
@@ -254,7 +254,7 @@ def test_balance_sheet_picks_highest_year_n_column():
         ["", "Year 1", "Year 2", "Year 3"],
         ["Total Assets", "$100,000.00", "$110,000.00", "$120,000.00"],
     ]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_assets"] == 120000.0
 
 
@@ -312,7 +312,7 @@ def test_balance_sheet_falls_back_to_rightmost_when_no_header_detected():
     # No recognizable header row at all (most real docx tables) -- must
     # keep #172's original rightmost behavior unchanged, no regression.
     rows = [["Total Equity", "$1", "$2", "$3"]]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_equity"] == 3.0
 
 
@@ -326,17 +326,76 @@ def test_balance_sheet_section_carries_across_two_calls():
     page1_rows = [["Current/short-term Liabilities"]]
     page2_rows = [["Total", "$45,000"]]
 
-    page1_fields, section = extract_balance_sheet_fields_en(page1_rows)
+    page1_fields, section, _ = extract_balance_sheet_fields_en(page1_rows)
     assert page1_fields["total_current_liabilities"] is None
     assert section == "total_current_liabilities"
 
-    page2_fields, _ = extract_balance_sheet_fields_en(page2_rows, section)
+    page2_fields, _, _ = extract_balance_sheet_fields_en(page2_rows, section)
     assert page2_fields["total_current_liabilities"] == 45000.0
 
     # Confirm the carry is actually necessary -- without it, page 2
     # alone still can't resolve it, matching the real bug's shape.
-    page2_fields_nocarry, _ = extract_balance_sheet_fields_en(page2_rows)
+    page2_fields_nocarry, _, _ = extract_balance_sheet_fields_en(page2_rows)
     assert page2_fields_nocarry["total_current_liabilities"] is None
+
+
+def test_balance_sheet_prefer_col_carries_across_two_calls():
+    # Issue #345 -- confirmed real on Balance-sheet-template-FILLED-300.pdf:
+    # the "[Year1]".."[Year5]" header lands on one page while the actual
+    # Total Assets values sit on the next, so #182's header-based column
+    # detection (scoped to whatever table_rows a single call receives)
+    # could never see both at once and always fell back to a rightmost
+    # guess -- which then picked up a value an OCR-corrupted row had
+    # displaced out of its real column. Header-only page 1, values-only
+    # (non-rightmost-correct) page 2 -- neither call alone can pick the
+    # right column without the carry.
+    page1_rows = [["", "PRIOR YEAR", "CURRENT YEAR"]]
+    page2_rows = [["Total Assets", "$100,000.00", "$120,000.00"]]
+
+    page1_fields, _, prefer_col = extract_balance_sheet_fields_en(page1_rows)
+    assert page1_fields["total_assets"] is None
+    assert prefer_col == 2
+
+    page2_fields, _, _ = extract_balance_sheet_fields_en(page2_rows, None, prefer_col)
+    assert page2_fields["total_assets"] == 120000.0
+
+    # Confirm the carry is actually necessary -- without it, page 2 alone
+    # still resolves via the rightmost fallback, which happens to agree
+    # here by coincidence (matching #182's own already-documented caveat
+    # that rightmost-agrees-by-luck isn't the same as being correct by
+    # rule) -- so this alone wouldn't prove the carry works. Use a header
+    # where current is LEFTMOST instead, so a rightmost-fallback would
+    # silently return the wrong (older) figure without the real carry.
+    page1_rows_reversed = [["", "CURRENT YR.", "PRIOR YR."]]
+    page2_rows_reversed = [["Total Assets", "$120,000.00", "$100,000.00"]]
+
+    _, _, prefer_col_reversed = extract_balance_sheet_fields_en(page1_rows_reversed)
+    assert prefer_col_reversed == 1
+
+    page2_fields_carried, _, _ = extract_balance_sheet_fields_en(
+        page2_rows_reversed, None, prefer_col_reversed
+    )
+    assert page2_fields_carried["total_assets"] == 120000.0
+
+    page2_fields_nocarry, _, _ = extract_balance_sheet_fields_en(page2_rows_reversed)
+    assert page2_fields_nocarry["total_assets"] == 100000.0  # wrong -- proves the carry was load-bearing
+
+
+def test_balance_sheet_detects_period_column_with_ocr_mid_word_wrap():
+    # Issue #345 -- the ACTUAL real header text on Balance-sheet-template-
+    # FILLED-300.pdf, confirmed via direct OCR dump: "[Yea r1]".."[Yea
+    # r5]", not the clean "Year 1" shape #192's own test already covers.
+    # The space sits INSIDE "Year" (between "Yea" and "r1"), which
+    # _NUMBERED_PERIOD_RE can't bridge on the raw text -- this is what
+    # made #182's header detection silently return None on the real
+    # document even with a header physically present on the page.
+    rows = [
+        ["", "", "[Yea r1]", "[Yea r2]", "[Yea r3]", "[Yea r4]", "[Yea r5]"],
+        ["Total Assets", "$74,000", "$97,000", "$135,000", "$144,000", "$84,000"],
+    ]
+    fields, _, prefer_col = extract_balance_sheet_fields_en(rows)
+    assert prefer_col == 6
+    assert fields["total_assets"] == 84000.0
 
 
 def test_balance_sheet_bare_total_resolves_when_values_precede_it():
@@ -351,7 +410,7 @@ def test_balance_sheet_bare_total_resolves_when_values_precede_it():
         ["Current/short term liabilities"],
         ["$78,000", "$80,000", "$55,000", "$94,000", "$129,000", "Total"],
     ]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_liabilities"] == 129000.0
 
 
@@ -366,7 +425,7 @@ def test_balance_sheet_bare_total_prefers_value_before_over_trailing_cell():
         ["Current/short term liabilities"],
         ["$81,000", "$99,000", "$143,000", "$87,000", "Total", "$56,000"],
     ]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_liabilities"] == 87000.0
 
 
@@ -378,7 +437,7 @@ def test_balance_sheet_section_header_tolerates_despaced_short_term():
     # required a literal "-" in "/short-term", which this despaced text
     # never has -- confirmed real, this exact cell never matched before.
     rows = [["Current/short term liabilities"], ["Total", "$45,000"]]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_liabilities"] == 45000.0
 
 
@@ -398,7 +457,7 @@ def test_balance_sheet_does_not_match_prose_cell_adjacent_to_real_label():
     # label match, but its neighboring cell is prose, not a value --
     # must stay None, not silently populate with a wrong number.
     rows = [["Total current assets", "in12 months"]]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_assets"] is None
 
 
@@ -410,7 +469,7 @@ def test_last_numeric_cell_skips_bare_currency_symbol_not_stops():
     # as a different field's label and gave up before ever reaching the
     # real number 2 cells later.
     row = ["TOTAL ASSETS", "s", "558.00", "$", "1,848.00"]
-    fields, _ = extract_balance_sheet_fields_en([row])
+    fields, _, _ = extract_balance_sheet_fields_en([row])
     assert fields["total_assets"] is not None
 
 
@@ -418,7 +477,7 @@ def test_last_numeric_cell_still_stops_at_a_real_label():
     # Must not regress #184's original case -- a real OTHER field's label
     # (not a bare currency symbol) still has to stop the scan.
     rows = [["Total Current Assets", "$105,000", "", "Total Long-Term Assets", "$320,000"]]
-    fields, _ = extract_balance_sheet_fields_en(rows)
+    fields, _, _ = extract_balance_sheet_fields_en(rows)
     assert fields["total_current_assets"] == 105000.0
 
 

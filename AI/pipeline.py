@@ -93,6 +93,10 @@ def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = Fals
     # (see its own docstring) survive the page boundary instead of
     # resetting to None on every page's independent call.
     balance_sheet_section: str | None = None
+    # Issue #345 -- same page-boundary gap, for the period-column header
+    # ("[Year1]".."[Year5]") that #182's column-detection needs -- see
+    # extract_balance_sheet_fields_en's own docstring.
+    balance_sheet_prefer_col: int | None = None
 
     for page_index, raw_image in enumerate(raw_pages):
         enhanced = module1_opencv.enhance(raw_image)
@@ -105,8 +109,11 @@ def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = Fals
             worst_contrast = enhanced["contrast_score"]
         any_low_quality = any_low_quality or enhanced["low_quality"]
 
-        ocr_result = module2_ocr_extraction.extract_fields(enhanced_image, initial_section=balance_sheet_section)
+        ocr_result = module2_ocr_extraction.extract_fields(
+            enhanced_image, initial_section=balance_sheet_section, initial_prefer_col=balance_sheet_prefer_col
+        )
         balance_sheet_section = ocr_result["balance_sheet_section"]
+        balance_sheet_prefer_col = ocr_result["balance_sheet_prefer_col"]
         _merge_page_fields(fields, ocr_result["fields"])
 
         page_boxes = module3_redaction.find_sensitive_boxes(
@@ -188,6 +195,12 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
     # per-page table_rows themselves, so the corruption risk above still
     # doesn't apply.
     balance_sheet_section: str | None = None
+    # Issue #345 -- same page-boundary gap #297 already carries
+    # balance_sheet_section across, for the period-column header (see
+    # extract_balance_sheet_fields_en's own docstring) -- confirmed real
+    # on Balance-sheet-template-FILLED-300.pdf, whose header is on page 0
+    # while the Total Assets row it labels is on page 1.
+    balance_sheet_prefer_col: int | None = None
     if ext == ".pdf":
         for page_image in render_pdf_all_pages(file_bytes):
             enhanced = module1_opencv.enhance(page_image)
@@ -197,7 +210,9 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
             ]
             if not table_rows:
                 continue
-            page_fields, balance_sheet_section = extract_balance_sheet_fields_en(table_rows, balance_sheet_section)
+            page_fields, balance_sheet_section, balance_sheet_prefer_col = extract_balance_sheet_fields_en(
+                table_rows, balance_sheet_section, balance_sheet_prefer_col
+            )
             for key, value in page_fields.items():
                 if value is not None and fields.get(key) is None:
                     fields[key] = value
