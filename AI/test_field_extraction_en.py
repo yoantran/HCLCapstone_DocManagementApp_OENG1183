@@ -138,6 +138,47 @@ def test_salary_regex_captures_value_wrapped_by_embedded_crlf():
     assert set(fields["salary"]) == {"$106\r\n,000", "$74,\r\n000"}
 
 
+def test_extracts_employer_name_and_address():
+    # Real gap found auditing #345/#347: LABEL_PATTERNS only ever matched
+    # "Employee" (deliberately, #272's own comment: "Employee"/"Employer"
+    # are different words, safe to anchor on Employee alone) -- but that
+    # meant a real employer's own name/address (this template's actual
+    # "Employer Name: Jesse Townsend", a named individual with a
+    # residential address, not a business) was never redacted at all.
+    text = "Employer Name: Jesse Townsend\nEmployer Address: 681/3 Jillian Flat, South Mathewport QLD 2672"
+    fields = extract_fields_from_text_en(text)
+    assert fields["employer_name"] == "Jesse Townsend"
+    assert fields["employer_address"] == "681/3 Jillian Flat, South Mathewport QLD 2672"
+
+
+def test_employer_fields_do_not_clobber_employee_name_and_address():
+    # Real, confirmed collision risk: this exact template lists "Employer
+    # Name"/"Employer Address" BEFORE "Employee Name"/"Employee Address"
+    # in the document. extract_label_anchored_en takes the FIRST match in
+    # the document per field -- employer_name/employer_address must be
+    # their OWN separate fields, not folded into "name"/"address" (the
+    # real applicant's identity), or the employer would silently overwrite
+    # the actual employee as this document's extracted "name".
+    text = (
+        "Employer Name: Jesse Townsend\n"
+        "Employer Address: 681/3 Jillian Flat, South Mathewport QLD 2672\n"
+        "Employee Name: Steven Wood\n"
+        "Employee Address: Unit 67 4 Martin Spur, West Adamfurt NT 2639"
+    )
+    fields = extract_fields_from_text_en(text)
+    assert fields["name"] == "Steven Wood"
+    assert fields["address"] == "Unit 67 4 Martin Spur, West Adamfurt NT 2639"
+    assert fields["employer_name"] == "Jesse Townsend"
+    assert fields["employer_address"] == "681/3 Jillian Flat, South Mathewport QLD 2672"
+
+
+def test_no_employer_fields_returns_none():
+    text = "Employee: Jo Worker"
+    fields = extract_fields_from_text_en(text)
+    assert fields["employer_name"] is None
+    assert fields["employer_address"] is None
+
+
 def test_angle_bracket_placeholder_rejected():
     # real Fair Work template convention
     text = "*Employee: <insert employee name>"
