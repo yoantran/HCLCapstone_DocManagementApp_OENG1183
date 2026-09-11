@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 import tempfile
 
 import cv2
@@ -11,7 +12,11 @@ import module2_text_extraction
 import module3_redaction
 import module4_loan_rules
 import income_normalization
-from field_extraction_en import extract_balance_sheet_fields_en
+from field_extraction_en import (
+    _BALANCE_SHEET_LABEL_RE,
+    extract_balance_sheet_fields_en,
+    parse_currency_amount_balance_sheet,
+)
 from file_routing import detect_processing_path, render_pdf_all_pages, stack_pages_vertically
 
 _EMPTY_RESULT = {
@@ -151,6 +156,80 @@ def _run_ocr_path(filename: str, file_bytes: bytes, include_preview: bool = Fals
     return fields, redaction, quality, preview_image_base64
 
 
+_BARE_TOTAL_RE = re.compile(r"Total", re.IGNORECASE)
+
+
+def _plain_text_balance_sheet_value(text: str, field: str) -> float | None:
+    """Issue #345 -- a balance-sheet total's OWN table row can get
+    corrupted by table-structure recognition independently of whether the
+    header's period column was detected correctly (confirmed real on
+    Balance-sheet-template-FILLED-300.pdf: a duplicated label token split
+    into its own spurious cell, displacing the real rightmost value out of
+    the carried column index entirely). The raw pdfium TEXT layer for the
+    same row -- already extracted for this whole document regardless --
+    reads the real values in genuine left-to-right order with none of that
+    corruption, since it never goes through OCR table-structure recovery
+    at all. Finds the label, then every dollar-shaped amount between it
+    and the next recognized balance-sheet label (or end of text), and
+    returns the LAST one -- same "rightmost is current period" convention
+    #295/#296's own table_rows-based detection already uses, just applied
+    to a linear reading-order text run instead of a table row.
+
+    pdfium's raw text wraps mid-WORD too, not just mid-number (real dump:
+    "TOT\\r\\nAL \\r\\nASSE\\r\\nTS" for "TOTAL ASSETS") -- neither label
+    regex can match a literal "Total"/"Assets" substring split like that.
+    Same #327-established discipline: strip ONLY \\r/\\n (not real spaces,
+    which stay genuine word separators) before matching."""
+    label_re = _BALANCE_SHEET_LABEL_RE.get(field)
+    if label_re is None:
+        return None
+    text = text.replace("\r", "").replace("\n", "")
+    label_match = label_re.search(text)
+    if label_match is None:
+        return None
+    # Issue #345 -- bounding the window at only the 5 fully-qualified
+    # labels is too permissive: a real template (this exact document,
+    # same #167/#297 shape) writes its OTHER subtotals as a bare "Total"
+    # with no "Current"/"Liabilities"/etc. after it, so a section header
+    # + bare "Total" row can sit entirely BETWEEN this label and the next
+    # fully-qualified one -- confirmed real: an earlier version of this
+    # window bled past "Current/short-term liabilities" into that
+    # section's own bare "Total" row and picked up ITS last value
+    # ($45,000, current liabilities) instead of stopping at the end of
+    # THIS row's real 5 values. Any bare "Total" (case-insensitive) is a
+    # reliable row boundary regardless of what follows it.
+    window_end = len(text)
+    for other_re in list(_BALANCE_SHEET_LABEL_RE.values()) + [_BARE_TOTAL_RE]:
+        other_match = other_re.search(text, label_match.end())
+        if other_match is not None:
+            window_end = min(window_end, other_match.start())
+    window = text[label_match.end():window_end]
+    amounts = [
+        parse_currency_amount_balance_sheet(m.group(0))
+        for m in module3_redaction._BALANCE_SHEET_BARE_AMOUNT_RE.finditer(window)
+    ]
+    amounts = [a for a in amounts if a is not None]
+    return amounts[-1] if len(amounts) > 1 else None
+
+
+def _cross_check_balance_sheet_fields_against_plain_text(fields: dict, text: str) -> None:
+    """Issue #345 -- only OVERRIDES a table-row-derived value when the
+    plain-text reading independently disagrees with it. `len(amounts) > 1`
+    inside _plain_text_balance_sheet_value already guards against a single
+    ambiguous match; requiring disagreement here (not just "plain text has
+    an opinion") means an already-correct table-row result is never
+    second-guessed just because a differently-scoped plain-text window
+    happens to exist -- this only fires when the two sources genuinely
+    conflict, which is what the corrupted-row case actually looks like."""
+    for field in _BALANCE_SHEET_LABEL_RE:
+        table_value = fields.get(field)
+        if table_value is None:
+            continue
+        plain_value = _plain_text_balance_sheet_value(text, field)
+        if plain_value is not None and abs(plain_value - table_value) >= 0.01:
+            fields[field] = plain_value
+
+
 def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
     ext = "." + filename.lower().rsplit(".", 1)[-1]
     with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
@@ -216,6 +295,29 @@ def _run_text_native_path(filename: str, file_bytes: bytes) -> dict:
             for key, value in page_fields.items():
                 if value is not None and fields.get(key) is None:
                     fields[key] = value
+
+    # Issue #345 -- the table-row-derived value above can come from a row
+    # independently corrupted by table-structure recognition even when
+    # the header's own period column was detected correctly (see
+    # _plain_text_balance_sheet_value's own docstring); cross-check
+    # against the plain pdfium text before this function's own remaining
+    # steps (salary suppression, span detection) run against `fields`.
+    _cross_check_balance_sheet_fields_against_plain_text(fields, text_result["text"])
+
+    # Issue #347 -- extract_fields_from_text_en's own #219 suppression ("a
+    # balance-sheet-shaped table means every dollar figure is a false
+    # salary match") only fires when ITS OWN table_rows argument is
+    # populated -- module2_text_extraction.extract_fields(path) never
+    # passes one for a standalone .pdf (only the .docx path builds it), so
+    # `fields` above starts from an unsuppressed call. The per-page OCR-
+    # table loop just above discovers balance-sheet fields entirely
+    # separately and never re-applies that check -- confirmed real on
+    # Balance-sheet-template-FILLED-300.pdf: all 25 real dollar figures on
+    # the page got spuriously redacted as "salary" on top of the genuine
+    # totals. Same condition #219 already uses, just re-checked here once
+    # this loop's own detection result is known.
+    if any(fields.get(key) is not None for key in _BALANCE_SHEET_LABEL_RE):
+        fields["salary"] = []
 
     spans = module3_redaction.find_sensitive_spans(text_result["text"], fields)
     redaction = {"type": "spans", "items": spans}

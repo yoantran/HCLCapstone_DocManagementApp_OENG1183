@@ -267,6 +267,18 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
             acc += h
 
         resolved = []
+        # Issue #347 -- two items can carry the identical value string (a
+        # real, confirmed shape: SALARY_RE-truncated fragments collide far
+        # more than full values, but even a full value can genuinely repeat
+        # across rows/years on a real balance sheet). Searching from
+        # index=0 every time made every item sharing a value resolve to
+        # the SAME first occurrence -- every other real occurrence in the
+        # document was left completely unredacted, not just imprecisely
+        # boxed. Track the next search start per (page, value) so each
+        # subsequent item with the same value continues past the last
+        # match found for it on that page, landing on the next distinct
+        # occurrence instead of re-finding the first one.
+        next_start: dict[tuple[int, str], int] = {}
         for item in items:
             if "x_pct" in item:
                 resolved.append(item)
@@ -278,8 +290,16 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
             for page_index, page in enumerate(pdf):
                 page_w, page_h = sizes[page_index]
                 tp = page.get_textpage()
-                match = tp.search(value, index=0).get_next()
+                start_index = next_start.get((page_index, value), 0)
+                match = tp.search(value, index=start_index).get_next()
                 if match is None:
+                    if start_index != 0:
+                        # This page's occurrences of `value` are already
+                        # exhausted (found before, none left) -- not a
+                        # case for the dewrap retry below, which is only
+                        # for a genuinely first-ever search of this value
+                        # on this page.
+                        continue
                     # Issue #327 -- exact search found nothing on this
                     # page; try the \r\n-dewrapped fallback before moving
                     # to the next page (still scoped to THIS page's own
@@ -289,6 +309,7 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
                     if match is None:
                         continue
                 start, count = match
+                next_start[(page_index, value)] = start + count
                 n_rects = tp.count_rects(start, count)
                 if n_rects == 0:
                     continue
@@ -367,11 +388,48 @@ if __name__ == "__main__":
         resolved = resolve_item_boxes_via_pdf_text(pdf_bytes, [item])
         assert resolved == [item]
 
+    def test_resolve_gives_each_duplicate_value_its_own_distinct_box():
+        # Issue #347 -- confirmed real on Balance-sheet-template-FILLED-
+        # 300.pdf: several distinct real dollar figures (different table
+        # rows/years) happen to share the identical printed string (e.g.
+        # "$74" after SALARY_RE truncation, but the same collision can
+        # happen with full untruncated values too -- a real balance sheet
+        # can genuinely repeat a figure across years/rows). Each call here
+        # always searched from index=0 with no memory of a prior match, so
+        # every item sharing a value collapsed onto the SAME first
+        # occurrence -- every other real occurrence in the document was
+        # left completely unredacted, not just imprecisely boxed.
+        pdf_bytes = _build_pdf([(20, 150, "$74,000"), (20, 100, "$74,000")])
+        items = [
+            {"field": "total_assets", "value": "$74,000"},
+            {"field": "total_liabilities", "value": "$74,000"},
+        ]
+        resolved = resolve_item_boxes_via_pdf_text(pdf_bytes, items)
+        assert len(resolved) == 2
+        positions = {(r["x_pct"], r["y_pct"]) for r in resolved}
+        assert len(positions) == 2, "both real occurrences must get their own distinct box"
+
+    def test_resolve_drops_extra_duplicate_item_once_occurrences_exhausted():
+        # Same cursor-tracking mechanism, opposite edge: only ONE real
+        # occurrence exists but TWO items request it (e.g. a genuine
+        # duplicate span from an upstream matching bug) -- the second must
+        # be dropped (matches the existing "not found -> drop" contract),
+        # never silently reuse the first occurrence's box a second time.
+        pdf_bytes = _build_pdf([(20, 150, "$74,000")])
+        items = [
+            {"field": "total_assets", "value": "$74,000"},
+            {"field": "total_liabilities", "value": "$74,000"},
+        ]
+        resolved = resolve_item_boxes_via_pdf_text(pdf_bytes, items)
+        assert len(resolved) == 1
+
     tests = [
         test_resolve_finds_value_on_a_single_line,
         test_resolve_falls_back_to_dewrapped_search_when_value_wraps,
         test_resolve_drops_item_when_value_genuinely_absent,
         test_resolve_passes_through_items_that_already_have_x_pct,
+        test_resolve_gives_each_duplicate_value_its_own_distinct_box,
+        test_resolve_drops_extra_duplicate_item_once_occurrences_exhausted,
     ]
     for test in tests:
         test()

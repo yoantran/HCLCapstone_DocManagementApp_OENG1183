@@ -6,6 +6,7 @@ import numpy as np
 sys.path.insert(0, ".")
 
 import module2_ocr_extraction
+import module2_text_extraction
 from pipeline import process_document
 
 with open("samples/en_contract/part-time-employment-contract.docx", "rb") as f:
@@ -259,6 +260,106 @@ def test_text_native_pdf_carries_balance_sheet_prefer_col_across_pages():
 
     assert result["error"] is None
     assert result["fields"]["total_assets"] == 120000.0
+
+
+def test_text_native_pdf_suppresses_salary_when_balance_sheet_detected():
+    # Issue #347 -- extract_fields_from_text_en's own #219 suppression
+    # ("a balance-sheet-shaped table means every dollar figure is a false
+    # salary match") only fires when its table_rows argument is populated,
+    # but module2_text_extraction.extract_fields(path) never passes
+    # table_rows for a standalone .pdf (only the .docx path builds it) --
+    # so the initial text_result["fields"] this function starts from can
+    # never get suppressed there. This loop's OWN per-page OCR-table
+    # recovery discovers balance-sheet fields entirely separately, after
+    # that initial call already returned, and never re-applies the same
+    # suppression -- confirmed real on Balance-sheet-template-FILLED-300.pdf:
+    # all 25 real dollar figures on the page got spuriously redacted as
+    # "salary" on top of the genuine balance-sheet totals.
+    fake_page = np.full((20, 20, 3), 255, dtype=np.uint8)
+    fake_text_fields = {
+        "name": None, "address": None, "bsb": None, "account_number": None,
+        "abn": [], "phone": [], "dates": [], "income": None, "income_basis": None,
+        "annual_salary": None, "pay_period_days": None,
+        "salary": ["$135", "$144"],
+    }
+    with patch("pipeline.render_pdf_all_pages", return_value=[fake_page]), \
+         patch.object(
+             module2_text_extraction, "extract_fields",
+             return_value={"fields": dict(fake_text_fields), "text": "irrelevant"},
+         ), \
+         patch.object(module2_ocr_extraction, "ocr_document", return_value={"tables": ["<table>ignored</table>"]}), \
+         patch.object(module2_ocr_extraction, "html_table_to_rows", return_value=[["Total Assets", "$425,000"]]):
+        result = process_document("balance-sheet.pdf", _PDF_BYTES)
+
+    assert result["error"] is None
+    assert result["fields"]["total_assets"] == 425000.0
+    assert result["fields"]["salary"] == []
+
+
+def test_text_native_pdf_cross_checks_corrupted_totals_row_against_plain_text():
+    # Issue #345 -- confirmed real on Balance-sheet-template-FILLED-300.pdf,
+    # found re-investigating this issue after PR #346: even with #345's
+    # own column-index carry correctly detecting prefer_col=7 from a clean
+    # header row, the ACTUAL totals row on the next page independently got
+    # corrupted by table-structure recognition -- a duplicated "TOTAL
+    # ASSETS" label token split into its own spurious trailing cell,
+    # giving this ONE row 8 cells instead of the header's 9, in a
+    # different arrangement (real dump, from direct investigation):
+    #   ['Total 0 TOT $74, AL 000 ASSE TS', '0 $97, 000', '0',
+    #    '0 $144 ,000', '0 $84, 000', '', 'TOT AL ASSE TS', '$135 ,000']
+    # The carried index 7 (correct for the header) lands on the stray
+    # displaced value ($135,000, actually year 3's figure) instead of the
+    # real rightmost one ($84,000, at index 4 in this row's own corrupted
+    # layout). The raw pdfium TEXT layer for the same row reads the
+    # genuine values in clean left-to-right order with none of this
+    # corruption (real confirmed evidence) -- used here as a cross-check
+    # when the table-row path's own value doesn't match what plain text
+    # independently shows for this label.
+    fake_page = np.full((20, 20, 3), 255, dtype=np.uint8)
+    header_row = ["", "", "Curr ent asset S", "[Yea r1]", "[Yea r2]", "[Yea r3]", "[Yea r4]", "[Yea r5]", ""]
+    corrupted_totals_row = [
+        "Total 0 TOT $74, AL 000 ASSE TS", "0 $97, 000", "0",
+        "0 $144 ,000", "0 $84, 000", "", "TOT AL ASSE TS", "$135 ,000",
+    ]
+    # Real pdfium raw text for this exact document (direct dump) mid-word-
+    # wraps the LABEL text itself too, not just the dollar figures --
+    # "TOT\r\nAL \r\nASSE\r\nTS", never a contiguous "Total"/"Assets"
+    # substring -- must still be found. Also includes the REAL next
+    # section (a bare "Total" sub-row for current liabilities, this
+    # template's own real shape per #167/#297) so the window boundary is
+    # proven to stop at the end of THIS row's own 5 values, not bleed
+    # into the next unrelated "Total" row and pick up ITS last value
+    # ($45,000) instead -- confirmed real, this is exactly what a first,
+    # too-permissive fix attempt did (labels-only boundary, no bare
+    # "Total" as a boundary too).
+    plain_text = (
+        "TOT\r\nAL \r\nASSE\r\nTS\r\n$74,\r\n000\r\n$97,\r\n000\r\n$135\r\n,000\r\n"
+        "$144\r\n,000\r\n$84,\r\n000\r\nCurr\r\nent/\r\nshort\r\n-\r\nterm\r\nliabil\r\nities\r\n"
+        "Cred\r\nit \r\ncard\r\ns \r\npaya\r\nble\r\nMore\r\n\r\n"
+        "Total $103,\r\n000\r\n$104\r\n,000\r\n$51,\r\n000\r\n$50,\r\n000\r\n$45,\r\n000"
+    )
+    fake_text_fields = {
+        "name": None, "address": None, "bsb": None, "account_number": None,
+        "abn": [], "phone": [], "dates": [], "income": None, "income_basis": None,
+        "annual_salary": None, "pay_period_days": None, "salary": [],
+    }
+    with patch("pipeline.render_pdf_all_pages", return_value=[fake_page, fake_page]), \
+         patch.object(
+             module2_text_extraction, "extract_fields",
+             return_value={"fields": dict(fake_text_fields), "text": plain_text},
+         ), \
+         patch.object(
+             module2_ocr_extraction, "ocr_document",
+             side_effect=[{"tables": ["<table>header</table>"]}, {"tables": ["<table>totals</table>"]}],
+         ), \
+         patch.object(
+             module2_ocr_extraction, "html_table_to_rows",
+             side_effect=[[header_row], [corrupted_totals_row]],
+         ):
+        result = process_document("balance-sheet.pdf", _PDF_BYTES)
+
+    assert result["error"] is None
+    assert result["fields"]["total_assets"] == 84000.0
 
 
 def run_all():

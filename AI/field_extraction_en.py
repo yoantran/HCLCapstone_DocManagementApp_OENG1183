@@ -36,7 +36,16 @@ DATE_RE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")  # DD/MM/YYYY -- same convention 
 # $ prefix required -- real payslip tables have bare hour counts ("15.0",
 # "8.0") in the same rows as dollar amounts ("$27.81"); without requiring
 # "$", hours would be misread as salary values.
-SALARY_RE = re.compile(r"\$\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?\b")
+#
+# Issue #347 -- confirmed real on Balance-sheet-template-FILLED-300.pdf:
+# pdfium's raw text for a narrow table cell wraps a single dollar figure
+# across a literal \r\n mid-number, on EITHER side of the comma ("$106
+# \r\n,000" and "$74,\r\n000" both seen on the same real page). `\s*`
+# around the comma tolerates either shape (matches \r\n like any other
+# whitespace) without risking a false-positive glue of two unrelated
+# numbers -- a comma is still required, same discipline as the existing
+# grouped-digits case.
+SALARY_RE = re.compile(r"\$\s?\d{1,3}(?:\s*,\s*\d{3})*(?:\.\d{2})?\b")
 
 # 11 digits, grouped 2-3-3-3 with spaces -- confirmed on every real ABN
 # seen ("12 345 978 910", "89 002 605 076"). This is a business
@@ -240,6 +249,21 @@ def parse_currency_amount_balance_sheet(value: str) -> float | None:
     # anywhere in the (despaced) cell means it's prose, not an amount.
     if re.search(r"[A-Za-z]{2,}", value):
         return None
+    # Issue #345/#347 -- confirmed real: a table-structure-recovery
+    # corruption can leave a spurious bare digit run BEFORE the real
+    # dollar figure in the same cell ("0 $84,000" -> despaced "0$84,000",
+    # real value $84,000). re.search always returns the LEFTMOST match --
+    # the bare "0" alone already satisfies the plain digit-run fallback
+    # further below, so the real, longer, $-prefixed figure right after
+    # it was never even considered. Every real currency figure anywhere
+    # in this project's own corpus is "$"-prefixed (confirmed above and
+    # in every existing test this function has); a bare leading digit run
+    # with no "$" of its own is far more likely to be exactly this kind
+    # of corruption noise than a second genuine amount, so search only
+    # from the "$" onward when one is present.
+    dollar_index = value.find("$")
+    if dollar_index != -1:
+        value = value[dollar_index:]
     period_match = _PERIOD_THOUSANDS_RE.search(value)
     if period_match is not None:
         digits = period_match.group(0).replace(".", "")

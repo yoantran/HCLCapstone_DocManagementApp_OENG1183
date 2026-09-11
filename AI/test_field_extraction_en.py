@@ -123,6 +123,21 @@ def test_salary_regex_requires_dollar_sign_not_bare_hours():
     assert set(fields["salary"]) == {"$27.81", "$417.15"}
 
 
+def test_salary_regex_captures_value_wrapped_by_embedded_crlf():
+    # Issue #347 -- confirmed real on Balance-sheet-template-FILLED-300.pdf:
+    # pdfium's raw text for a narrow table cell wraps a single dollar
+    # figure across a literal \r\n mid-number ("$106\r\n,000"), sometimes
+    # before the comma and sometimes after ("$74,\r\n000" -- both shapes
+    # seen on the same real page). SALARY_RE's (?:,\d{3})* couldn't bridge
+    # either break, so it only ever captured the fragment before the wrap
+    # -- the matched span's own redacted box then covered just that
+    # fragment, leaving the rest of the real dollar figure exposed as
+    # plain, unredacted text immediately next to it in the rendered output.
+    text = "Total $106\r\n,000 $74,\r\n000 more text"
+    fields = extract_fields_from_text_en(text)
+    assert set(fields["salary"]) == {"$106\r\n,000", "$74,\r\n000"}
+
+
 def test_angle_bracket_placeholder_rejected():
     # real Fair Work template convention
     text = "*Employee: <insert employee name>"
@@ -292,6 +307,24 @@ def test_parse_currency_amount_balance_sheet_bare_digit_run_not_truncated():
     assert parse_currency_amount_balance_sheet("165000") == 165000.0
     assert parse_currency_amount_balance_sheet("45000") == 45000.0
     assert parse_currency_amount_balance_sheet("614800") == 614800.0
+
+
+def test_parse_currency_amount_balance_sheet_prefers_dollar_amount_over_leading_noise():
+    # Issue #345/#347 -- confirmed real on Balance-sheet-template-FILLED-
+    # 300.pdf: a table-structure-recovery corruption left a spurious bare
+    # "0" token BEFORE the real dollar figure in several cells (e.g. "0
+    # $84, 000", real value $84,000). re.search finds the LEFTMOST match
+    # first -- the bare "0" alone already satisfies the plain \d+
+    # fallback, so the real, longer, $-prefixed figure right after it was
+    # never even considered, silently returning 0.0 instead of 84000.0.
+    # Every real currency figure in this project's own corpus is always
+    # "$"-prefixed (confirmed in this function's own docstring) -- a bare
+    # leading digit run with no "$" is far more likely to be exactly this
+    # kind of corruption noise than a genuine second amount, so a "$" in
+    # the (despaced) value anchors the search to start there instead.
+    assert parse_currency_amount_balance_sheet("0 $84, 000") == 84000.0
+    assert parse_currency_amount_balance_sheet("0 $97, 000") == 97000.0
+    assert parse_currency_amount_balance_sheet("0 $144 ,000") == 144000.0
     assert parse_currency_amount_balance_sheet("5234202.00") == 5234202.0
 
 
