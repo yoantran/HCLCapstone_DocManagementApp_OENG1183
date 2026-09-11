@@ -846,6 +846,22 @@ if __name__ == "__main__":
         spans = find_sensitive_spans(text, fields)
         assert [s for s in spans if s["field"] == "annual_salary"] == []
 
+    def test_salary_span_covers_the_whole_value_wrapped_by_embedded_crlf():
+        # Issue #347 -- SALARY_RE now captures a dollar figure wrapped by
+        # an embedded \r\n (see field_extraction_en.py's own test/comment);
+        # confirm the resulting SPAN (what actually gets redacted) covers
+        # the whole wrapped value, not just the fragment before the wrap --
+        # a partial-value span was exactly what left ",000"/"000" visible
+        # as unredacted plain text right next to the box on the real
+        # rendered output.
+        text = "Total $106\r\n,000 more text"
+        fields = {"salary": ["$106\r\n,000"]}
+        spans = find_sensitive_spans(text, fields)
+        salary_spans = [s for s in spans if s["field"] == "salary"]
+        assert len(salary_spans) == 1
+        assert salary_spans[0]["value"] == "$106\r\n,000"
+        assert text[salary_spans[0]["start"]:salary_spans[0]["end"]] == "$106\r\n,000"
+
     def test_all_spans_satisfy_text_slice_invariant():
         text = (
             "ABN: 12 345 978 910\n"
@@ -1341,6 +1357,7 @@ if __name__ == "__main__":
         test_label_anchored_skips_rejected_candidate,
         test_label_anchored_field_redacts_every_occurrence,
         test_label_anchored_field_does_not_redact_a_different_value,
+        test_salary_span_covers_the_whole_value_wrapped_by_embedded_crlf,
         test_absent_field_produces_no_span,
         test_income_field_uses_matching_basis_pattern,
         test_annual_salary_field_produces_span,
