@@ -86,6 +86,19 @@ LABEL_PATTERNS = {
     # "mployer" still diverge at the last letter (ee vs er).
     "name": re.compile(r"E?mployee(?:\s*Name)?\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
     "address": re.compile(r"E?mployee\s*Address\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
+    # Real gap found auditing #345/#347: the Employer's own name/address
+    # were never redacted at all -- LABEL_PATTERNS only ever matched
+    # "Employee". Confirmed real on part-time-employment-contract-FILLED-
+    # 100.docx: "Employer Name: Jesse Townsend" (a named individual with
+    # a residential address, not a business) left fully exposed in the
+    # rendered redaction. Kept as their OWN separate fields rather than
+    # folded into "name"/"address" -- this template lists Employer BEFORE
+    # Employee, and extract_label_anchored_en takes the first match per
+    # field, so sharing a pattern would silently overwrite the real
+    # applicant's identity with the employer's. Same leading-"E"-drop
+    # tolerance as #272 -- same OCR artifact, same word either way.
+    "employer_name": re.compile(r"E?mployer(?:\s*Name)?\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
+    "employer_address": re.compile(r"E?mployer\s*Address\s*:[ \t]*([^\[\n]*)", re.IGNORECASE),
     # Issue #272 -- same leading-character-drop artifact, checked
     # proactively this time rather than waiting for a real repro. Real
     # false-positive risk was checked, not assumed: searched the whole

@@ -814,6 +814,30 @@ if __name__ == "__main__":
         assert len(address_spans) == 1
         assert address_spans[0]["value"] == "42 Example Street, Melbourne VIC 3000"
 
+    def test_employer_name_and_address_produce_spans():
+        # Real gap found auditing #345/#347: the Employer's own name/
+        # address were never redacted at all -- confirmed real on
+        # part-time-employment-contract-FILLED-100.docx, "Employer Name:
+        # Jesse Townsend" (a named individual, not a business) left fully
+        # exposed in the rendered output while "Employee Name" right
+        # below it was correctly boxed.
+        text = (
+            "Employer Name: Jesse Townsend\n"
+            "Employer Address: 681/3 Jillian Flat, South Mathewport QLD 2672\n"
+            "Employee Name: Steven Wood"
+        )
+        fields = {
+            "employer_name": "Jesse Townsend",
+            "employer_address": "681/3 Jillian Flat, South Mathewport QLD 2672",
+            "name": "Steven Wood",
+        }
+        spans = find_sensitive_spans(text, fields)
+        assert {s["field"]: s["value"] for s in spans} == {
+            "employer_name": "Jesse Townsend",
+            "employer_address": "681/3 Jillian Flat, South Mathewport QLD 2672",
+            "name": "Steven Wood",
+        }
+
     def test_absent_field_produces_no_span():
         text = "Employee: Jo Worker"
         fields = {"bsb": None}
@@ -1358,6 +1382,7 @@ if __name__ == "__main__":
         test_label_anchored_field_redacts_every_occurrence,
         test_label_anchored_field_does_not_redact_a_different_value,
         test_salary_span_covers_the_whole_value_wrapped_by_embedded_crlf,
+        test_employer_name_and_address_produce_spans,
         test_absent_field_produces_no_span,
         test_income_field_uses_matching_basis_pattern,
         test_annual_salary_field_produces_span,
