@@ -9,6 +9,7 @@ import org.example.hclcapstonebe.Entities.Document;
 import org.example.hclcapstonebe.Entities.User;
 import org.example.hclcapstonebe.Enums.DocumentFormatEnum;
 import org.example.hclcapstonebe.Enums.RedactedPreviewStatus;
+import org.example.hclcapstonebe.Enums.RoleEnum;
 import org.example.hclcapstonebe.Enums.ScanStatus;
 import org.example.hclcapstonebe.Exception.AppException;
 import org.example.hclcapstonebe.Mapper.DocumentMapper;
@@ -635,5 +636,105 @@ class DocumentServiceTest {
         assertEquals(RedactedPreviewStatus.GENERATING, response.getStatus());
         assertNull(doc.getRedactedPreviewFailureReason());
         verify(redactedPreviewService).generateAsync(eq(doc.getId()), eq("owner1@hcl.com"), any(JsonNode.class));
+    }
+
+    // ─── DELETE: role-scoped authorization (issue #351) ──────────────────
+
+    private User buildUser(UUID id, RoleEnum role, UUID departmentId) {
+        User user = new User();
+        user.setId(id);
+        user.setRole(role);
+        if (departmentId != null) {
+            Department dept = new Department();
+            dept.setId(departmentId);
+            user.setDepartment(dept);
+        }
+        return user;
+    }
+
+    @Test
+    void deleteDocument_staffOwnUpload_succeeds() {
+        UUID deptId = UUID.randomUUID();
+        UUID staffId = UUID.randomUUID();
+        User staff = buildUser(staffId, RoleEnum.STAFF, deptId);
+        Document doc = buildDoc(staffId, deptId, AI_RESULT_JSON);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("staff1@hcl.com")).thenReturn(Optional.of(staff));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        documentService.deleteDocument(doc.getId().toString(), "staff1@hcl.com");
+
+        assertTrue(doc.isDeleted());
+        verify(documentRepository).save(doc);
+    }
+
+    @Test
+    void deleteDocument_staffOtherStaffUpload_isForbidden() {
+        UUID deptId = UUID.randomUUID();
+        UUID staffId = UUID.randomUUID();
+        UUID otherStaffId = UUID.randomUUID();
+        User staff = buildUser(staffId, RoleEnum.STAFF, deptId);
+        Document doc = buildDoc(otherStaffId, deptId, AI_RESULT_JSON);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("staff1@hcl.com")).thenReturn(Optional.of(staff));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        AppException ex = assertThrows(AppException.class, () ->
+                documentService.deleteDocument(doc.getId().toString(), "staff1@hcl.com"));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteDocument_managerSameDepartment_succeeds() {
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID uploaderId = UUID.randomUUID();
+        User manager = buildUser(managerId, RoleEnum.MANAGER, deptId);
+        Document doc = buildDoc(uploaderId, deptId, AI_RESULT_JSON);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        documentService.deleteDocument(doc.getId().toString(), "manager1@hcl.com");
+
+        assertTrue(doc.isDeleted());
+        verify(documentRepository).save(doc);
+    }
+
+    @Test
+    void deleteDocument_managerOtherDepartment_isForbidden() {
+        UUID deptId = UUID.randomUUID();
+        UUID otherDeptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID uploaderId = UUID.randomUUID();
+        User manager = buildUser(managerId, RoleEnum.MANAGER, otherDeptId);
+        Document doc = buildDoc(uploaderId, deptId, AI_RESULT_JSON);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        AppException ex = assertThrows(AppException.class, () ->
+                documentService.deleteDocument(doc.getId().toString(), "manager1@hcl.com"));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteDocument_admin_anyDepartmentAnyUploader_succeeds() {
+        UUID deptId = UUID.randomUUID();
+        UUID otherDeptId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        UUID uploaderId = UUID.randomUUID();
+        User admin = buildUser(adminId, RoleEnum.ADMIN, otherDeptId);
+        Document doc = buildDoc(uploaderId, deptId, AI_RESULT_JSON);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("admin1@hcl.com")).thenReturn(Optional.of(admin));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        documentService.deleteDocument(doc.getId().toString(), "admin1@hcl.com");
+
+        assertTrue(doc.isDeleted());
+        verify(documentRepository).save(doc);
     }
 }

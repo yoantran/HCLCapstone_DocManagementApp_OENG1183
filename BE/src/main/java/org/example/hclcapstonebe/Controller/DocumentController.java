@@ -303,11 +303,11 @@ public class DocumentController {
 
     @Operation(
             summary = "Delete a document",
-            description = "manager ONLY — Soft deletes a document in the manager's department. Sets isDeleted=true, document is NOT permanently removed."
+            description = "Soft deletes a document. Staff may delete only their own uploads; Manager may delete any document in their own department; Admin may delete any document. Sets isDeleted=true, document is NOT permanently removed."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Document deleted successfully"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department or not a manager"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — not your upload (Staff) or not your department (Manager)"),
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @DeleteMapping("/{id}")

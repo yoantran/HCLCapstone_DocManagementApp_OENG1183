@@ -402,14 +402,25 @@ public class DocumentService {
         }
     }
 
-    // ─── DELETE: BOSS ONLY ────────────────────────────────
+    // ─── DELETE: STAFF (own uploads), MANAGER (own department), ADMIN (any) ──
 
     public void deleteDocument(String docId, String currentUserEmail) {
-        User boss = getUserByEmail(currentUserEmail);
+        User caller = getUserByEmail(currentUserEmail);
         Document doc = getDocumentOrThrow(docId);
 
-        if (!doc.getDepartment().getId().equals(boss.getDepartment().getId())) {
-            throw new AppException("Access denied", HttpStatus.FORBIDDEN);
+        switch (caller.getRole()) {
+            case STAFF -> {
+                if (!doc.getUploader().getId().equals(caller.getId())) {
+                    throw new AppException("Access denied", HttpStatus.FORBIDDEN);
+                }
+            }
+            case MANAGER -> {
+                if (!doc.getDepartment().getId().equals(caller.getDepartment().getId())) {
+                    throw new AppException("Access denied", HttpStatus.FORBIDDEN);
+                }
+            }
+            case ADMIN -> { /* full access, no restriction */ }
+            default -> throw new AppException("Access denied", HttpStatus.FORBIDDEN);
         }
 
         // Soft delete only — file stays in Supabase bucket
