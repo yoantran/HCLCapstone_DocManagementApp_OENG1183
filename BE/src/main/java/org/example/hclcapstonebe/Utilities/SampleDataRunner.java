@@ -17,7 +17,6 @@ public class SampleDataRunner {
         populator.insert();  // ← called via Spring proxy ✅
 
         context.close();
-        context.close();
         System.exit(0);
     }
 }
