@@ -338,8 +338,13 @@ public class DocumentService {
         }
 
         boolean isOwner = doc.getUploader().getId().equals(requester.getId());
+        // Real, confirmed bug: this checked the REQUESTER's department for
+        // null but never the DOCUMENT's -- a department-less uploader's
+        // document threw an NPE (500) instead of a clean 403 for any
+        // non-owner requester.
         boolean sameDepartment = !isOwner
                 && requester.getDepartment() != null
+                && doc.getDepartment() != null
                 && doc.getDepartment().getId().equals(requester.getDepartment().getId());
         if (!isOwner && !sameDepartment) {
             throw new AppException("Access denied", HttpStatus.FORBIDDEN);
@@ -431,7 +436,13 @@ public class DocumentService {
                 }
             }
             case MANAGER -> {
-                if (!doc.getDepartment().getId().equals(caller.getDepartment().getId())) {
+                // Real, confirmed bug: doc.getDepartment() can be null --
+                // User.department is nullable, and a document's uploader
+                // can genuinely have no department assigned yet -- this
+                // threw an NPE (500) instead of the intended 403.
+                UUID docDeptId = doc.getDepartment() != null ? doc.getDepartment().getId() : null;
+                UUID callerDeptId = caller.getDepartment() != null ? caller.getDepartment().getId() : null;
+                if (docDeptId == null || !docDeptId.equals(callerDeptId)) {
                     throw new AppException("Access denied", HttpStatus.FORBIDDEN);
                 }
             }
