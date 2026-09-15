@@ -90,7 +90,7 @@ public class AdminController {
             @ApiResponse(responseCode = "409", description = "Email already in use")
     })
     @PostMapping("/users")
-    @AuditAction("Created user '{email}'")
+    @AuditAction("Created user '{req.email}'")
     public ResponseEntity<UserProfileResponse> createUser(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "User creation payload. `departmentId` is optional.",

@@ -27,4 +27,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleAppException(AppException ex) {
         return ResponseEntity.status(ex.getStatus()).body(Map.of("error", ex.getMessage()));
     }
+
+    // Catches malformed path-variable parsing (e.g. UUID.fromString on an
+    // invalid path segment), which previously 500'd instead of 400ing.
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", ex.getMessage()));
+    }
 }
