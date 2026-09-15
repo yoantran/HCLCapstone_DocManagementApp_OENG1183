@@ -25,8 +25,8 @@ export function WebSocketProvider({ children }) {
 
         stompClient.onConnect = () => {
             setConnected(true);
-            for (const destination of subscriptionsRef.current.keys()) {
-                subscribeInternal(stompClient, destination);
+            for (const [destination, entry] of subscriptionsRef.current.entries()) {
+                entry.stompSub = subscribeInternal(stompClient, destination);
             }
         };
 
@@ -41,7 +41,7 @@ export function WebSocketProvider({ children }) {
     }, [user?.email]);
 
     function subscribeInternal(stompClient, destination) {
-        stompClient.subscribe(destination, (message) => {
+        return stompClient.subscribe(destination, (message) => {
             if (!message.body) return;
             let parsed;
             try {
@@ -50,9 +50,9 @@ export function WebSocketProvider({ children }) {
                 console.error('Error parsing socket body:', err);
                 return;
             }
-            const callbacks = subscriptionsRef.current.get(destination);
-            if (callbacks) {
-                callbacks.forEach((cb) => cb(parsed));
+            const entry = subscriptionsRef.current.get(destination);
+            if (entry) {
+                entry.callbacks.forEach((cb) => cb(parsed));
             }
         });
     }
@@ -60,20 +60,28 @@ export function WebSocketProvider({ children }) {
     // Registers `callback` for `destination`, opening one real STOMP
     // subscription per destination string no matter how many callbacks are
     // registered against it (fan-out happens locally via the Set). Returns
-    // an unsubscribe function.
+    // an unsubscribe function that, once the last callback for a
+    // destination is removed, also tears down the underlying STOMP
+    // subscription and drops the destination entry entirely -- otherwise
+    // the broker keeps pushing messages for a destination nobody is
+    // listening to for the lifetime of the connection.
     function subscribe(destination, callback) {
-        let callbacks = subscriptionsRef.current.get(destination);
-        if (!callbacks) {
-            callbacks = new Set();
-            subscriptionsRef.current.set(destination, callbacks);
+        let entry = subscriptionsRef.current.get(destination);
+        if (!entry) {
+            entry = { callbacks: new Set(), stompSub: null };
+            subscriptionsRef.current.set(destination, entry);
             if (clientRef.current?.connected) {
-                subscribeInternal(clientRef.current, destination);
+                entry.stompSub = subscribeInternal(clientRef.current, destination);
             }
         }
-        callbacks.add(callback);
+        entry.callbacks.add(callback);
 
         return () => {
-            callbacks.delete(callback);
+            entry.callbacks.delete(callback);
+            if (entry.callbacks.size === 0) {
+                subscriptionsRef.current.delete(destination);
+                entry.stompSub?.unsubscribe();
+            }
         };
     }
 
