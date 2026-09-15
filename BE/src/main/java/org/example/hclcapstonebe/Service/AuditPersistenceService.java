@@ -89,9 +89,21 @@ public class AuditPersistenceService {
         }
 
         try (Stream<String> lines = Files.lines(file)) {
+            // Real, confirmed bug: this used to .map(this::deserialize),
+            // whose own RuntimeException (any parse failure) was never
+            // caught here -- a single corrupt line (e.g. from a crash
+            // mid-append, or a manual edit) failed the ENTIRE day's read
+            // instead of just being skipped. Each line is now handled
+            // independently: a bad line is logged and skipped, every
+            // other valid line in the file still comes back.
             lines.filter(s -> !s.isBlank())
-                    .map(this::deserialize)
-                    .forEach(result::add);
+                    .forEach(line -> {
+                        try {
+                            result.add(deserialize(line));
+                        } catch (RuntimeException e) {
+                            System.err.println("Skipping corrupt audit log line in " + file + ": " + e.getMessage());
+                        }
+                    });
         }
         catch (IOException e) {
             System.out.print("Cannot read " + file + " " + e);
