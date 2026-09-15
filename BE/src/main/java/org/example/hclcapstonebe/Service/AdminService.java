@@ -38,6 +38,13 @@ public class AdminService {
     // ─── USER ─────────────────────────────────────────────
 
     // ─── CREATE USER ──────────────────────────────────────
+    // Real, confirmed bug: this performs two separate repository saves
+    // (user then department) when creating a MANAGER with a department,
+    // unlike every sibling method in this class -- all @Transactional. If
+    // the second save failed after the first succeeded, a MANAGER-role
+    // user was left persisted with no department actually pointing back
+    // at them.
+    @Transactional
     public UserProfileResponse createUser(CreateUserRequest req) {
         if (userRepository.existsByEmail(req.getEmail())) {
             throw new AppException("Email already in use", HttpStatus.CONFLICT);

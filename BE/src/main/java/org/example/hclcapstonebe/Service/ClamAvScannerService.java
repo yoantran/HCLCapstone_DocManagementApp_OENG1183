@@ -29,6 +29,19 @@ public class ClamAvScannerService {
     @Value("${clamav.port}")
     private int port;
 
+    // Real, confirmed bug: this socket previously had no read timeout, and
+    // the scan runs synchronously on the caller's thread (the HTTP upload
+    // request thread in production). If ClamAV accepts the TCP connection
+    // but hangs mid-protocol (overload, deadlock, network partition after
+    // connect), the read blocked forever -- a handful of hung scans could
+    // exhaust the web server's thread pool with no recovery short of a
+    // restart.
+    // 10s is already generous for scanning a document under this app's own
+    // 10MB upload limit on a local/adjacent-host ClamAV daemon under
+    // normal conditions -- deliberately short enough to fail fast on a
+    // genuinely hung daemon rather than tie up the request thread.
+    private static final int SCAN_TIMEOUT_MS = 10_000;
+
     /**
      * Scans an input stream for viruses using ClamAV INSTREAM protocol over a raw socket.
      *
@@ -42,6 +55,8 @@ public class ClamAvScannerService {
              OutputStream out = socket.getOutputStream();
              InputStream in = socket.getInputStream();
              InputStream is = inputStream) {
+
+            socket.setSoTimeout(SCAN_TIMEOUT_MS);
 
             // Write ClamAV INSTREAM command
             out.write("nINSTREAM\n".getBytes(StandardCharsets.UTF_8));
