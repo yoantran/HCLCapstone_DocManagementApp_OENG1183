@@ -52,11 +52,14 @@ import org.springframework.web.multipart.MultipartFile;
             }
 
             if (avatarFile != null && !avatarFile.isEmpty()) {
-                // 1. Delete old avatar from Supabase
-                if (user.getAvatarImageUrl() != null && !user.getAvatarImageUrl().isBlank()) {
-                    supabaseStorageService.deleteFile(IMAGE_BUCKET, user.getAvatarImageUrl());
-                }
-                // 2. Upload new avatar
+                // 1. Read + validate the NEW avatar FIRST. Real, confirmed bug:
+                // this used to delete the OLD avatar before any of this ran,
+                // so a rejected invalid-format upload returned a clean 400
+                // (as if nothing happened) but permanently orphaned the
+                // user's real, still-good avatar -- found live, only visible
+                // by temporarily un-swallowing toResponseWithSignedAvatar's
+                // own exception handler below. A validation/upload failure
+                // must never destroy a still-good existing avatar.
                 String originalName = avatarFile.getOriginalFilename() != null
                         ? avatarFile.getOriginalFilename()
                         : "avatar";
@@ -77,8 +80,18 @@ import org.springframework.web.multipart.MultipartFile;
                 // clean 400 for an invalid avatar format, which nothing here
                 // previously actually checked.
                 String avatarContentType = detectImageContentType(bytes);
+
+                // 2. Upload the NEW avatar.
                 String newAvatarPath = supabaseStorageService.uploadFile(IMAGE_BUCKET, bytes, storagePath, avatarContentType);
-                // 3. Save path
+
+                // 3. Only now delete the OLD avatar -- the new one is
+                // already confirmed valid and uploaded.
+                String oldAvatarPath = user.getAvatarImageUrl();
+                if (oldAvatarPath != null && !oldAvatarPath.isBlank()) {
+                    supabaseStorageService.deleteFile(IMAGE_BUCKET, oldAvatarPath);
+                }
+
+                // 4. Save the new path.
                 user.setAvatarImageUrl(newAvatarPath);
             }
 
