@@ -737,4 +737,65 @@ class DocumentServiceTest {
         assertTrue(doc.isDeleted());
         verify(documentRepository).save(doc);
     }
+
+    // Real, confirmed bug: User.department is nullable (staff can
+    // genuinely have no department assigned yet), but deleteDocument's
+    // MANAGER branch called doc.getDepartment().getId() with no null
+    // check -- a department-less uploader's document crashed a manager's
+    // delete attempt with a 500 instead of the intended 403.
+    @Test
+    void deleteDocument_managerOnDeptLessUploaderDoc_isForbiddenNotNpe() {
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID uploaderId = UUID.randomUUID();
+        User manager = buildUser(managerId, RoleEnum.MANAGER, deptId);
+
+        User deptLessUploader = new User();
+        deptLessUploader.setId(uploaderId);
+        Document doc = Document.builder()
+                .id(UUID.randomUUID())
+                .uploader(deptLessUploader)
+                .department(null)
+                .scanStatus(ScanStatus.CLEAN)
+                .documentLink("abc_test.pdf")
+                .build();
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        AppException ex = assertThrows(AppException.class, () ->
+                documentService.deleteDocument(doc.getId().toString(), "manager1@hcl.com"));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
+        verify(documentRepository, never()).save(any());
+    }
+
+    // Same null-department gap, in getRedactedPreviewStatus's sameDepartment
+    // check: it verified the REQUESTER's department was non-null but never
+    // checked the DOCUMENT's department before calling
+    // doc.getDepartment().getId().
+    @Test
+    void getRedactedPreviewStatus_managerOnDeptLessUploaderDoc_isForbiddenNotNpe() {
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID uploaderId = UUID.randomUUID();
+        User manager = buildUser(managerId, RoleEnum.MANAGER, deptId);
+
+        User deptLessUploader = new User();
+        deptLessUploader.setId(uploaderId);
+        Document doc = Document.builder()
+                .id(UUID.randomUUID())
+                .uploader(deptLessUploader)
+                .department(null)
+                .scanStatus(ScanStatus.CLEAN)
+                .documentLink("abc_test.pdf")
+                .format(DocumentFormatEnum.PDF)
+                .build();
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+
+        AppException ex = assertThrows(AppException.class, () ->
+                documentService.getRedactedPreviewStatus(doc.getId().toString(), "manager1@hcl.com", false));
+        assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
+    }
 }
