@@ -23,7 +23,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -83,6 +85,38 @@ class DocumentServiceTest {
                 .documentLink("abc_test.pdf")
                 .aiResult(aiResult)
                 .build();
+    }
+
+    // Real, confirmed bug: buildAndSaveDocument uploaded the file's bytes
+    // to Supabase storage UNCONDITIONALLY, before -- and regardless of --
+    // the ClamAV scan result. Only AI processing was gated on
+    // scanResult.status()==CLEAN; an INFECTED file's actual bytes still
+    // landed permanently in the shared 'documents' bucket, with nothing
+    // anywhere ever deleting them.
+    @Test
+    void uploadOne_infectedFile_isNeverUploadedToStorage() {
+        User uploader = new User();
+        uploader.setId(UUID.randomUUID());
+        uploader.setEmail("staff1@hcl.com");
+
+        when(userRepository.findByEmailAndIsDeletedFalse("staff1@hcl.com")).thenReturn(Optional.of(uploader));
+        when(documentRepository.findByUploaderIdAndIsDeletedFalse(any())).thenReturn(List.of());
+        when(clamAvScannerService.scanStream(any())).thenReturn(
+                new ClamAvScannerService.ScanResult(ScanStatus.INFECTED, "Eicar-Test-Signature")
+        );
+        when(documentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(documentMapper.toResponse(any())).thenReturn(new DocumentResponse());
+
+        // CSV: no magic-byte signature check and no structural validation,
+        // so this test doesn't need to mock DocumentSanitizerService (not
+        // even a field on this test class) or supply real file bytes.
+        MockMultipartFile infectedFile = new MockMultipartFile(
+                "file", "eicar.csv", "text/csv", "fake content".getBytes()
+        );
+
+        documentService.uploadOne(infectedFile, "PAY_SLIP", "staff1@hcl.com", null);
+
+        verify(supabaseStorageService, never()).uploadFile(any(), any(), any(), any());
     }
 
     @Test
