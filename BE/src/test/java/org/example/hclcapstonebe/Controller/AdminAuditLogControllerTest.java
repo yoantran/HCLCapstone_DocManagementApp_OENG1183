@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.lenient;
@@ -36,5 +37,20 @@ class AdminAuditLogControllerTest {
                 controller.getLogs(null, null, null, null, -1);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
+    }
+
+    // Real, confirmed bug: stats() hardcoded "capacity": 1000 as a literal,
+    // a 3rd independent copy of AuditLogStore.MAX_ENTRIES (the query() limit
+    // clamp was the 2nd). If MAX_ENTRIES ever changes, this response would
+    // silently keep reporting the old value. Now reads AuditLogStore.maxEntries().
+    @Test
+    void stats_capacityReflectsAuditLogStoreMaxEntries() {
+        lenient().when(persistenceService.loadTodayLogs()).thenReturn(List.of());
+        AuditLogStore store = new AuditLogStore(persistenceService);
+        AdminAuditLogController controller = new AdminAuditLogController(store);
+
+        ResponseEntity<Map<String, Object>> response = controller.stats();
+
+        assertEquals(AuditLogStore.maxEntries(), response.getBody().get("capacity"));
     }
 }
