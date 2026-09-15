@@ -82,7 +82,11 @@ public class AiProcessingService {
         }
     }
 
-    private void markFailed(UUID documentId, String uploaderEmail, String reason) {
+    // Package-private: called by DocumentService when the aiTaskExecutor
+    // rejects processAsync's submission outright (pool+queue saturated),
+    // so this failure state still gets recorded even though the async
+    // method body -- and its own catch block above -- never ran at all.
+    void markFailed(UUID documentId, String uploaderEmail, String reason) {
         Document doc = documentRepository.findById(documentId).orElse(null);
         if (doc == null) {
             return;

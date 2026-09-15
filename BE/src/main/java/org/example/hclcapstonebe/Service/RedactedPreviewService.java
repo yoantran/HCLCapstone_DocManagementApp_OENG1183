@@ -86,6 +86,23 @@ public class RedactedPreviewService {
         }
     }
 
+    // Package-private: called by DocumentService when the aiTaskExecutor
+    // rejects generateAsync's submission outright (pool+queue saturated),
+    // so the document doesn't get stuck at GENERATING forever -- the async
+    // method body's own catch block above never ran at all in that case.
+    void markRejected(UUID documentId, String requesterEmail, String reason) {
+        Document doc = documentRepository.findById(documentId).orElse(null);
+        if (doc == null) {
+            return;
+        }
+        doc.setRedactedPreviewStatus(RedactedPreviewStatus.FAILED);
+        doc.setRedactedPreviewFailureReason(reason);
+        documentRepository.save(doc);
+
+        notifyRequester(requesterEmail, documentId, RedactedPreviewStatus.FAILED, reason);
+        notifyBell(requesterEmail, doc, "Redacted preview failed: " + doc.getName());
+    }
+
     private byte[] callApplyRedaction(byte[] fileBytes, String filename, JsonNode redactionItems) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
