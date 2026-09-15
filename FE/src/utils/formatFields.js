@@ -14,7 +14,8 @@ export const parseServerDate = (date) => {
     if (!date) return null;
 
     const hasZone = /[Z+-]\d{2}:?\d{2}$|Z$/.test(date);
-    return new Date(hasZone ? date : `${date}Z`);
+    const parsed = new Date(hasZone ? date : `${date}Z`);
+    return isNaN(parsed.getTime()) ? null : parsed;
 };
 
 export const formatDate = (date) => {

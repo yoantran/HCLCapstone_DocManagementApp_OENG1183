@@ -49,9 +49,18 @@ export function AuthProvider({ children }) {
             setToken(null);
           }
         })
-        .catch(() => {
-          localStorage.removeItem('token');
-          setToken(null);
+        .catch((err) => {
+          // Real, confirmed bug: this used to clear the token on ANY
+          // failure, including a transient network blip or a 500 -- a
+          // perfectly valid session got force-logged-out just because
+          // /users/me hiccuped once. Only a genuine 401 (the token itself
+          // being invalid/expired) should clear it; axios's own
+          // interceptor already handles that case globally with a
+          // redirect. Any other error just keeps the existing session.
+          if (err?.response?.status === 401) {
+            localStorage.removeItem('token');
+            setToken(null);
+          }
         })
         .finally(() => setLoading(false));
     });
