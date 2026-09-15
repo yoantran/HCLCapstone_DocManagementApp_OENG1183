@@ -1,10 +1,12 @@
 package org.example.hclcapstonebe.Exception;
 
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -33,5 +35,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", ex.getMessage()));
+    }
+
+    // Real, confirmed gap: this advice had no catch-all, so any exception
+    // outside the typed handlers above (NPE, a DB access error, etc.) fell
+    // through to Spring Boot's default error page instead of this app's
+    // {"error": ...} contract. The exception is logged in full server-side;
+    // the client only gets a generic message, never the raw exception text.
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, String>> handleUnexpected(Exception ex) {
+        log.error("Unhandled exception", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of("error", "Something went wrong. Please try again later."));
     }
 }
