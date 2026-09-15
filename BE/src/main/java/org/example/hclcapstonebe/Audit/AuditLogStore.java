@@ -62,6 +62,10 @@ public class AuditLogStore {
         buffer.clear();
     }
 
+    public static int maxEntries() {
+        return MAX_ENTRIES;
+    }
+
     private synchronized List<AuditEntry> copyBuffer() {
         return new ArrayList<>(buffer);
     }
