@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -210,8 +211,17 @@ public class DocumentService {
         Document saved = documentRepository.save(doc);
 
         if (scanResult.status() == ScanStatus.CLEAN) {
-            aiProcessingService.processAsync(saved.getId(), fileData, originalName,
-                    proposedRepaymentAmount, uploader.getEmail());
+            try {
+                aiProcessingService.processAsync(saved.getId(), fileData, originalName,
+                        proposedRepaymentAmount, uploader.getEmail());
+            } catch (TaskRejectedException e) {
+                // aiTaskExecutor's pool+queue are saturated -- the async method
+                // body (and its own failure handling) never ran at all. Record
+                // the failure directly instead of letting this 500 the upload,
+                // which already succeeded and shouldn't depend on this.
+                aiProcessingService.markFailed(saved.getId(), uploader.getEmail(),
+                        "AI processing queue is full. Please try re-uploading later.");
+            }
         }
 
         return saved;
@@ -379,7 +389,16 @@ public class DocumentService {
             doc.setRedactedPreviewStatus(RedactedPreviewStatus.GENERATING);
             doc.setRedactedPreviewFailureReason(null);
             documentRepository.save(doc);
-            redactedPreviewService.generateAsync(doc.getId(), currentUserEmail, redactionItems);
+            try {
+                redactedPreviewService.generateAsync(doc.getId(), currentUserEmail, redactionItems);
+            } catch (TaskRejectedException e) {
+                // Same saturated-executor case as the upload path above --
+                // without this, the document would be stuck at GENERATING
+                // forever since its own catch block never got to run.
+                String reason = "Redacted preview queue is full. Please try again later.";
+                redactedPreviewService.markRejected(doc.getId(), currentUserEmail, reason);
+                return new RedactedPreviewResponse(RedactedPreviewStatus.FAILED, null, reason);
+            }
             return new RedactedPreviewResponse(RedactedPreviewStatus.GENERATING, null, null);
         }
 

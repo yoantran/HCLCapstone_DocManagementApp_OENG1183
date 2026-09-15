@@ -21,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.mock.web.MockMultipartFile;
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -37,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -117,6 +120,38 @@ class DocumentServiceTest {
         documentService.uploadOne(infectedFile, "PAY_SLIP", "staff1@hcl.com", null);
 
         verify(supabaseStorageService, never()).uploadFile(any(), any(), any(), any());
+    }
+
+    // Real, confirmed bug: aiProcessingService.processAsync() is called with
+    // no try/catch. When aiTaskExecutor's pool+queue are saturated,
+    // submitting the @Async task throws TaskRejectedException synchronously
+    // from that call -- after the document row and file were already
+    // persisted -- failing the whole upload response with a 500 despite the
+    // upload itself having fully succeeded.
+    @Test
+    void uploadOne_aiExecutorRejects_stillReturnsSuccessfully() {
+        User uploader = new User();
+        uploader.setId(UUID.randomUUID());
+        uploader.setEmail("staff1@hcl.com");
+
+        when(userRepository.findByEmailAndIsDeletedFalse("staff1@hcl.com")).thenReturn(Optional.of(uploader));
+        when(documentRepository.findByUploaderIdAndIsDeletedFalse(any())).thenReturn(List.of());
+        when(clamAvScannerService.scanStream(any())).thenReturn(
+                new ClamAvScannerService.ScanResult(ScanStatus.CLEAN, "No malware detected.")
+        );
+        when(documentRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(documentMapper.toResponse(any())).thenReturn(new DocumentResponse());
+        doThrow(new TaskRejectedException("pool saturated"))
+                .when(aiProcessingService).processAsync(any(), any(), any(), any(), any());
+
+        MockMultipartFile cleanFile = new MockMultipartFile(
+                "file", "clean.csv", "text/csv", "fake content".getBytes()
+        );
+
+        assertDoesNotThrow(() ->
+                documentService.uploadOne(cleanFile, "PAY_SLIP", "staff1@hcl.com", null),
+                "upload must still succeed even when AI processing can't be queued");
+        verify(aiProcessingService).markFailed(any(), eq("staff1@hcl.com"), any());
     }
 
     @Test
@@ -323,6 +358,45 @@ class DocumentServiceTest {
         assertEquals(RedactedPreviewStatus.GENERATING, doc.getRedactedPreviewStatus());
         verify(documentRepository).save(doc);
         verify(redactedPreviewService).generateAsync(eq(doc.getId()), eq("manager1@hcl.com"), any(JsonNode.class));
+    }
+
+    // Real, confirmed bug: redactedPreviewService.generateAsync() is called
+    // with no try/catch. When aiTaskExecutor's pool+queue are saturated,
+    // submitting the @Async task throws TaskRejectedException synchronously
+    // -- but the status was already set to GENERATING and saved just before
+    // this call, so without handling it the document would be stuck at
+    // GENERATING forever (its own catch block, inside the async body, never
+    // ran since the body itself was never submitted successfully).
+    @Test
+    void getRedactedPreviewStatus_aiExecutorRejects_returnsFailedInsteadOfStuckGenerating() {
+        UUID deptId = UUID.randomUUID();
+        UUID managerId = UUID.randomUUID();
+        UUID otherStaffId = UUID.randomUUID();
+
+        User manager = new User();
+        manager.setId(managerId);
+        Department managerDept = new Department();
+        managerDept.setId(deptId);
+        manager.setDepartment(managerDept);
+
+        String aiResultWithItems = """
+                {"fields":{"bsb":"123-456"},
+                 "sensitive_field_keys":["bsb"],
+                 "redaction":{"type":"boxes","items":[{"field":"bsb","value":"123-456","x_pct":0.1,"y_pct":0.1,"w_pct":0.2,"h_pct":0.1}]}}
+                """;
+        Document doc = buildDoc(otherStaffId, deptId, aiResultWithItems);
+        doc.setFormat(DocumentFormatEnum.PNG);
+
+        when(userRepository.findByEmailAndIsDeletedFalse("manager1@hcl.com")).thenReturn(Optional.of(manager));
+        when(documentRepository.findByIdAndIsDeletedFalse(doc.getId())).thenReturn(Optional.of(doc));
+        doThrow(new TaskRejectedException("pool saturated"))
+                .when(redactedPreviewService).generateAsync(any(), any(), any());
+
+        RedactedPreviewResponse response = documentService.getRedactedPreviewStatus(
+                doc.getId().toString(), "manager1@hcl.com", false);
+
+        assertEquals(RedactedPreviewStatus.FAILED, response.getStatus());
+        verify(redactedPreviewService).markRejected(eq(doc.getId()), eq("manager1@hcl.com"), any());
     }
 
     @Test
