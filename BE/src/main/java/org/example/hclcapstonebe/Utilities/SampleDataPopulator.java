@@ -23,8 +23,20 @@ public class SampleDataPopulator {
     private final PasswordEncoder passwordEncoder;
 
 
+    // Real, confirmed bug: clear() runs unconditionally with no guard --
+    // anyone running SampleDataRunner.main() (an accidental IDE run-config,
+    // a stray CI job) wipes users/documents/departments/notifications on
+    // whatever datasource application.properties resolves to, which for
+    // this project is the one real Supabase DB (no dev/prod split exists).
+    // Requiring an explicit opt-in env var makes that unrecoverable a
+    // mistake require a deliberate, separate step first.
     @Transactional
     public void clear() {
+        if (!"true".equalsIgnoreCase(System.getenv("ALLOW_DATA_WIPE"))) {
+            throw new IllegalStateException(
+                    "Refusing to wipe data: set ALLOW_DATA_WIPE=true to run SampleDataPopulator.clear() intentionally.");
+        }
+
         log.info("🧹 Clearing...");
 
         // Delete child tables first
