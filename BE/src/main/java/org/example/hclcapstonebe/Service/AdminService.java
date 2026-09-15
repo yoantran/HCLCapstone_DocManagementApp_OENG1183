@@ -11,13 +11,11 @@ import org.example.hclcapstonebe.Mapper.UserMapper;
 import org.example.hclcapstonebe.Repository.DepartmentRepository;
 import org.example.hclcapstonebe.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.crossstore.ChangeSetPersister;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.example.hclcapstonebe.Exception.BadRequestException;
-import org.example.hclcapstonebe.Exception.ConflictException;
 import org.example.hclcapstonebe.Exception.NotFoundException;
 
 import java.time.LocalDateTime;
@@ -101,30 +99,6 @@ public class AdminService {
         return userMapper.toResponse(userRepository.save(user));
 
     }
-    @Transactional
-    public UserProfileResponse assignDepartmentToUser(UUID userId, ReassignUserRequest req) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
-
-        if (user.getRole() == RoleEnum.MANAGER) {
-            throw new AppException(
-                    "Cannot assign department to a manager here. Use Update Department API to assign a manager to a department.",
-                    HttpStatus.BAD_REQUEST
-            );
-        }
-
-        if (req.getDepartmentId() != null) {
-            Department newDept = departmentRepository.findById(req.getDepartmentId())
-                    .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
-            user.setDepartment(newDept);
-        } else {
-            // empty string or null → remove from department
-            user.setDepartment(null);
-        }
-
-        return userMapper.toResponse(userRepository.save(user));
-    }
-
 
 
     @Transactional
