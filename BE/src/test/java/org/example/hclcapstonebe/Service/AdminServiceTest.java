@@ -1,6 +1,7 @@
 package org.example.hclcapstonebe.Service;
 
 import org.example.hclcapstonebe.DTO.Request.ChangeRoleRequest;
+import org.example.hclcapstonebe.DTO.Request.CreateUserRequest;
 import org.example.hclcapstonebe.DTO.Request.UpdateDepartmentRequest;
 import org.example.hclcapstonebe.Entities.Department;
 import org.example.hclcapstonebe.Entities.User;
@@ -17,11 +18,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -92,5 +96,19 @@ class AdminServiceTest {
         assertThrows(AppException.class, () -> adminService.updateDepartment(deptId, req));
 
         verify(userRepository, never()).save(any());
+    }
+
+    // Real, confirmed bug: createUser() performs two separate, non-atomic
+    // saves (userRepository.save then departmentRepository.save) when
+    // creating a MANAGER with a department, unlike every sibling method in
+    // this class -- all of which are @Transactional. If the second save
+    // fails after the first succeeds, a MANAGER-role user is persisted
+    // with no department actually pointing back at them.
+    @Test
+    void createUser_isTransactional() throws NoSuchMethodException {
+        Method createUser = AdminService.class.getMethod("createUser", CreateUserRequest.class);
+        assertTrue(createUser.isAnnotationPresent(Transactional.class),
+                "createUser() performs two separate repository saves and must be @Transactional, "
+                        + "like every sibling admin-mutation method in this class");
     }
 }
