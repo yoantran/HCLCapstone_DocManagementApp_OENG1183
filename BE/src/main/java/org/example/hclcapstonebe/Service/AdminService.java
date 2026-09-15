@@ -126,6 +126,14 @@ public class AdminService {
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + userId));
 
+        // Real, confirmed bug: this method's only guard was the same-role
+        // no-op check below -- ADMIN != MANAGER passed straight through to
+        // promote(), which never checks the user's CURRENT role either, so
+        // {role: MANAGER} on a real ADMIN silently demoted them.
+        if (user.getRole() == RoleEnum.ADMIN) {
+            throw new BadRequestException("Cannot change an ADMIN's role through this endpoint.");
+        }
+
         if (user.getRole() == req.getRole()) {
             throw new BadRequestException("User already has role " + req.getRole());
         }
@@ -288,6 +296,14 @@ public class AdminService {
         } else if (req.getManagerId() != null && !req.getManagerId().isBlank()) {
             User newmanager = userRepository.findByIdAndIsDeletedFalse(UUID.fromString(req.getManagerId()))
                     .orElseThrow(() -> new AppException("New manager not found", HttpStatus.NOT_FOUND));
+
+            // Real, confirmed bug: this only rejected a user already MANAGER
+            // of a different department -- never checked for ADMIN, so
+            // assigning an admin's id here silently converted them to
+            // MANAGER, stripping their admin privileges with no warning.
+            if (newmanager.getRole() == RoleEnum.ADMIN) {
+                throw new AppException("Cannot assign an ADMIN as a department manager.", HttpStatus.BAD_REQUEST);
+            }
 
             // A MANAGER of another department must be demoted there first.
             // A STAFF from another department is fine — they get moved and promoted.

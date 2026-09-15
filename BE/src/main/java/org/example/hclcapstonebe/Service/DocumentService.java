@@ -56,6 +56,12 @@ public class DocumentService {
 
     private static final String BUCKET = "documents";
     private static final int SIGNED_URL_TTL = 3600; // 1 hour in seconds
+    // Document.documentLink is NOT NULL -- this placeholder marks a
+    // non-CLEAN scan result whose real bytes were deliberately never
+    // uploaded to storage. isAccessible() already refuses to serve a
+    // signed URL for any non-CLEAN document, so this value is never
+    // actually dereferenced against Supabase.
+    private static final String SCAN_REJECTED_PLACEHOLDER = "REJECTED_NOT_STORED";
 
 
     private static final Map<DocumentFormatEnum, byte[]> FILE_SIGNATURES = Map.of(
@@ -173,8 +179,18 @@ public class DocumentService {
         }
 
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
-        String storagePath = UUID.randomUUID() + "_" + originalName;
-        String uploadedPath = supabaseStorageService.uploadFile(BUCKET, fileData, storagePath, MIME_TYPES.get(format));
+        // Real, confirmed bug: this used to run unconditionally, regardless
+        // of scanResult.status() -- only AI processing was gated on CLEAN,
+        // so an INFECTED file's actual bytes still landed permanently in
+        // the shared bucket, with nothing anywhere ever deleting them. The
+        // Document row is still created either way (so the uploader/
+        // manager can see the scan result), but the real bytes are only
+        // ever persisted to storage once confirmed clean.
+        String uploadedPath = SCAN_REJECTED_PLACEHOLDER;
+        if (scanResult.status() == ScanStatus.CLEAN) {
+            String storagePath = UUID.randomUUID() + "_" + originalName;
+            uploadedPath = supabaseStorageService.uploadFile(BUCKET, fileData, storagePath, MIME_TYPES.get(format));
+        }
 
         Document doc = Document.builder()
                 .name(finalName)
