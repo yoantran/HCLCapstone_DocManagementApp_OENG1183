@@ -8,6 +8,7 @@ import org.example.hclcapstonebe.Mapper.UserMapper;
 import org.example.hclcapstonebe.Repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -17,6 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -88,5 +90,57 @@ class UserServiceTest {
 
         verify(supabaseStorageService).deleteFile("images", "old-avatar-path.png");
         assertEquals("new-avatar-path.png", user.getAvatarImageUrl());
+    }
+
+    // Real finding from reviewing #356's own fix: the old avatar was
+    // deleted from Supabase BEFORE userRepository.save(user) ran, with no
+    // transaction tying the two together. A save failure after the
+    // delete reproduces #355's exact symptom one step later -- the DB
+    // keeps pointing at the just-deleted old path. Deleting the old file
+    // only after save() succeeds means a save failure never touches the
+    // old (still-good) avatar.
+    @Test
+    void updateProfile_doesNotDeleteOldAvatarWhenDatabaseSaveFails() {
+        User user = buildUser("old-avatar-path.png");
+        when(userRepository.findByEmailAndIsDeletedFalse("staff1@hcl.com")).thenReturn(Optional.of(user));
+        when(supabaseStorageService.uploadFile(eq("images"), any(), any(), eq("image/png")))
+                .thenReturn("new-avatar-path.png");
+        when(userRepository.save(any())).thenThrow(new RuntimeException("DB blip"));
+
+        byte[] pngBytes = {(byte) 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0};
+        MockMultipartFile validAvatar = new MockMultipartFile("avatar", "real.png", "image/png", pngBytes);
+
+        assertThrows(RuntimeException.class, () ->
+                userService.updateProfile("staff1@hcl.com", new UpdateProfileRequest(), validAvatar)
+        );
+
+        verify(supabaseStorageService, never()).deleteFile(any(), any());
+    }
+
+    // Real finding: storagePath was built directly from the client-
+    // supplied avatarFile.getOriginalFilename() with no sanitization, so
+    // a crafted filename with ".." segments flows straight into the
+    // Supabase object key -- risking a key outside the intended
+    // images/<uuid>_... namespace, since the service-role key has broad
+    // bucket access.
+    @Test
+    void updateProfile_sanitizesPathTraversalInAvatarFilename() {
+        User user = buildUser(null);
+        when(userRepository.findByEmailAndIsDeletedFalse("staff1@hcl.com")).thenReturn(Optional.of(user));
+        when(supabaseStorageService.uploadFile(eq("images"), any(), any(), eq("image/png")))
+                .thenReturn("stored-path.png");
+
+        byte[] pngBytes = {(byte) 0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0};
+        MockMultipartFile maliciousAvatar = new MockMultipartFile(
+                "avatar", "../../documents/some-other-storage-path.pdf", "image/png", pngBytes
+        );
+
+        userService.updateProfile("staff1@hcl.com", new UpdateProfileRequest(), maliciousAvatar);
+
+        ArgumentCaptor<String> storagePathCaptor = ArgumentCaptor.forClass(String.class);
+        verify(supabaseStorageService).uploadFile(eq("images"), any(), storagePathCaptor.capture(), eq("image/png"));
+        String storagePath = storagePathCaptor.getValue();
+        assertFalse(storagePath.contains("/"), "storage path must not contain a path separator: " + storagePath);
+        assertFalse(storagePath.contains(".."), "storage path must not contain a traversal sequence: " + storagePath);
     }
 }
