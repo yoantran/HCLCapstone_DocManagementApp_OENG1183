@@ -13,8 +13,10 @@ export const formatSize = (bytes) => {
 export const parseServerDate = (date) => {
     if (!date) return null;
 
-    const hasZone = /[Z+-]\d{2}:?\d{2}$|Z$/.test(date);
-    const parsed = new Date(hasZone ? date : `${date}Z`);
+    // remove any 'Z' to prevent the browser from assuming UTC
+    const localDateString = date.replace(' ', 'T').replace('Z', '');
+    const parsed = new Date(localDateString);
+
     return isNaN(parsed.getTime()) ? null : parsed;
 };
 
