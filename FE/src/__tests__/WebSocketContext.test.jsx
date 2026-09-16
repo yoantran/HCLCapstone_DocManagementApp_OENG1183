@@ -97,4 +97,30 @@ describe('WebSocketContext subscribe/unsubscribe', () => {
         unsubscribeB();
         expect(stompUnsubscribe).toHaveBeenCalledTimes(1);
     });
+
+    // Real, confirmed bug: `subscribe` was a plain function recreated on
+    // every WebSocketProvider render (e.g. the setConnected(true) flip on
+    // STOMP connect), so every consumer's `useEffect(..., [subscribe])`
+    // unsubscribed and resubscribed on that render even though nothing
+    // about the callback or destination changed.
+    it('keeps a stable subscribe reference across the onConnect re-render', async () => {
+        subscribeMock.mockReturnValue({ id: 'sub-0', unsubscribe: vi.fn() });
+        const captured = [];
+
+        function Probe() {
+            const { subscribe } = useWebSocket();
+            captured.push(subscribe);
+            return null;
+        }
+
+        render(
+            <WebSocketProvider>
+                <Probe />
+            </WebSocketProvider>
+        );
+
+        await waitFor(() => expect(captured.length).toBeGreaterThan(1));
+
+        expect(new Set(captured).size).toBe(1);
+    });
 });
