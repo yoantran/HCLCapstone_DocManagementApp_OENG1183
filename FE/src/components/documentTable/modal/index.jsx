@@ -51,6 +51,12 @@ export const DocumentModal = ({
             params: retry ? { retry: true } : {},
         })
             .then((res) => {
+                // Real, confirmed bug: previewError was only ever set (on a
+                // prior 422/501 failure) and never cleared, so a later
+                // successful fetch -- even one returning READY -- stayed
+                // permanently masked by the stale error. Same bug already
+                // fixed in pages/ViewDocument.jsx.
+                setPreviewError(null);
                 setPreviewStatus(res.status);
                 setPreviewFailureReason(res.failureReason);
                 if (res.status === 'READY') {

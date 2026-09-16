@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useMemo, useState} from "react";
 import { getRequest } from "../api/apiHelpers.js";
 import { CustomTable } from "../components/customTable/index.jsx";
 import { adminManagementColumns } from "../components/customTable/columns.jsx";
@@ -50,7 +50,7 @@ export default function AdminManagement() {
         fetchAllData();
     }, [fetchAllData]);
 
-    const handleUserUpdate = (updatedUser) => {
+    const handleUserUpdate = useCallback((updatedUser) => {
         if (!updatedUser || !updatedUser.id) {
             fetchAllData();
             return;
@@ -61,9 +61,9 @@ export default function AdminManagement() {
         getRequest({ url: "/admin/departments" })
             .then((res) => setDepartmentsData(Array.isArray(res) ? res : res?.departments || []))
             .catch(console.error);
-    };
+    }, [fetchAllData]);
 
-    const handleDeptUpdate = (updatedDept) => {
+    const handleDeptUpdate = useCallback((updatedDept) => {
         if (!updatedDept || !updatedDept.id) {
             fetchAllData();
             return;
@@ -74,21 +74,30 @@ export default function AdminManagement() {
         getRequest({ url: "/admin/users" })
             .then((res) => setUsersData(Array.isArray(res) ? res : res?.users || []))
             .catch(console.error);
-    };
+    }, [fetchAllData]);
 
-    const handleDeleteSuccess = (deletedId) => {
+    const handleDeleteSuccess = useCallback((deletedId) => {
         if (activeTab === 'users') {
             setUsersData((prev) => prev.filter((user) => user.id !== deletedId));
         } else {
             setDepartmentsData((prev) => prev.filter((dept) => dept.id !== deletedId));
         }
-    };
+    }, [activeTab]);
 
-    const allColumns = adminManagementColumns(
-        departmentsData,
-        usersData,
-        handleUserUpdate,
-        handleDeptUpdate
+    // Real, confirmed bug: adminManagementColumns() was called fresh on every
+    // render with a brand-new inline `Cell` component each time. CustomTable
+    // renders that as <CustomCell/>, so React treated it as a different
+    // component type on every render (e.g. every keystroke in the search
+    // box) and fully unmounted/remounted the row action cells -- silently
+    // closing any open Manage/Delete popup out from under the user.
+    const allColumns = useMemo(
+        () => adminManagementColumns(
+            departmentsData,
+            usersData,
+            handleUserUpdate,
+            handleDeptUpdate
+        ),
+        [departmentsData, usersData, handleUserUpdate, handleDeptUpdate]
     );
 
     const currentColumns = allColumns[activeTab.toUpperCase()] ?? [];

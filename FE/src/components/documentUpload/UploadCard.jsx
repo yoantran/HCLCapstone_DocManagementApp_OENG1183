@@ -4,7 +4,7 @@ import { Select, FileInput, Label, Button } from "flowbite-react";
 import { DOCUMENT_ACCEPTED_FILE_TYPES } from "../../constants";
 
 
-export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirst = true, firstDocumentType = "", onDocumentTypeChange }) => {
+export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirst = true, firstDocumentType = "", onDocumentTypeChange, isUploading = false }) => {
     const uniqueId = useId().replace(/:/g, "");
     const selectId = `file-${uniqueId}`;
     const fileInputId = `dropzone-file-${uniqueId}`;
@@ -122,7 +122,7 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
 
             </div>
             <div className="mt-2 justify-items-end w-full mr-4">
-                <Button color="light" className="cursor-pointer" size="sm" onClick={handleClear}>
+                <Button color="light" className="cursor-pointer" size="sm" onClick={handleClear} disabled={isUploading}>
                     Clear
                 </Button>
             </div>
