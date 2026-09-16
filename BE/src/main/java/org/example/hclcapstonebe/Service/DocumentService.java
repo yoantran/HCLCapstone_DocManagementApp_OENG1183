@@ -171,12 +171,19 @@ public class DocumentService {
         }
 
         // ── Structural validation (#247, non-mutating half of be/add-CDR) ──
-        switch (format) {
-            case PDF -> documentSanitizerService.validatePdfStructure(fileData);
-            case DOCX -> documentSanitizerService.validateDocxStructure(fileData);
-            default -> {
-                // no structural validation for this format
+        try {
+            switch (format) {
+                case PDF -> documentSanitizerService.validatePdfStructure(fileData);
+                case DOCX -> documentSanitizerService.validateDocxStructure(fileData);
+                default -> {
+                    // no structural validation for this format
+                }
             }
+        } catch (Exception e) {
+            // Override the ClamAV result to INFECTED if structural validation fails
+            scanResult = new ClamAvScannerService.ScanResult(
+                    ScanStatus.INFECTED,
+                    "Structural Validation Failed: " + e.getMessage());
         }
 
         // ── Upload to Supabase with UUID prefix (always unique in bucket) ──
