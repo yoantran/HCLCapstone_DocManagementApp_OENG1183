@@ -32,7 +32,13 @@ export function UserFormContent({
             const deptValue = typeof initialData.department === 'object' ? (initialData.department?.name || initialData.department?.id) : initialData.department;
             setSelectedDepartment(deptValue || initialData.departmentName || "");
             setAvatarFile(null);
-            setAvatarPreview(null);
+            // Real, confirmed bug: the previous blob URL (if any) was
+            // dropped here with no revokeObjectURL, leaking it for the
+            // tab's lifetime.
+            setAvatarPreview((prev) => {
+                if (prev) URL.revokeObjectURL(prev);
+                return null;
+            });
         }
     }, [initialData]);
 
@@ -45,13 +51,25 @@ export function UserFormContent({
             return;
         }
         setAvatarFile(file);
-        setAvatarPreview(URL.createObjectURL(file));
+        setAvatarPreview((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return URL.createObjectURL(file);
+        });
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
+        // Real, confirmed bug: clearing Name to empty enabled Apply
+        // (hasChanges correctly saw a diff) but this guard silently
+        // dropped it from the FormData -- the server never received the
+        // change, yet the caller's onSave still reported success. Name is
+        // required, so block the submit instead of silently no-op'ing it.
+        if (!name.trim()) {
+            pushError("Name cannot be empty.");
+            return;
+        }
         const formData = new FormData();
-        if (name.trim()) formData.append("name", name.trim());
+        formData.append("name", name.trim());
         if (phoneNumber.trim()) formData.append("phoneNumber", phoneNumber.trim());
         if (showDepartment && selectedDepartment) formData.append("department", selectedDepartment);
         if (avatarFile) formData.append("avatar", avatarFile);
@@ -65,11 +83,11 @@ export function UserFormContent({
             <button
                 type="button"
                 onClick={() => !readOnlyFields && fileInputRef.current?.click()} // 🌟 Disable click if read-only
-                className={`group relative h-24 w-24 overflow-hidden rounded-full border-2 border-(--dark-blue-300) transition-all duration-160 ease-out ${readOnlyFields ? 'cursor-not-allowed opactiy-80' : 'cursor-pointer hover:border-(--lighter-blue-500)'}`}
+                className={`group relative h-24 w-24 overflow-hidden rounded-full border-2 border-(--dark-blue-300) transition-all duration-[160ms] ease-out ${readOnlyFields ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:border-(--lighter-blue-500)'}`}
             >
                 <img src={displayAvatar} alt="Avatar" className="h-full w-full object-cover"/>
                 {!readOnlyFields && (<span
-                        className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-160 ease-out">
+                        className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-[160ms] ease-out">
                         <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"
                              strokeWidth={1.5}>
                             <path strokeLinecap="round" strokeLinejoin="round"
