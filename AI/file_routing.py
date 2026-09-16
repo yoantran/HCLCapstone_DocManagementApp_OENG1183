@@ -3,6 +3,7 @@ Decides which processing path a document takes before Module 1/2 ever run.
 Extension alone is unambiguous for everything except .pdf, which could be
 either a scanned image with no text layer or a real text-native document.
 """
+import bisect
 import os
 import subprocess
 import tempfile
@@ -37,12 +38,19 @@ def _extension(filename: str) -> str:
 
 
 def _pdf_text_length(pdf_bytes: bytes) -> int:
+    # ponytail: close each page/textpage explicitly, not just the parent
+    # PdfDocument -- module2_text_extraction.extract_text_from_pdf already
+    # hit the real consequence of skipping this (a native file handle held
+    # open until GC, blocking os.unlink() on Windows with WinError 32).
+    # Applying the same pattern here for consistency.
     pdf = pdfium.PdfDocument(pdf_bytes)
     try:
         total = 0
         for page in pdf:
-            text = page.get_textpage().get_text_range()
-            total += len(text.strip())
+            textpage = page.get_textpage()
+            total += len(textpage.get_text_range().strip())
+            textpage.close()
+            page.close()
         return total
     finally:
         pdf.close()
@@ -57,7 +65,14 @@ def detect_processing_path(filename: str, file_bytes: bytes) -> str:
     if ext == "pdf":
         try:
             text_length = _pdf_text_length(file_bytes)
-        except pdfium.PdfiumError as e:
+        except Exception as e:
+            # Real, confirmed bug: this only caught pdfium.PdfiumError, but
+            # a malformed PDF can make the underlying native library raise
+            # other exception types too. Anything not caught here escaped
+            # detect_processing_path uncaught, past pipeline.py's own
+            # `except ValueError`, and out of process_document entirely --
+            # a raw unhandled 500 instead of this app's own structured
+            # {"error": ...} contract every other failure path maintains.
             raise ValueError(f"malformed or unreadable PDF: {e}") from e
         return "ocr" if text_length < SCANNED_PDF_TEXT_THRESHOLD else "text_native"
     raise ValueError(f"unsupported file extension: {ext!r}")
@@ -70,11 +85,13 @@ def render_pdf_first_page(pdf_bytes: bytes, scale: float = 3.5) -> np.ndarray:
     page.render), minus the docx->pdf conversion step since the input
     here is already a PDF."""
     pdf = pdfium.PdfDocument(pdf_bytes)
+    page = pdf[0]
     try:
-        bitmap = pdf[0].render(scale=scale)
+        bitmap = page.render(scale=scale)
         pil_image = bitmap.to_pil()
         return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     finally:
+        page.close()
         pdf.close()
 
 
@@ -93,6 +110,7 @@ def render_pdf_all_pages(pdf_bytes: bytes, scale: float = 3.5) -> list[np.ndarra
             bitmap = page.render(scale=scale)
             pil_image = bitmap.to_pil()
             images.append(cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR))
+            page.close()
         return images
     finally:
         pdf.close()
@@ -173,7 +191,7 @@ def convert_docx_to_pdf_bytes(docx_bytes: bytes, timeout: float = 60.0) -> bytes
         return docx_path.with_suffix(".pdf").read_bytes()
 
 
-def _find_dewrapped_span(tp, value: str) -> tuple[int, int] | None:
+def _find_dewrapped_span(tp, value: str, start: int = 0) -> tuple[int, int] | None:
     """Issue #327 -- fallback for resolve_item_boxes_via_pdf_text's exact
     tp.search() when a value's own literal characters got split by a real
     \\r\\n line-wrap inside the PDF's text layer (LibreOffice wrapping a
@@ -183,7 +201,15 @@ def _find_dewrapped_span(tp, value: str) -> tuple[int, int] | None:
     copy via plain substring search, then translates a match's [start,
     end) back into the ORIGINAL character range tp.count_rects/get_rect
     require -- those operate on tp's own unstripped character indices,
-    not the dewrapped string's positions."""
+    not the dewrapped string's positions.
+
+    `start` is an ORIGINAL (tp-space) character index to resume from --
+    real, confirmed bug fixed here: this used to always search from
+    position 0, so when the SAME value appeared twice on a page and BOTH
+    occurrences were wrapped, only the first was ever found (the caller
+    only invoked this on a genuinely-first search, never on a resumed
+    one). Converted to dewrapped-space via bisect on index_map before
+    searching, since `start` arrives in the original, unstripped space."""
     raw = tp.get_text_range()
     dewrapped_chars = []
     index_map = []
@@ -194,7 +220,8 @@ def _find_dewrapped_span(tp, value: str) -> tuple[int, int] | None:
         index_map.append(i)
     dewrapped = "".join(dewrapped_chars)
 
-    pos = dewrapped.find(value)
+    dewrapped_start = bisect.bisect_left(index_map, start)
+    pos = dewrapped.find(value, dewrapped_start)
     if pos == -1:
         return None
     end_pos = pos + len(value) - 1
@@ -288,38 +315,51 @@ def resolve_item_boxes_via_pdf_text(pdf_bytes: bytes, items: list[dict]) -> list
                 continue
             match_box = None
             for page_index, page in enumerate(pdf):
-                page_w, page_h = sizes[page_index]
-                tp = page.get_textpage()
-                start_index = next_start.get((page_index, value), 0)
-                match = tp.search(value, index=start_index).get_next()
-                if match is None:
-                    if start_index != 0:
-                        # This page's occurrences of `value` are already
-                        # exhausted (found before, none left) -- not a
-                        # case for the dewrap retry below, which is only
-                        # for a genuinely first-ever search of this value
-                        # on this page.
-                        continue
-                    # Issue #327 -- exact search found nothing on this
-                    # page; try the \r\n-dewrapped fallback before moving
-                    # to the next page (still scoped to THIS page's own
-                    # text, matching the exact search's own per-page
-                    # scoping above).
-                    match = _find_dewrapped_span(tp, value)
-                    if match is None:
-                        continue
-                start, count = match
-                next_start[(page_index, value)] = start + count
-                n_rects = tp.count_rects(start, count)
-                if n_rects == 0:
-                    continue
-                rects = [tp.get_rect(i) for i in range(n_rects)]
-                left = min(r[0] for r in rects)
-                bottom = min(r[1] for r in rects)
-                right = max(r[2] for r in rects)
-                top = max(r[3] for r in rects)
-                match_box = (page_index, page_w, page_h, left, bottom, right, top)
-                break
+                # ponytail: close page/textpage before the next iteration
+                # (continue or break) -- this loop re-enumerates every page
+                # for every item, so an unclosed tp/page here compounds
+                # fast on a multi-item, multi-page document. Same class of
+                # native-resource leak module2_text_extraction.py's own
+                # comment documents as real (WinError 32 on Windows).
+                try:
+                    page_w, page_h = sizes[page_index]
+                    tp = page.get_textpage()
+                    try:
+                        start_index = next_start.get((page_index, value), 0)
+                        match = tp.search(value, index=start_index).get_next()
+                        if match is None:
+                            # Issue #327 -- exact search found nothing from
+                            # start_index onward; try the \r\n-dewrapped
+                            # fallback, resumed from the same start_index,
+                            # before moving to the next page. Real,
+                            # confirmed bug fixed here: this used to only
+                            # run when start_index == 0 (a genuinely
+                            # first-ever search), so a SECOND occurrence of
+                            # a value that was ITSELF wrapped could never
+                            # be found -- the exact search from a nonzero
+                            # start_index always failed on a still-wrapped
+                            # occurrence, and the dewrap retry was skipped
+                            # entirely on the assumption this page's
+                            # occurrences were already exhausted.
+                            match = _find_dewrapped_span(tp, value, start=start_index)
+                            if match is None:
+                                continue
+                        start, count = match
+                        next_start[(page_index, value)] = start + count
+                        n_rects = tp.count_rects(start, count)
+                        if n_rects == 0:
+                            continue
+                        rects = [tp.get_rect(i) for i in range(n_rects)]
+                        left = min(r[0] for r in rects)
+                        bottom = min(r[1] for r in rects)
+                        right = max(r[2] for r in rects)
+                        top = max(r[3] for r in rects)
+                        match_box = (page_index, page_w, page_h, left, bottom, right, top)
+                        break
+                    finally:
+                        tp.close()
+                finally:
+                    page.close()
             if match_box is None:
                 continue
             page_index, page_w, page_h, left, bottom, right, top = match_box
@@ -409,6 +449,28 @@ if __name__ == "__main__":
         positions = {(r["x_pct"], r["y_pct"]) for r in resolved}
         assert len(positions) == 2, "both real occurrences must get their own distinct box"
 
+    def test_resolve_finds_second_occurrence_when_both_are_wrapped():
+        # Real, confirmed bug: when the same value appears twice on a page
+        # and BOTH occurrences are line-wrapped, only the first was ever
+        # found -- the dewrap retry used to only run on a genuinely
+        # first-ever search (start_index == 0), so the exact search's
+        # failure on the second occurrence (still wrapped, so it can never
+        # match literally) fell into the "already exhausted" branch and
+        # skipped the dewrap retry entirely, silently dropping a real,
+        # repeated, sensitive dollar figure from redaction.
+        pdf_bytes = _build_pdf([
+            (20, 170, "$74,"), (20, 150, "000"),
+            (20, 110, "$74,"), (20, 90, "000"),
+        ])
+        items = [
+            {"field": "total_assets", "value": "$74,000"},
+            {"field": "total_liabilities", "value": "$74,000"},
+        ]
+        resolved = resolve_item_boxes_via_pdf_text(pdf_bytes, items)
+        assert len(resolved) == 2, "both wrapped occurrences must resolve, not just the first"
+        positions = {(r["x_pct"], r["y_pct"]) for r in resolved}
+        assert len(positions) == 2, "each wrapped occurrence must get its own distinct box"
+
     def test_resolve_drops_extra_duplicate_item_once_occurrences_exhausted():
         # Same cursor-tracking mechanism, opposite edge: only ONE real
         # occurrence exists but TWO items request it (e.g. a genuine
@@ -429,6 +491,7 @@ if __name__ == "__main__":
         test_resolve_drops_item_when_value_genuinely_absent,
         test_resolve_passes_through_items_that_already_have_x_pct,
         test_resolve_gives_each_duplicate_value_its_own_distinct_box,
+        test_resolve_finds_second_occurrence_when_both_are_wrapped,
         test_resolve_drops_extra_duplicate_item_once_occurrences_exhausted,
     ]
     for test in tests:
