@@ -162,6 +162,18 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
                 )
                 break
 
+    # Real, confirmed bug: the #303 bare-amount fallback below searched the
+    # WHOLE text from scratch for each field independently, with no memory
+    # of what an earlier field in this same loop already claimed. Two
+    # different fields sharing the identical dollar value (e.g.
+    # total_liabilities == total_equity == "$100,000", the exact collision
+    # #293/#295 already fixed for the OCR/box path) both bound to the SAME
+    # first bare occurrence -- a duplicate span for one field, and the
+    # real second occurrence representing the other field never got a
+    # span at all, leaving its true value unredacted. Tracks which bare
+    # positions are already spoken for so a later field's fallback search
+    # continues past them to its own distinct occurrence.
+    used_bare_spans: set[tuple[int, int]] = set()
     for field, pattern in BALANCE_SHEET_VALUE_PATTERNS.items():
         target = fields.get(field)
         if target is None:
@@ -221,6 +233,9 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
         # "search for the value, not the label" approach #289 already
         # uses on the image path.
         for amount_match in _BALANCE_SHEET_BARE_AMOUNT_RE.finditer(text):
+            span_key = (amount_match.start(), amount_match.end())
+            if span_key in used_bare_spans:
+                continue
             amount = parse_currency_amount_balance_sheet(amount_match.group(0))
             if amount is None or abs(amount - target) >= 0.01:
                 continue
@@ -233,6 +248,7 @@ def find_sensitive_spans(text: str, fields: dict) -> list[dict]:
                     "detection_method": "regex",
                 }
             )
+            used_bare_spans.add(span_key)
             break
 
     return spans
@@ -518,7 +534,18 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                 }
             )
 
-    fields_boxed = set()
+    # Real, confirmed bug: this used to be a set of field NAMES
+    # (fields_boxed), so once ANY occurrence of a repeated value got boxed
+    # here, the exhaustive fallback loop below -- whose whole job is to
+    # find EVERY occurrence of the value, unlike this label-pattern loop
+    # which only catches occurrences with a matching nearby label -- was
+    # skipped entirely for that field. A second real occurrence (e.g. the
+    # same name in a header AND a footer) whose label-pattern match had no
+    # overlapping OCR words (line 533's own continue) was then never
+    # rediscovered by the fallback, leaving it completely unredacted.
+    # Tracking exact (start, end) spans instead lets the fallback still
+    # search for every occurrence, only skipping the ones already boxed.
+    boxed_spans = set()
     for field, pattern in LABEL_PATTERNS.items():
         if not fields.get(field):
             continue
@@ -544,7 +571,7 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
                     "detection_method": "regex",
                 }
             )
-            fields_boxed.add(field)
+            boxed_spans.add((start, end))
 
     # Issue #306 -- build_word_reconstruction's own per-line "\n" join can
     # split a label from its value onto separate OCR lines exactly like
@@ -558,10 +585,14 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
     # tagged for an unrelated field. Falls back to searching for the
     # ALREADY-KNOWN value directly, same "search for the value, not just
     # the label" approach #289/#303/#305 already use for their own
-    # versions of this exact limitation.
+    # versions of this exact limitation. Always runs (doesn't stop at the
+    # first field already boxed above) so every real occurrence of the
+    # value gets found, not just whichever one the label loop already
+    # caught -- skips a (start, end) already boxed above to avoid a
+    # duplicate box for the SAME occurrence.
     for field in LABEL_PATTERNS:
         target = fields.get(field)
-        if not target or field in fields_boxed:
+        if not target:
             continue
         search_from = 0
         while True:
@@ -569,16 +600,17 @@ def find_sensitive_boxes(image, fields: dict, table_ocr_preds: list[dict] | None
             if idx == -1:
                 break
             end = idx + len(target)
-            overlapping = _words_overlapping_span(word_spans, idx, end)
-            if overlapping:
-                boxes.append(
-                    {
-                        "field": field,
-                        "value": target,
-                        **_box_pct(_union_box(overlapping, word_spans), img_h, img_w),
-                        "detection_method": "regex",
-                    }
-                )
+            if (idx, end) not in boxed_spans:
+                overlapping = _words_overlapping_span(word_spans, idx, end)
+                if overlapping:
+                    boxes.append(
+                        {
+                            "field": field,
+                            "value": target,
+                            **_box_pct(_union_box(overlapping, word_spans), img_h, img_w),
+                            "detection_method": "regex",
+                        }
+                    )
             search_from = end
 
     # Issue #305 -- box-side counterpart to the span-side fix above.
@@ -1082,6 +1114,31 @@ if __name__ == "__main__":
         assert len(account_boxes) == 1
         assert account_boxes[0]["value"] == "1234 5678"
 
+    def test_label_value_fallback_still_finds_a_second_unlabeled_occurrence():
+        # Real, confirmed bug: fields_boxed used to be a set of field
+        # NAMES, so once the label-pattern loop boxed ANY occurrence of a
+        # value, the exhaustive fallback below -- whose whole job is to
+        # find EVERY literal occurrence, label or no label -- was skipped
+        # entirely for that field. A second real occurrence with no
+        # recognized label nearby (e.g. an unlabeled footer repeat) was
+        # silently left completely unredacted, even though real OCR word
+        # boxes cover it just fine.
+        def _fake_header_and_unlabeled_footer(*args, **kwargs):
+            text = "Employee: Rymer, Mark\nThanks, Rymer, Mark\n"
+            idx1 = text.index("Rymer, Mark")
+            idx2 = text.index("Rymer, Mark", idx1 + 1)
+            word_spans = []
+            for idx in (idx1, idx2):
+                word_spans.append({"word": "Rymer,", "box": (10, 5, 60, 20), "start": idx, "end": idx + 6})
+                word_spans.append({"word": "Mark", "box": (65, 5, 100, 20), "start": idx + 7, "end": idx + 11})
+            return text, word_spans
+
+        with patch("module2_ocr_extraction.build_word_reconstruction", side_effect=_fake_header_and_unlabeled_footer):
+            fields = {"name": "Rymer, Mark"}
+            boxes = find_sensitive_boxes(_FAKE_IMAGE, fields)
+        name_boxes = [b for b in boxes if b["field"] == "name"]
+        assert len(name_boxes) == 2, "both the labeled header occurrence and the unlabeled footer occurrence must be redacted"
+
     def test_label_value_fallback_does_not_duplicate_when_same_line_already_boxed():
         def _fake_same_line(*args, **kwargs):
             text = "Employee: Rymer, Mark\n"
@@ -1215,6 +1272,25 @@ if __name__ == "__main__":
         spans = find_sensitive_spans(text, fields)
         matched = [s for s in spans if s["field"] == "total_assets"]
         assert len(matched) == 1
+
+    def test_balance_sheet_fields_sharing_same_value_each_get_a_distinct_span():
+        # Real, confirmed bug: the #303 bare-amount fallback searched the
+        # whole text from scratch for each field independently, with no
+        # memory of what an earlier field in this loop already claimed.
+        # Two different fields sharing the identical dollar value (a real
+        # possible balance-sheet shape) both bound to the SAME first bare
+        # occurrence -- the exact collision #293/#295 already fixed for
+        # the OCR/box path, just not here on the text-native span path.
+        text = "Section A\nTotal $100,000\nSection B\nTotal $100,000\nEnd"
+        fields = {"total_liabilities": 100000.0, "total_equity": 100000.0}
+        spans = find_sensitive_spans(text, fields)
+        liabilities = [s for s in spans if s["field"] == "total_liabilities"]
+        equity = [s for s in spans if s["field"] == "total_equity"]
+        assert len(liabilities) == 1
+        assert len(equity) == 1
+        assert liabilities[0]["start"] != equity[0]["start"], (
+            "each field must resolve to its own distinct occurrence, not both to the same one"
+        )
 
     def _empty_word_reconstruction(*args, **kwargs):
         return "", []
@@ -1398,6 +1474,7 @@ if __name__ == "__main__":
         test_label_value_line_split_falls_back_to_value_search_for_box,
         test_bsb_line_split_falls_back_to_value_search_for_box,
         test_account_number_line_split_falls_back_to_value_search_for_box,
+        test_label_value_fallback_still_finds_a_second_unlabeled_occurrence,
         test_label_value_fallback_does_not_duplicate_when_same_line_already_boxed,
         test_income_line_split_falls_back_to_bare_amount_search_for_box,
         test_apply_redaction_image_blacks_out_region_only,
@@ -1409,6 +1486,7 @@ if __name__ == "__main__":
         test_balance_sheet_field_absent_produces_no_span,
         test_balance_sheet_field_falls_back_to_bare_value_when_label_absent,
         test_balance_sheet_field_fallback_does_not_fire_when_label_already_matched,
+        test_balance_sheet_fields_sharing_same_value_each_get_a_distinct_span,
         test_balance_sheet_field_box_found_via_table_cell,
         test_balance_sheet_field_no_matching_cell_produces_no_box,
         test_balance_sheet_field_disambiguates_duplicate_value_by_row_label,
