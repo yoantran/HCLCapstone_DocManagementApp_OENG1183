@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Client } from '@stomp/stompjs';
 import { useAuth } from './AuthContext.jsx';
 
@@ -65,7 +65,11 @@ export function WebSocketProvider({ children }) {
     // subscription and drops the destination entry entirely -- otherwise
     // the broker keeps pushing messages for a destination nobody is
     // listening to for the lifetime of the connection.
-    function subscribe(destination, callback) {
+    // Stable across renders (empty deps -- only touches refs) so consumers'
+    // `useEffect(..., [subscribe])` don't unsubscribe/resubscribe on every
+    // WebSocketProvider re-render (e.g. the setConnected(true) flip on
+    // STOMP connect).
+    const subscribe = useCallback((destination, callback) => {
         let entry = subscriptionsRef.current.get(destination);
         if (!entry) {
             entry = { callbacks: new Set(), stompSub: null };
@@ -83,7 +87,7 @@ export function WebSocketProvider({ children }) {
                 entry.stompSub?.unsubscribe();
             }
         };
-    }
+    }, []);
 
     return (
         <WebSocketContext.Provider value={{ subscribe, connected }}>

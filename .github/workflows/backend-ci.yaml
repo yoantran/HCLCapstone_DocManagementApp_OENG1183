@@ -35,7 +35,7 @@ jobs:
       - name: Build artifact
         working-directory: BE
         shell: bash
-        run: mvn clean package -DskipTests
+        run: mvn clean package
 
 
       - name: Login to Docker Hub
