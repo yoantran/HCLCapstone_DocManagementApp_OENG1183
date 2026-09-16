@@ -155,6 +155,7 @@ export const adminManagementColumns = (
                             ModalComponent={UserModal}
                             modalProps={{ departments: depsList }}
                             onSuccess={refreshUsers}
+                            onDeleteSuccess={onDeleteSuccess}
                         />
                         <DeleteAction
                             row={item}

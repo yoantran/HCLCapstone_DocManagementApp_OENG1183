@@ -150,7 +150,7 @@ export const DocumentUpload = () => {
                                     value={card}
                                     onChange={(updates) => handleCardChange(card.id, updates)}
                                     onClear={() => handleCardChange(card.id, createCard(card.id))}
-                                    isInvalid={submitAttempted && ((index == 0 && !card.documentType) || !card.file)}
+                                    isInvalid={submitAttempted && (!documentType || !card.file)}
                                     isFirst={index === 0}
                                     firstDocumentType={documentType}
                                     onDocumentTypeChange={handleDocumentTypeChange}

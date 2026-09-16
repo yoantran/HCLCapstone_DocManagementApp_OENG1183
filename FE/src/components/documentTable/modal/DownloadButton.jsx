@@ -1,5 +1,5 @@
 import { Button, Spinner } from "flowbite-react";
-import { toast } from "react-toastify";
+import { pushError, pushWarning } from "../../toast/index.jsx";
 import { getRequest } from "../../../api/apiHelpers";
 
 export const DownloadButton = ({
@@ -27,18 +27,18 @@ export const DownloadButton = ({
                         if (preview.status === "READY") {
                             redactedUrl = preview.previewUrl;
                         } else if (preview.status === "GENERATING") {
-                            toast.info("Preview is still generating — try again in a moment.");
+                            pushWarning("Preview is still generating — try again in a moment.");
                             return;
                         } else if (preview.status === "FAILED") {
-                            toast.error(`Preview failed: ${preview.failureReason || "unknown error"}`);
+                            pushError(`Preview failed: ${preview.failureReason || "unknown error"}`);
                             return;
                         }
                     } catch (err) {
                         const status = err.response?.status;
                         if (status === 501) {
-                            toast.error("Redacted download is not available for this format.");
+                            pushError("Redacted download is not available for this format.");
                         } else {
-                            toast.error("Redacted download is not available.");
+                            pushError("Redacted download is not available.");
                         }
                         return;
                     }
@@ -48,7 +48,7 @@ export const DownloadButton = ({
             // Non-owner
             if (downloadFile?.requesterIsOwner === false) {
                 if (!redactedUrl) {
-                    toast.error("Redacted download is not available.");
+                    pushError("Redacted download is not available.");
                     return;
                 }
 
@@ -69,7 +69,7 @@ export const DownloadButton = ({
 
             // Owner
             if (!downloadFile?.signedUrl) {
-                toast.error("No download link available — please refresh and try again.");
+                pushError("No download link available — please refresh and try again.");
                 return;
             }
 
@@ -94,7 +94,7 @@ export const DownloadButton = ({
 
         } catch (error) {
             console.error("Download failed:", error);
-            toast.error("Download failed. Please try again.");
+            pushError("Download failed. Please try again.");
         }
     };
 
