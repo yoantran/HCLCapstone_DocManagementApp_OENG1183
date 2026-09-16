@@ -2,8 +2,6 @@ import {useCallback, useEffect, useState} from "react";
 import { getRequest } from "../api/apiHelpers.js";
 import { CustomTable } from "../components/customTable/index.jsx";
 import { adminManagementColumns } from "../components/customTable/columns.jsx";
-import { DepartmentModal } from "../components/adminManagement/departmentModal/index.jsx";
-import { UserModal } from "../components/adminManagement/userModal/index.jsx";
 import FilteringPanel from "../components/filteringPanel/index.jsx";
 import { Button } from "flowbite-react";
 import { HiPlus } from "react-icons/hi";
@@ -15,9 +13,6 @@ export default function AdminManagement() {
     const [activeTab, setActiveTab] = useState('users');
     const [usersData, setUsersData] = useState([]);
     const [departmentsData, setDepartmentsData] = useState([]);
-
-    const [editingUser, setEditingUser] = useState(null);
-    const [editingDept, setEditingDept] = useState(null);
 
     // filteringPanel
     const [searchTerm, setSearchTerm] = useState('');
@@ -93,9 +88,7 @@ export default function AdminManagement() {
         departmentsData,
         usersData,
         handleUserUpdate,
-        handleDeptUpdate,
-        setEditingUser,
-        setEditingDept
+        handleDeptUpdate
     );
 
     const currentColumns = allColumns[activeTab.toUpperCase()] ?? [];
@@ -206,7 +199,10 @@ export default function AdminManagement() {
                     isOpen={showConfigMenu}
                     activeTab={activeTab}
                     onClose={() => setShowConfigMenu(false)}
-                    onApply={(selectedTab) => setActiveTab(selectedTab)}
+                    onApply={(selectedTab) => {
+                        setActiveTab(selectedTab);
+                        setCurrentPage(1);
+                    }}
                 />
 
                 <SortTable
@@ -226,24 +222,6 @@ export default function AdminManagement() {
                         isLoading={isLoading}
                     />
                 </div>
-
-                <UserModal
-                    show={!!editingUser}
-                    user={editingUser}
-                    // departments={departmentsData}
-                    departments={Array.isArray(departmentsData) ? departmentsData : []}
-                    onClose={() => setEditingUser(null)}
-                    onUpdateSuccess={handleUserUpdate}
-                    onDeleteSuccess={handleDeleteSuccess}
-                />
-                <DepartmentModal
-                    show={!!editingDept}
-                    department={editingDept}
-                    // users={usersData}
-                    users={Array.isArray(usersData) ? usersData : []}
-                    onClose={() => setEditingDept(null)}
-                    onUpdateSuccess={handleDeptUpdate}
-                />
             </div>
         </>
     )

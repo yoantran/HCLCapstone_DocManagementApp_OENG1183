@@ -8,6 +8,7 @@ import { getRequest } from '../api/apiHelpers';
 import FilteringPanel from '../components/filteringPanel/index.jsx';
 import SortTable from '../components/filteringPanel/SortTable.jsx';
 import ConfigTable from '../components/filteringPanel/ConfigTable.jsx';
+import { sortDocuments } from '../utils/sortDocuments.js';
 
 export default function Documents() {
     const { user } = useAuth();
@@ -76,26 +77,6 @@ export default function Documents() {
     // get column pattern based on role
     const columns = columnsByRole[user.role?.toUpperCase()] ?? [];
 
-    const sortDocuments = (docs, sort) => {
-        const sorted = [...docs];
-        switch (sort) {
-            case 'date-desc':
-                return sorted.sort((a, b) => new Date(b.uploadedDateTime) - new Date(a.uploadedDateTime));
-            case 'date-asc':
-                return sorted.sort((a, b) => new Date(a.uploadedDateTime) - new Date(b.uploadedDateTime));
-            case 'id-asc':
-                return sorted.sort((a, b) => a.id.localeCompare(b.id));
-            case 'id-desc':
-                return sorted.sort((a, b) => b.id.localeCompare(a.id));
-            case 'name-asc':
-                return sorted.sort((a, b) => a.name.localeCompare(b.name));
-            case 'name-desc':
-                return sorted.sort((a, b) => b.name.localeCompare(a.name));
-            default:
-                return sorted;
-        }
-    };
-
     const tabFilteredDocuments = isManager && activeTab === 'mine'
         ? documents.filter((doc) => doc.uploaderId === user.id)
         : documents;
@@ -124,8 +105,8 @@ export default function Documents() {
         const index = sortedDocuments.findIndex((doc) => doc.id === highlightedId);
         if (index !== -1) {
             setCurrentPage(Math.floor(index / pageSize) + 1);
+            hasJumpedToHighlight.current = true;
         }
-        hasJumpedToHighlight.current = true;
     }, [highlightedId, sortedDocuments, pageSize]);
 
     return (
@@ -165,7 +146,10 @@ export default function Documents() {
                 isOpen={showConfigMenu}
                 activeTab={activeTab === 'mine' ? 'mine' : 'department'}
                 onClose={() => setShowConfigMenu(false)}
-                onApply={(selectedTab) => setActiveTab(selectedTab)}
+                onApply={(selectedTab) => {
+                    setActiveTab(selectedTab);
+                    setCurrentPage(1);
+                }}
                 options={[
                     { value: 'mine', label: 'My Documents' },
                     { value: 'department', label: 'Department Documents' },

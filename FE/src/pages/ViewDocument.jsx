@@ -65,6 +65,12 @@ export default function ViewDocument() {
                 if (response.aiProcessed && response.requesterIsOwner === false) {
                     getRequest({ url: `/documents/${documentId}/redacted-preview` })
                         .then((preview) => {
+                            // Real, confirmed bug: previewError was only ever set
+                            // (on a prior 422/501 failure) and never cleared, so a
+                            // later successful fetch -- even one returning READY
+                            // with a real previewUrl -- stayed permanently masked
+                            // by the stale error in the render ternary below.
+                            setPreviewError(null);
                             setPreviewStatus(preview.status);
                             setPreviewFailureReason(preview.failureReason);
                             if (preview.status === "READY") {
