@@ -61,12 +61,25 @@ def assess_balance_sheet_readiness(
         checks["current_ratio"] = {"pass": None, "value": None, "threshold": MIN_CURRENT_RATIO}
 
     if can_check_debt_to_equity:
-        debt_to_equity = total_liabilities / total_equity if total_equity else None
-        checks["debt_to_equity"] = {
-            "pass": debt_to_equity is not None and debt_to_equity <= MAX_DEBT_TO_EQUITY_RATIO,
-            "value": debt_to_equity,
-            "threshold": MAX_DEBT_TO_EQUITY_RATIO,
-        }
+        # Real, confirmed bug: this was only null-guarded, not sign-guarded.
+        # Negative equity (a real insolvency state -- accumulated deficit)
+        # makes the ratio negative, which always satisfies `<= threshold`,
+        # wrongly passing a balance-sheet-insolvent business. Non-positive
+        # equity is an automatic fail, never a pass.
+        if total_equity <= 0:
+            debt_to_equity = total_liabilities / total_equity if total_equity else None
+            checks["debt_to_equity"] = {
+                "pass": False,
+                "value": debt_to_equity,
+                "threshold": MAX_DEBT_TO_EQUITY_RATIO,
+            }
+        else:
+            debt_to_equity = total_liabilities / total_equity
+            checks["debt_to_equity"] = {
+                "pass": debt_to_equity <= MAX_DEBT_TO_EQUITY_RATIO,
+                "value": debt_to_equity,
+                "threshold": MAX_DEBT_TO_EQUITY_RATIO,
+            }
     else:
         checks["debt_to_equity"] = {"pass": None, "value": None, "threshold": MAX_DEBT_TO_EQUITY_RATIO}
 
@@ -87,7 +100,13 @@ def assess_loan_readiness(
     existing_debt_assumed_zero = existing_monthly_debt is None
     debt = 0.0 if existing_monthly_debt is None else existing_monthly_debt
 
-    if monthly_income is None:
+    # Real, confirmed bug: only None was guarded here, not zero. A literal
+    # 0 (e.g. an OCR misread of a blank/"$0" template field) passed
+    # straight through to repayment_ratio/dti_ratio's division below,
+    # raising an unhandled ZeroDivisionError for an otherwise-successfully-
+    # extracted document. A non-positive income can't support any of these
+    # ratios, so it's treated the same as missing data.
+    if monthly_income is None or monthly_income <= 0:
         empty_check = {"pass": None, "value": None}
         return {
             "verdict": "INSUFFICIENT_DATA",
@@ -194,6 +213,20 @@ if __name__ == "__main__":
         assert result["checks"]["min_income"]["pass"] is None
         assert result["checks"]["min_income"]["value"] is None
 
+    def test_zero_income_is_insufficient_data_not_a_crash():
+        # Real, confirmed bug: zero income used to reach the ratio
+        # divisions below and raise ZeroDivisionError instead of being
+        # treated as missing data like None already was.
+        result = assess_loan_readiness(
+            monthly_income=0.0,
+            income_basis="gross",
+            proposed_monthly_repayment=1_200,
+        )
+        assert result["verdict"] == "INSUFFICIENT_DATA"
+        assert result["checks"]["min_income"]["pass"] is None
+        assert result["checks"]["repayment_ratio"]["pass"] is None
+        assert result["checks"]["dti"]["pass"] is None
+
     def test_balance_sheet_ready_case():
         result = assess_balance_sheet_readiness(
             total_current_assets=200_000,
@@ -226,6 +259,30 @@ if __name__ == "__main__":
         assert result["checks"]["debt_to_equity"]["pass"] is False
         assert result["checks"]["current_ratio"]["pass"] is True
 
+    def test_balance_sheet_negative_equity_fails_debt_to_equity():
+        # Real, confirmed bug: negative equity made the ratio negative,
+        # which always satisfied `<= threshold` and wrongly passed a
+        # balance-sheet-insolvent business.
+        result = assess_balance_sheet_readiness(
+            total_current_assets=200_000,
+            total_current_liabilities=100_000,
+            total_liabilities=300_000,
+            total_equity=-50_000,  # accumulated deficit
+        )
+        assert result["checks"]["debt_to_equity"]["pass"] is False
+        assert result["verdict"] == "NOT_READY"
+
+    def test_balance_sheet_zero_equity_fails_debt_to_equity():
+        result = assess_balance_sheet_readiness(
+            total_current_assets=200_000,
+            total_current_liabilities=100_000,
+            total_liabilities=300_000,
+            total_equity=0,
+        )
+        assert result["checks"]["debt_to_equity"]["pass"] is False
+        assert result["checks"]["debt_to_equity"]["value"] is None
+        assert result["verdict"] == "NOT_READY"
+
     def test_balance_sheet_missing_all_data_is_insufficient():
         result = assess_balance_sheet_readiness(
             total_current_assets=None,
@@ -257,9 +314,12 @@ if __name__ == "__main__":
         test_dti_too_high_with_existing_debt,
         test_missing_existing_debt_assumed_zero,
         test_missing_income_is_insufficient_data,
+        test_zero_income_is_insufficient_data_not_a_crash,
         test_balance_sheet_ready_case,
         test_balance_sheet_current_ratio_too_low,
         test_balance_sheet_debt_to_equity_too_high,
+        test_balance_sheet_negative_equity_fails_debt_to_equity,
+        test_balance_sheet_zero_equity_fails_debt_to_equity,
         test_balance_sheet_missing_all_data_is_insufficient,
         test_balance_sheet_partial_data_checks_what_it_can,
     ]

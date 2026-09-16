@@ -341,8 +341,20 @@ def process_document(
             fields, redaction, quality, preview_image = _run_ocr_path(filename, file_bytes, include_preview)
         else:
             fields, redaction, quality, preview_image = _run_text_native_path(filename, file_bytes)
+    except Exception as e:
+        return {**_EMPTY_RESULT, "processing_path": path, "sensitive_field_keys": [], "error": str(e)}
 
-        loan_readiness = None
+    # Real, confirmed bug: this used to sit inside the same try/except as
+    # the extraction above, so any failure in the optional loan/balance-
+    # sheet readiness calculation (e.g. a zero-income ZeroDivisionError)
+    # discarded the already-successfully-extracted fields/redaction/quality
+    # entirely, collapsing the whole response to empty. Scoped separately
+    # so a readiness-calculation failure can't destroy valid extraction
+    # results -- matches this project's own graceful-degradation principle.
+    loan_readiness = None
+    balance_sheet_readiness = None
+    readiness_error = None
+    try:
         if proposed_monthly_repayment is not None:
             normalized = income_normalization.normalize_monthly_income(fields)
             loan_readiness = module4_loan_rules.assess_loan_readiness(
@@ -353,7 +365,6 @@ def process_document(
             )
             loan_readiness["income_source"] = normalized["income_source"]
 
-        balance_sheet_readiness = None
         if any(fields.get(key) is not None for key in _BALANCE_SHEET_FIELD_KEYS):
             balance_sheet_readiness = module4_loan_rules.assess_balance_sheet_readiness(
                 total_current_assets=fields.get("total_current_assets"),
@@ -361,17 +372,19 @@ def process_document(
                 total_liabilities=fields.get("total_liabilities"),
                 total_equity=fields.get("total_equity"),
             )
-
-        return {
-            "processing_path": path,
-            "fields": fields,
-            "redaction": redaction,
-            "loan_readiness": loan_readiness,
-            "balance_sheet_readiness": balance_sheet_readiness,
-            "quality": quality,
-            "preview_image_base64": preview_image,
-            "sensitive_field_keys": list(module3_redaction.SENSITIVE_FIELD_KEYS),
-            "error": None,
-        }
     except Exception as e:
-        return {**_EMPTY_RESULT, "processing_path": path, "sensitive_field_keys": [], "error": str(e)}
+        loan_readiness = None
+        balance_sheet_readiness = None
+        readiness_error = str(e)
+
+    return {
+        "processing_path": path,
+        "fields": fields,
+        "redaction": redaction,
+        "loan_readiness": loan_readiness,
+        "balance_sheet_readiness": balance_sheet_readiness,
+        "quality": quality,
+        "preview_image_base64": preview_image,
+        "sensitive_field_keys": list(module3_redaction.SENSITIVE_FIELD_KEYS),
+        "error": readiness_error,
+    }
