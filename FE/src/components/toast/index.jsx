@@ -39,7 +39,7 @@ const pushError = (message) => {
 };
 
 const pushWarning = (message) => {
-    toast.error(message, {
+    toast.warning(message, {
         icon: <WarningIcon />,
         position: 'bottom-left',
         style: {

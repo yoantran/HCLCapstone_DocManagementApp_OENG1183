@@ -8,7 +8,7 @@ const datePickerTheme = createTheme({
         field: {
             base: "relative w-full h-full flex items-center",
             input: {
-                base: "!h-7 !py-0 !px-2 !pl-8 !w-28 !min-h-0 bg-[var(--lighter-blue-700)] border border-[var(--cool-gray-500)]/30 text-xs text-slate-200 rounded px-2 !py-0 !pl-8 hover:bg-[var(--lighter-blue-600)] transition-colors focus:ring-0 focus:border-[var(--cool-gray-500)]/30 leading-none flex items-center"
+                base: "!h-7 !py-0 !px-2 !pl-8 !min-h-0 bg-[var(--lighter-blue-700)] border border-[var(--cool-gray-500)]/30 text-xs text-slate-200 rounded px-2 !py-0 !pl-8 hover:bg-[var(--lighter-blue-600)] transition-colors focus:ring-0 focus:border-[var(--cool-gray-500)]/30 leading-none flex items-center"
             }
         },
         popup: {

@@ -1,4 +1,4 @@
-import { BsGithub, BsGlobe } from 'react-icons/bs';
+import { BsGithub } from 'react-icons/bs';
 
 export default function Footer({ className = "" }) {
     return (
