@@ -23,8 +23,20 @@ public class SampleDataPopulator {
     private final PasswordEncoder passwordEncoder;
 
 
+    // Real, confirmed bug: clear() runs unconditionally with no guard --
+    // anyone running SampleDataRunner.main() (an accidental IDE run-config,
+    // a stray CI job) wipes users/documents/departments/notifications on
+    // whatever datasource application.properties resolves to, which for
+    // this project is the one real Supabase DB (no dev/prod split exists).
+    // Requiring an explicit opt-in env var makes that unrecoverable a
+    // mistake require a deliberate, separate step first.
     @Transactional
     public void clear() {
+        if (!"true".equalsIgnoreCase(System.getenv("ALLOW_DATA_WIPE"))) {
+            throw new IllegalStateException(
+                    "Refusing to wipe data: set ALLOW_DATA_WIPE=true to run SampleDataPopulator.clear() intentionally.");
+        }
+
         log.info("🧹 Clearing...");
 
         // Delete child tables first
@@ -71,7 +83,7 @@ public class SampleDataPopulator {
 
         // ── Assign dept to manageres ──────────────────────────
         for (int i = 0; i < 5; i++) {
-            em.createNativeQuery("UPDATE users SET department_id = ? WHERE id = ?")
+            em.createNativeQuery("UPDATE users SET department_id = ?::uuid WHERE id = ?::uuid")
                     .setParameter(1, deptIds[i])
                     .setParameter(2, managerIds[i])
                     .executeUpdate();
@@ -115,11 +127,18 @@ public class SampleDataPopulator {
 
     private void insertUser(String id, String email, String pw, String name,
                             String phone, RoleEnum role, String deptId, LocalDateTime created) {
+        // Issue #224 -- explicit ::uuid casts. The real Supabase DB tolerates
+        // binding a raw String against a uuid column, but a genuinely fresh
+        // Postgres (Hibernate ddl-auto=update, uuid-typed columns from the
+        // entities) rejects it: "column is of type uuid but expression is of
+        // type character varying." Confirmed directly against an isolated
+        // throwaway Postgres instance, not assumed -- needed for #224's own
+        // auto-seed-on-empty-DB fix to actually work on a fresh database.
         em.createNativeQuery("""
             INSERT INTO users
               (id, email, password, name, phone_number, role_enum,
                department_id, is_deleted, created_at_date_time)
-            VALUES (?,?,?,?,?,?,?,false,?)
+            VALUES (?::uuid,?,?,?,?,?,?::uuid,false,?)
             """)
                 .setParameter(1, id)
                 .setParameter(2, email)
@@ -135,7 +154,7 @@ public class SampleDataPopulator {
     private void insertDept(String id, String name, String managerId, LocalDateTime created) {
         em.createNativeQuery("""
             INSERT INTO departments (id, name, manager_id, created_at_date_time)
-            VALUES (?,?,?,?)
+            VALUES (?::uuid,?,?::uuid,?)
             """)
                 .setParameter(1, id)
                 .setParameter(2, name)

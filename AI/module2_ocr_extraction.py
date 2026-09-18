@@ -1,0 +1,421 @@
+# Production image-path OCR engine (issue #129). PPStructureV3 (PaddleOCR),
+# chosen over Tesseract for the English pipeline after a real head-to-head
+# test on a real English payslip: PPStructureV3 transcribed every value
+# correctly and recovered real table structure (3 correctly-separated HTML
+# tables matching the document's actual layout); Tesseract's raw output on
+# the same table was unreadable garbage.
+#
+# This module was originally built and measured against Vietnamese (see
+# issue #116) -- PaddleOCR/PaddleX has no model with usable Vietnamese
+# diacritic coverage (checked 3 lineages, all near-zero), which is why the
+# Vietnamese pipeline uses Tesseract instead (module2_ocr_tesseract.py).
+# That finding doesn't apply to English -- English is exactly where this
+# engine's table-structure win matters, so it's the production engine here.
+
+from html.parser import HTMLParser
+
+import cv2
+import numpy as np
+from paddleocr import PaddleOCR, PPStructureV3
+
+from field_extraction_en import (
+    INCOME_LABEL_PATTERNS,
+    LABEL_PATTERNS,
+    _clean_label_value,
+    _get_nlp_en,
+    _has_person_entity,
+    _looks_like_address,
+    _looks_like_bsb_or_account,
+    _looks_like_name,
+    extract_fields_from_text_en,
+    parse_currency_amount,
+    recover_dropped_balance_sheet_rows,
+)
+
+
+class _TableRowParser(HTMLParser):
+    """Reads <tr>/<td>/<th> cell text out of PPStructureV3's pred_html,
+    keeping real cell boundaries -- same table-cell-pairing input as the
+    DOCX branch, sourced from OCR's own table-structure output instead of
+    python-docx (see extract_from_table_rows in field_extraction.py)."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self._row: list[str] | None = None
+        self._cell_parts: list[str] | None = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self._row = []
+        elif tag in ("td", "th"):
+            self._cell_parts = []
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self._cell_parts is not None:
+            self._row.append("".join(self._cell_parts).strip())
+            self._cell_parts = None
+        elif tag == "tr" and self._row is not None:
+            self.rows.append(self._row)
+            self._row = None
+
+    def handle_data(self, data):
+        if self._cell_parts is not None:
+            self._cell_parts.append(data)
+
+
+def html_table_to_rows(html: str) -> list[list[str]]:
+    parser = _TableRowParser()
+    parser.feed(html)
+    return parser.rows
+
+# ponytail: PaddlePaddle's oneDNN CPU path throws
+# "ConvertPirAttribute2RuntimeAttribute ... not support" on this machine —
+# enable_mkldnn=False works around it. Root-cause before relying on this in
+# production (see project_ocr_table_form_finding memory).
+#
+# text_detection/recognition model names are forced to the PP-OCRv6 medium
+# pair -- originally forced to fix Vietnamese diacritic coverage (PPStructureV3's
+# own auto-selected default is a lighter latin_PP-OCRv5_mobile_rec model),
+# but also already confirmed to work well for English in the real head-to-line
+# test that selected this engine -- no need to re-tune for English specifically.
+_pipelines: dict[str, PPStructureV3] = {}
+
+
+def _get_pipeline(lang: str) -> PPStructureV3:
+    if lang not in _pipelines:
+        _pipelines[lang] = PPStructureV3(
+            lang=lang,
+            use_table_recognition=True,
+            # PPStructureV3 loads formula recognition by default -- real
+            # model weights loaded on every cold start for zero benefit,
+            # none of this pipeline's document types (payslip, balance
+            # sheet, contract) ever contain math formulas. Disabling cuts
+            # real weight-loading time off every cold start (local CPU and
+            # Modal GPU both), found while chasing Modal cold-start latency
+            # for the live demo.
+            use_formula_recognition=False,
+            text_detection_model_name="PP-OCRv6_medium_det",
+            text_recognition_model_name="PP-OCRv6_medium_rec",
+            enable_mkldnn=False,
+            # Issue #316 -- left at PaddleX's own default (effectively
+            # True) before this, unlike _get_word_pipeline below which
+            # already explicitly disables all three. Root-caused via a
+            # real controlled test: with these left on, this pipeline's
+            # own doc-orientation/unwarping preprocessing (PP-LCNet_x1_0_
+            # doc_ori, UVDoc, PP-LCNet_x1_0_textline_ori -- all confirmed
+            # loading via real model-creation logs) shifts detected box
+            # coordinates relative to the ORIGINAL image dimensions this
+            # codebase normalizes percentages against (_box_pct uses the
+            # raw input image's own shape) -- a real, confirmed coordinate-
+            # space mismatch, not a detection-precision issue (matches the
+            # failure mode PaddleOCR's own community reports describe,
+            # e.g. GH discussion #15957 "Layout Coordinate Mismatch").
+            # Confirmed real via 3 independent documents: the default
+            # pipeline's predicted balance-sheet-total box was
+            # SYSTEMATICALLY shifted up-and-left from ground truth by a
+            # similar magnitude every time (not random scatter, a real
+            # signature of a coordinate transform, not model imprecision).
+            # Disabling these three (matching the word-pipeline's already-
+            # proven config) moved a real repro's IoU from 0.411 to 0.852
+            # on one document; confirmed via a full 54-page real balance-
+            # sheet corpus rescore this doesn't regress extraction or
+            # break other fields before landing (see PR history).
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+        )
+    return _pipelines[lang]
+
+
+def ocr_document(image, lang: str = "en") -> dict:
+    if isinstance(image, np.ndarray) and image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    result = _get_pipeline(lang).predict(image)[0]
+
+    ocr_res = result.get("overall_ocr_res", {})
+    texts = ocr_res.get("rec_texts", [])
+    scores = ocr_res.get("rec_scores", [])
+    boxes = ocr_res.get("rec_boxes", [])
+    lines = [
+        {"text": t, "score": float(s), "box": (b.tolist() if hasattr(b, "tolist") else list(b))}
+        for t, s, b in zip(texts, scores, boxes)
+    ]
+
+    table_res_list = result.get("table_res_list", [])
+    tables = [t["pred_html"] for t in table_res_list if t.get("pred_html")]
+    # Issue #289 -- fine-grained per-fragment OCR tokens for each detected
+    # table region (e.g. a value like "$92,000" split into separate
+    # "$92," / "000" tokens, each with its OWN real box), sourced from
+    # this SAME PPStructureV3 call -- no extra OCR pass needed. Used by
+    # module3_redaction.find_sensitive_boxes to locate a balance-sheet
+    # total's box directly by searching for its ALREADY-KNOWN value
+    # (from fields[field], resolved via extract_balance_sheet_fields_en's
+    # own section-tracking-aware table_rows matching) among these
+    # fragments, rather than re-finding the LABEL via a flat, unreliable
+    # text reconstruction (build_word_reconstruction's own reading order
+    # can genuinely scramble a "TOTAL"/"ASSETS" label apart with real
+    # numeric content interleaved between the fragments -- confirmed
+    # real on samples/_redaction_annotation/Balance-sheet-template-
+    # FILLED-300_p1.png, not theoretical).
+    # Issue #289 -- cell_box_list is kept purely as a set of spatial
+    # regions (one real box per detected table cell), never correlated
+    # to pred_html's own <td> order -- a real direct check on this exact
+    # image found cell_box_list has 168 entries against pred_html's 182
+    # <td> tags, no reliable 1:1 correspondence (an open, unresolved
+    # PaddleOCR issue -- #7594 -- asks the same question). Used instead
+    # purely geometrically: which OCR fragments fall inside a given
+    # cell's box, regardless of which HTML cell it "is."
+    table_ocr_preds = [
+        {
+            "texts": t["table_ocr_pred"].get("rec_texts", []),
+            "boxes": [
+                (b.tolist() if hasattr(b, "tolist") else list(b))
+                for b in t["table_ocr_pred"].get("rec_boxes", [])
+            ],
+            "cell_boxes": [
+                (b.tolist() if hasattr(b, "tolist") else list(b)) for b in t.get("cell_box_list", [])
+            ],
+        }
+        for t in table_res_list
+        if t.get("table_ocr_pred")
+    ]
+
+    return {"lines": lines, "tables": tables, "table_ocr_preds": table_ocr_preds}
+
+
+def lines_to_text(lines: list[dict]) -> str:
+    return "\n".join(line["text"] for line in lines)
+
+
+def extract_fields(
+    image, lang: str = "en", initial_section: str | None = None, initial_prefer_col: int | None = None
+) -> dict:
+    doc = ocr_document(image, lang=lang)
+    text = lines_to_text(doc["lines"])
+    table_rows = [row for html in doc["tables"] for row in html_table_to_rows(html)]
+    fields = extract_fields_from_text_en(
+        text, table_rows=table_rows or None, initial_section=initial_section, initial_prefer_col=initial_prefer_col
+    )
+    # Issue #297 -- carried purely for a per-page caller (pipeline.py's
+    # OCR-path loop) to thread into the NEXT page's initial_section; not
+    # a real redaction/extraction field, popped out before `fields`
+    # reaches anything else (module3_redaction, BE storage, etc.).
+    balance_sheet_section = fields.pop("_balance_sheet_section", None)
+    # Issue #345 -- same carry, for the period-column preference.
+    balance_sheet_prefer_col = fields.pop("_balance_sheet_prefer_col", None)
+    _repair_line_split_fields(doc["lines"], text, fields)
+    # Issue #317 -- a balance-sheet row can be entirely dropped from
+    # table_rows when its own label wraps across an unusually large
+    # number of visual fragments (real confirmed cases: "TOTAL
+    # LIABILITIES" split 5 ways, "NET ASSETS (NET WORTH)" split 6 ways).
+    # Reconstructs it directly from the table's raw fragment positions
+    # for whichever balance-sheet fields are still unresolved.
+    recover_dropped_balance_sheet_rows(doc["table_ocr_preds"], fields)
+    return {
+        "fields": fields,
+        "line_boxes": doc["lines"],
+        "tables": doc["tables"],
+        "table_ocr_preds": doc["table_ocr_preds"],
+        "text": text,
+        "balance_sheet_section": balance_sheet_section,
+        "balance_sheet_prefer_col": balance_sheet_prefer_col,
+    }
+
+
+# Issue #270 class B -- PPStructureV3 detects a label and its value as
+# separate OCR spans whenever they're visually adjacent but not drawn as
+# one contiguous text run (common on non-tabular/photographed layouts,
+# e.g. Payslip.jpg's "Pay Slip For:" / "Rymer, Mark" or "GROSS PAY:" /
+# "$5,837.50" each landing in their own detected box). lines_to_text()
+# joins every detected span onto its own "\n"-separated line, so a
+# label-anchored regex expecting "label: value" on ONE line finds the
+# label with nothing after it -- and worse, if the regex's capture
+# crosses onto the wrong nearby line, it can grab a truncated, WRONG
+# number instead of correctly missing (the grid4.jpg "income: 9.0"
+# case -- OCR split "9500" as "9" then "500" on separate lines/cells,
+# and the pre-fix regex's within-line capture silently accepted the "9").
+#
+# This repairs it via the OCR lines' own real spatial boxes rather than
+# guessing at more label wording -- when a label matched but its
+# same-line capture came back empty, look up which OCR line the label
+# text came from and search for the value by real position: directly to
+# the right on the same visual row first (true reading order), directly
+# below in the same column second (a value that wrapped under its
+# label). Never widens the search past adjacent spans, so it can't
+# reach across into an unrelated field's row/column the way a naive
+# "nearest number anywhere on the page" search could.
+_REPAIRABLE_LABEL_FIELDS = ("name", "address", "bsb", "account_number")
+
+
+def _line_index_for_offset(lines: list[dict], offset: int) -> int:
+    """lines_to_text() joins line["text"] with "\n" in order, so a match
+    offset into that joined string maps back to exactly one line index."""
+    pos = 0
+    for i, line in enumerate(lines):
+        end = pos + len(line["text"])
+        if offset <= end:
+            return i
+        pos = end + 1  # +1 for the "\n" separator
+    return len(lines) - 1
+
+
+def _overlap_ratio(a_lo: float, a_hi: float, b_lo: float, b_hi: float) -> float:
+    overlap = min(a_hi, b_hi) - max(a_lo, b_lo)
+    smaller = min(a_hi - a_lo, b_hi - b_lo)
+    return overlap / smaller if overlap > 0 and smaller > 0 else 0.0
+
+
+def find_adjacent_value(lines: list[dict], label_line_idx: int) -> str | None:
+    lx1, ly1, lx2, ly2 = lines[label_line_idx]["box"]
+    label_h = ly2 - ly1
+
+    # Real confirmed case (Payslip.jpg): "lassification:" and "Cheque No:"
+    # sit in genuinely different columns of a 2-column form but still
+    # overlap vertically by >50% (69-92 vs 60-79) -- a bare overlap-ratio
+    # check alone would wrongly treat them as the same row. Capping the
+    # rightward gap at a fraction of the page's own width (max x2 seen
+    # across all lines, the only page-width signal available here) is
+    # what actually rejects that case (326px gap on a 600px-wide page)
+    # while still allowing the real same-row case (41px gap).
+    page_width = max((line["box"][2] for line in lines), default=0)
+    max_right_gap = page_width * 0.3
+
+    best_right = None  # (x_gap, index)
+    best_below = None  # (y_gap, index)
+    for i, line in enumerate(lines):
+        if i == label_line_idx:
+            continue
+        x1, y1, x2, y2 = line["box"]
+        if x1 >= lx2 and _overlap_ratio(ly1, ly2, y1, y2) >= 0.6:
+            gap = x1 - lx2
+            if gap <= max_right_gap and (best_right is None or gap < best_right[0]):
+                best_right = (gap, i)
+        elif y1 >= ly2 and _overlap_ratio(lx1, lx2, x1, x2) >= 0.6:
+            gap = y1 - ly2
+            if gap <= label_h * 2 and (best_below is None or gap < best_below[0]):
+                best_below = (gap, i)
+
+    if best_right is not None:
+        return lines[best_right[1]]["text"].strip()
+    if best_below is not None:
+        return lines[best_below[1]]["text"].strip()
+    return None
+
+
+def _repair_line_split_fields(lines: list[dict], text: str, fields: dict) -> None:
+    for field in _REPAIRABLE_LABEL_FIELDS:
+        if fields.get(field) is not None:
+            continue
+        match = LABEL_PATTERNS[field].search(text)
+        if match is None:
+            continue
+        value = find_adjacent_value(lines, _line_index_for_offset(lines, match.start()))
+        cleaned = _clean_label_value(value) if value else None
+        if cleaned is None:
+            continue
+        # Real confirmed false positive (audited on Salary Slip Format
+        # Basic.jpg): unlike LABEL_PATTERNS's own same-line capture, this
+        # function's spatial box lookup has no idea WHAT it's grabbing --
+        # it took the box nearest to a bare "Employee:" label and returned
+        # "Bank Detals" (an unrelated field on the same form) uncritically.
+        # `name` needs the same semantic check class A's NER fallback
+        # already applies (spaCy confirms PERSON, not just "some
+        # non-blank text was nearby"). `bsb`/`account_number` get a
+        # cheap numeric-shape gate (#272) -- same unguarded code path,
+        # no confirmed real failure yet, but proactive since it's
+        # low-risk. `address` gets a state-code+postcode shape gate
+        # (#272) -- real evidence across 8 sampled contracts showed
+        # every real address has this exact shape, so it's not the
+        # "no safe check exists" case it first looked like.
+        if field == "name" and not (_looks_like_name(cleaned) and _has_person_entity(_get_nlp_en(), cleaned)):
+            continue
+        if field in ("bsb", "account_number") and not _looks_like_bsb_or_account(cleaned):
+            continue
+        if field == "address" and not _looks_like_address(cleaned):
+            continue
+        fields[field] = cleaned
+
+    if fields.get("income") is None:
+        for basis in ("gross", "net"):
+            match = INCOME_LABEL_PATTERNS[basis].search(text)
+            if match is None:
+                continue
+            value = find_adjacent_value(lines, _line_index_for_offset(lines, match.start()))
+            cleaned = _clean_label_value(value) if value else None
+            amount = parse_currency_amount(cleaned) if cleaned is not None else None
+            if amount is not None:
+                fields["income"] = amount
+                fields["income_basis"] = basis
+                break
+
+
+# Word-box source for module3_redaction.find_sensitive_boxes() (issue #130).
+# PPStructureV3 does not support return_word_box -- confirmed empirically by
+# passing it through predict()'s kwargs and observing overall_ocr_res still
+# reports return_word_box=False. Only the plain (non-structure) PaddleOCR
+# pipeline honors it, giving per-line lists of tokens (text_word) with
+# parallel per-token boxes (text_word_boxes) -- finer than Tesseract's
+# image_to_data even, since punctuation is split into its own token. This is
+# necessarily a second, separate model pass: nothing folds PPStructureV3's
+# table-aware pipeline and return_word_box into one call.
+_word_pipelines: dict[str, PaddleOCR] = {}
+
+
+def _get_word_pipeline(lang: str) -> PaddleOCR:
+    if lang not in _word_pipelines:
+        _word_pipelines[lang] = PaddleOCR(
+            lang=lang,
+            text_detection_model_name="PP-OCRv6_medium_det",
+            text_recognition_model_name="PP-OCRv6_medium_rec",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            enable_mkldnn=False,
+        )
+    return _word_pipelines[lang]
+
+
+def build_word_reconstruction(image, lang: str = "en") -> tuple[str, list[dict]]:
+    """Concatenates return_word_box=True's per-line tokens in order (they
+    already include their own inter-word whitespace/punctuation as separate
+    tokens, so no extra join character is needed to reproduce the original
+    spacing), returning the joined text plus a parallel list recording each
+    non-blank token's exact character span -- the offset map
+    find_sensitive_boxes() (module3_redaction.py) uses to locate a regex
+    match's box(es). Same shape as module2_ocr_tesseract._build_word_reconstruction()."""
+    if isinstance(image, np.ndarray) and image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    result = _get_word_pipeline(lang).predict(image, return_word_box=True)[0]
+
+    text_parts = []
+    word_spans = []
+    pos = 0
+    for tokens, boxes in zip(result.get("text_word", []), result.get("text_word_boxes", [])):
+        for token, box in zip(tokens, boxes):
+            if token.strip():
+                x1, y1, x2, y2 = (int(v) for v in box)
+                word_spans.append({"word": token, "box": (x1, y1, x2, y2), "start": pos, "end": pos + len(token)})
+            text_parts.append(token)
+            pos += len(token)
+        text_parts.append("\n")
+        pos += 1
+
+    return "".join(text_parts), word_spans
+
+
+if __name__ == "__main__":
+    from module1_opencv import enhance
+
+    with open("module2_selfcheck_output.txt", "w", encoding="utf-8") as out:
+        for path in ("samples/en_pay_slip/Payslip.jpg", "samples/en_pay_slip/Screenshot 2026-07-28 152419.png"):
+            img = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+            assert img is not None, f"could not load {path}"
+            enhanced = enhance(img)["image"]
+            result = extract_fields(enhanced)
+            out.write(f"--- {path} ---\n")
+            for field, value in result["fields"].items():
+                out.write(f"  {field}: {value}\n")
+            out.write(f"  line_boxes: {len(result['line_boxes'])} lines\n")
+            out.write(f"  tables: {len(result['tables'])}\n")
+    print("saved module2_selfcheck_output.txt")

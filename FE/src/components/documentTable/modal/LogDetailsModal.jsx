@@ -5,13 +5,19 @@ import {
     Badge
 
 } from "flowbite-react";
+import { parseServerDate } from "../../../utils/formatFields.js";
 
 export const LogDetailsModal = ({ log, show, onClose, position = "center" }) => {
     if (!log) return null;
 
-    const displayTimestamp = log.timestamp
-        ? new Date(log.timestamp).toLocaleDateString('vi-VN') + ' at ' +
-        new Date(log.timestamp).toLocaleTimeString('vi-VN', { hour12: false })
+    // Real, confirmed bug: this parsed log.timestamp with raw new Date(),
+    // exposing it to the exact zoneless-LocalDateTime timezone-shift bug
+    // parseServerDate exists to fix (already fixed elsewhere for the same
+    // class of backend timestamp).
+    const parsedTimestamp = parseServerDate(log.timestamp);
+    const displayTimestamp = parsedTimestamp
+        ? parsedTimestamp.toLocaleDateString('vi-VN') + ' at ' +
+        parsedTimestamp.toLocaleTimeString('vi-VN', { hour12: false })
         : 'N/A';
 
     const displayIp = log.clientIp === "0:0:0:0:0:0:0:1" ? "127.0.0.1" : (log.clientIp ?? 'N/A');

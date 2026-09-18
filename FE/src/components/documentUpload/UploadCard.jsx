@@ -4,7 +4,7 @@ import { Select, FileInput, Label, Button } from "flowbite-react";
 import { DOCUMENT_ACCEPTED_FILE_TYPES } from "../../constants";
 
 
-export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirst = true, firstDocumentType = "", onDocumentTypeChange }) => {
+export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirst = true, firstDocumentType = "", onDocumentTypeChange, isUploading = false }) => {
     const uniqueId = useId().replace(/:/g, "");
     const selectId = `file-${uniqueId}`;
     const fileInputId = `dropzone-file-${uniqueId}`;
@@ -50,10 +50,10 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
 
     return (
         <div
-            className={`rounded-md py-3 px-1 justify-items-center w-[97%] mx-auto my-2 border ${isInvalid ? "border-red-500 ring-2 ring-red-200" : "border-primary-200"
+            className={`rounded-md py-3 px-1 justify-items-center w-full mx-auto my-2 border ${isInvalid ? "border-red-500 ring-2 ring-red-200" : "border-primary-200"
                 }`}
         >
-            <div className="flex w-[95%] flex-col gap-4 text-left md:flex-row md:gap-x-1 md:gap-y-0">
+            <div className="flex w-[98%] flex-col gap-4 text-left md:flex-row">
                 <div className="w-full md:w-1/2">
                     <Label className="mb-2 block cursor-pointer text-white" htmlFor={selectId}>
                         Document Type
@@ -76,7 +76,7 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
                 </div>
 
                 <div className="w-full md:w-1/2">
-                    <div id="fileUpload" className="max-w-md">
+                    <div id="fileUpload" className="">
                         <Label className="mb-2 block text-white" htmlFor={fileInputId}>
                             Upload Document
                         </Label>
@@ -91,7 +91,7 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
                                     </p>
                                 </div>
 
-                                <div className="w-1/5 flex items-center justify-center">
+                                <div className="w-1/5 flex justify-end pr-3">
                                     <svg
                                         className="my-2 h-6 w-6 text-gray-500 dark:text-gray-400"
                                         aria-hidden="true"
@@ -121,8 +121,8 @@ export const UploadCard = ({ value, onChange, onClear, isInvalid = false, isFirs
                 </div>
 
             </div>
-            <div className="mt-2 justify-items-end w-[95%]">
-                <Button color="light" className="cursor-pointer" size="sm" onClick={handleClear}>
+            <div className="mt-2 justify-items-end w-full mr-4">
+                <Button color="light" className="cursor-pointer" size="sm" onClick={handleClear} disabled={isUploading}>
                     Clear
                 </Button>
             </div>

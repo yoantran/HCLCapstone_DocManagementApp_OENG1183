@@ -77,7 +77,7 @@ public class AdminAuditLogController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(defaultValue = "100") int limit) {
 
-        List<AuditLogResponse> body = store.query(userId, method, path, date, Math.min(limit, 1000))
+        List<AuditLogResponse> body = store.query(userId, method, path, date, Math.max(0, Math.min(limit, AuditLogStore.maxEntries())))
                 .stream()
                 .map(e -> new AuditLogResponse(
                         e.getTimestamp(), e.getUserId(), e.getName(), e.getEmail(), e.getRole(),
@@ -92,7 +92,7 @@ public class AdminAuditLogController {
     @GetMapping("/stats")
     @AuditAction("Viewed audit log statistics")
     public ResponseEntity<Map<String, Object>> stats() {
-        return ResponseEntity.ok(Map.of("entries", store.size(), "capacity", 1000));
+        return ResponseEntity.ok(Map.of("entries", store.size(), "capacity", AuditLogStore.maxEntries()));
     }
 
     @Operation(summary = "Clear the buffer")

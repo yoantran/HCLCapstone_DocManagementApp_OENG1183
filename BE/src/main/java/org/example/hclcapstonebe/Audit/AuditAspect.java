@@ -7,6 +7,10 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.example.hclcapstonebe.Entities.User;
+import org.example.hclcapstonebe.Exception.AppException;
+import org.example.hclcapstonebe.Exception.BadRequestException;
+import org.example.hclcapstonebe.Exception.ConflictException;
+import org.example.hclcapstonebe.Exception.NotFoundException;
 import org.example.hclcapstonebe.Repository.DepartmentRepository;
 import org.example.hclcapstonebe.Repository.DocumentRepository;
 import org.example.hclcapstonebe.Repository.UserRepository;
@@ -57,9 +61,24 @@ public class AuditAspect {
             record(req, action, start, statusOf(result), null);
             return result;
         } catch (Throwable ex) {
-            record(req, action, start, 500, ex.getClass().getSimpleName() + ": " + ex.getMessage());
+            record(req, action, start, statusOfException(ex), ex.getClass().getSimpleName() + ": " + ex.getMessage());
             throw ex;
         }
+    }
+
+    // Mirrors GlobalExceptionHandler's mapping so the audit trail reflects
+    // the status the client actually received (e.g. a wrong-password login
+    // is a 401, not a server error) instead of flattening every typed
+    // exception to a hardcoded 500.
+    private int statusOfException(Throwable ex) {
+        return switch (ex) {
+            case AppException e -> e.getStatus().value();
+            case NotFoundException e -> 404;
+            case BadRequestException e -> 400;
+            case ConflictException e -> 409;
+            case IllegalArgumentException e -> 400;
+            default -> 500;
+        };
     }
 
     private void record(HttpServletRequest req, String action, long start,

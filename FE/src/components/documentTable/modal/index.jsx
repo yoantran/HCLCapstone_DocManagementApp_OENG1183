@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from '../../../context/AuthContext.jsx';
 import {
     Modal,
     ModalHeader,
@@ -11,6 +13,8 @@ import { DownloadButton } from "./DownloadButton";
 import { DeleteAction } from "../../action/DeleteAction.jsx";
 import { formatDate, formatSize } from '../../../utils/formatFields';
 import { getScanStatusInfo } from '../../../utils/scanHelper.js';
+import { getRequest } from '../../../api/apiHelpers.js';
+import { useWebSocket } from '../../../context/WebSocketContext.jsx';
 
 export const DocumentModal = ({
     document,
@@ -19,7 +23,91 @@ export const DocumentModal = ({
     position = "center",
     onDeleteSuccess
 }) => {
+    const { user } = useAuth();
+    const isManager = user.role?.toUpperCase() === "MANAGER";
+
+    const [redactedPreview, setRedactedPreview] = useState({
+        documentId: null,
+        url: null,
+    });
+
+    const redactedPreviewUrl =
+        redactedPreview.documentId === document?.id
+            ? redactedPreview.url
+            : null;
+
+    const [previewStatus, setPreviewStatus] = useState(null); // NOT_STARTED|GENERATING|READY|FAILED
+    const [previewFailureReason, setPreviewFailureReason] = useState(null);
+    const [previewError, setPreviewError] = useState(null); // HTTP status for 501/422/etc, distinct from a GENERATING/FAILED status body
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+    const { subscribe } = useWebSocket();
     const navigate = useNavigate();
+
+    const fetchPreviewStatus = useCallback((retry = false) => {
+        if (!document?.id) return;
+        getRequest({
+            url: `/documents/${document.id}/redacted-preview`,
+            params: retry ? { retry: true } : {},
+        })
+            .then((res) => {
+                // Real, confirmed bug: previewError was only ever set (on a
+                // prior 422/501 failure) and never cleared, so a later
+                // successful fetch -- even one returning READY -- stayed
+                // permanently masked by the stale error. Same bug already
+                // fixed in pages/ViewDocument.jsx.
+                setPreviewError(null);
+                setPreviewStatus(res.status);
+                setPreviewFailureReason(res.failureReason);
+                if (res.status === 'READY') {
+                    setRedactedPreview({ documentId: document.id, url: res.previewUrl });
+                }
+            })
+            .catch((err) => {
+                setPreviewError(err.response?.status ?? null);
+            });
+    }, [document?.id]);
+
+    // kick off / check status when modal opens for a non-owner viewing an
+    // AI-processed document
+    useEffect(() => {
+        if (!show || !document) return;
+        if (!document.aiProcessed) return;
+        if (document.requesterIsOwner !== false) return;
+        fetchPreviewStatus();
+    }, [show, document?.id, document?.requesterIsOwner, document?.aiProcessed, fetchPreviewStatus]);
+
+    // primary path: live push when generation finishes
+    useEffect(() => {
+        if (!document?.id) return;
+        return subscribe('/user/queue/redacted-preview-status', (payload) => {
+            if (payload.documentId !== document.id) return;
+            setPreviewStatus(payload.status);
+            setPreviewFailureReason(payload.failureReason);
+            if (payload.status === 'READY') {
+                fetchPreviewStatus(); // one more GET to obtain the signed previewUrl
+            }
+        });
+    }, [document?.id, subscribe, fetchPreviewStatus]);
+
+    // fallback: poll while GENERATING in case the WS push is missed
+    useEffect(() => {
+        if (previewStatus !== 'GENERATING') return;
+        const interval = setInterval(() => fetchPreviewStatus(), 10000);
+        return () => clearInterval(interval);
+    }, [previewStatus, fetchPreviewStatus]);
+
+    // live "how long has this been going" counter -- purely cosmetic, resets
+    // whenever GENERATING (re)starts so it never carries over from a prior
+    // wait on a different document
+    useEffect(() => {
+        if (previewStatus !== 'GENERATING') return;
+        setElapsedSeconds(0);
+        const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+        return () => clearInterval(interval);
+    }, [previewStatus]);
+
+    const isLoadingPreview = document?.requesterIsOwner === false && previewStatus === 'GENERATING';
 
     const handleViewDocument = () => {
         navigate(`../view-document/${document.id}`);
@@ -86,13 +174,48 @@ export const DocumentModal = ({
 
                         <div className="w-2/3">
                             <strong>Options:</strong>
+
                             <DownloadButton
                                 file={document}
-                                className={"w-full mt-4 cursor-pointer border border-(--lighter-blue-300) hover:bg-(--dark-blue-700) "}
+                                isDownloadAllowed={
+                                    document.requesterIsOwner
+                                        ? document.scanStatus === "CLEAN" || document.scanStatus === "NOT_SCANNED"
+                                        : Boolean(redactedPreviewUrl)
+                                }
+                                redactedPreviewUrl={
+                                    document.requesterIsOwner === false ? redactedPreviewUrl : null
+                                }
+                                detailUrl={
+                                    isManager
+                                        ? `/documents/department/${document.id}`
+                                        : `/documents/mine/${document.id}`
+                                }
+                                className="w-full mt-4 cursor-pointer border border-(--lighter-blue-300) hover:bg-(--dark-blue-700)"
+                                isLoadingPreview={isLoadingPreview}
                             />
+
+                            {document.requesterIsOwner === false && previewStatus === 'GENERATING' && (
+                                <div className="text-sm text-gray-400 mt-2">
+                                    <p>You can close this and keep browsing — we'll notify you via the bell icon when it's ready.</p>
+                                    <p className="mt-1">Generating redacted preview… ({elapsedSeconds}s)</p>
+                                </div>
+                            )}
+                            {document.requesterIsOwner === false && previewStatus === 'FAILED' && (
+                                <p className="text-sm text-red-400 mt-2">
+                                    Preview failed: {previewFailureReason || 'unknown error'}.{' '}
+                                    <button
+                                        type="button"
+                                        className="underline cursor-pointer"
+                                        onClick={() => fetchPreviewStatus(true)}
+                                    >
+                                        Retry
+                                    </button>
+                                </p>
+                            )}
+
                             <Button
                                 onClick={handleViewDocument}
-                                disabled={!document.signedUrl}
+                                disabled={!document.accessible}
                                 className="w-full mt-4 cursor-pointer border border-(--lighter-blue-300) hover:bg-(--dark-blue-700)"
                             >
                                 View Document

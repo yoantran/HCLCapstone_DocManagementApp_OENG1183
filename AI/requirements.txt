@@ -1,0 +1,40 @@
+# Production dependencies for the /process FastAPI service (main.py's
+# actual import chain: pipeline -> module1_opencv, module2_ocr_extraction,
+# module2_text_extraction, module3_redaction, module4_loan_rules,
+# income_normalization, file_routing). module2_ocr_extraction.py is the
+# real production image-path OCR engine (issue #129, PaddleOCR/PPStructureV3)
+# -- paddleocr/paddlepaddle/paddlex are required, not optional; pytesseract
+# stays for module2_text_extraction's Tesseract-based fallback paths.
+fastapi==0.141.1
+uvicorn==0.52.1
+python-multipart==0.0.32
+opencv-python==5.0.0.93
+numpy==2.3.5
+pytesseract==0.3.13
+pillow==12.3.0
+pypdfium2==5.10.1
+python-docx==1.2.0
+paddleocr==3.7.0
+paddlepaddle==3.3.1
+# PPStructureV3 requires paddlex's own "ocr" extras group, not bare
+# `paddlex` -- confirmed via the real traceback inside the container
+# (paddlex.utils.deps.DependencyError: "`PP-StructureV3` requires
+# additional dependencies... pip install \"paddlex[ocr]==<VERSION>\"").
+# Bare `paddlex==3.7.2` alone let the package import fine but failed at
+# actual pipeline construction on every real OCR request -- the
+# container's image/OCR path has been silently broken since PaddleOCR
+# was first added; only the text-native path (which never touches
+# PPStructureV3) ever got exercised against a real container build.
+# Adding onnxruntime alone (an earlier, incomplete attempt at this fix)
+# was necessary but not sufficient -- the extras group pulls in
+# everything actually required, not a manually-guessed subset.
+paddlex[ocr]==3.7.2
+onnxruntime==1.28.0
+# Issue #270 class A -- spaCy NER fallback for real-world payslip name
+# labels not covered by field_extraction_en.py's LABEL_PATTERNS regex.
+# Model pinned as a direct wheel URL (same convention `spacy download`
+# resolves to under the hood) so the Docker build doesn't need its own
+# extra network step/model-download command -- a plain `pip install -r`
+# is sufficient, matching every other dependency in this file.
+spacy==3.8.16
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#egg=en_core_web_sm==3.8.0

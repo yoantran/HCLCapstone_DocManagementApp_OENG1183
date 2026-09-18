@@ -66,8 +66,20 @@ export const DepartmentModal = ({
                 }
             }
             pushSuccess("Department updated successfully.");
-            // onUpdateSuccess?.(updatedDep);
-            onUpdateSuccess?.();
+            // Real, confirmed bug: this used to call onUpdateSuccess with no
+            // argument, so the parent (AdminManagement.jsx) always fell back
+            // to a full users+departments refetch instead of an in-place
+            // row patch, unlike the parallel UserModal -> handleUserUpdate
+            // path. Construct the updated department locally instead.
+            const newManagerName = managerId
+                ? users.find((u) => u.id === managerId)?.name ?? null
+                : null;
+            onUpdateSuccess?.({
+                ...department,
+                name: depName.trim(),
+                managerId: managerId || null,
+                managerName: newManagerName,
+            });
             onClose();
         } catch (err) {
             pushError(err.message || "Failed to update department records.");

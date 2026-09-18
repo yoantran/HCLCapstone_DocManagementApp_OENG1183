@@ -1,0 +1,379 @@
+import random
+import re
+import sys
+from pathlib import Path
+
+import docx
+from faker import Faker
+
+from field_extraction_en import _BALANCE_SHEET_LABEL_RE
+
+fake = Faker("en_AU")
+
+AU_STATES = ["NSW", "VIC", "QLD", "WA", "SA", "TAS", "ACT", "NT"]
+
+
+def fake_name() -> str:
+    return fake.name()
+
+
+def fake_address() -> str:
+    street = fake.street_address().replace("\n", ", ")
+    return f"{street}, {fake.city()} {random.choice(AU_STATES)} {fake.postcode()}"
+
+
+def fake_abn() -> str:
+    return f"{random.randint(10, 99)} {random.randint(100, 999)} {random.randint(100, 999)} {random.randint(100, 999)}"
+
+
+def fake_bsb() -> str:
+    return f"{random.randint(100, 999)}-{random.randint(100, 999)}"
+
+
+def fake_account_number() -> str:
+    return f"{random.randint(1000, 9999)} {random.randint(1000, 9999)}"
+
+
+def fake_dollar(lo: float = 10.0, hi: float = 900.0) -> str:
+    return f"${random.uniform(lo, hi):.2f}"
+
+
+def fake_dollar_thousands() -> str:
+    return f"${random.randint(30, 150) * 1_000:,}"
+
+
+def fake_hours() -> str:
+    return f"{random.uniform(1.0, 40.0):.1f}"
+
+
+def fake_date() -> str:
+    d = fake.date_between(start_date="-5y", end_date="today")
+    return d.strftime("%d/%m/%Y")
+
+
+# field_key matches field_extraction_en.py's output dict keys (name,
+# address, abn, bsb, account_number, salary) so a generated value can be
+# checked against what extraction actually found. None means this filler
+# doesn't correspond to any scored field (e.g. the employer's own name --
+# only the employee's is scored).
+
+
+def _apply_label_fillers(text: str, fillers: list[tuple[re.Pattern, object, str | None]]) -> tuple[str, list[tuple[str, str]]]:
+    """Each fillers entry is (pattern, generator, field_key). pattern must
+    have exactly one capture group covering the placeholder span to
+    replace -- everything else in the line (the label text) is preserved
+    verbatim. Applies every fillers entry that matches (a line can carry
+    more than one field, e.g. the payslip's dense header cells)."""
+    recorded: list[tuple[str, str]] = []
+    for pattern, generator, field_key in fillers:
+        m = pattern.search(text)
+        if m is None:
+            continue
+        value = generator()
+        text = text[: m.start(1)] + value + text[m.end(1):]
+        if field_key is not None:
+            recorded.append((field_key, value))
+    return text, recorded
+
+
+# Matches the template's own literal placeholder text ("$00.00", "$00,000",
+# "00.00" -- confirmed via direct inspection every numeric placeholder in
+# this template uses all-zero digits, no exceptions), not just the general
+# shape. This matters because table 0's employer/pay-period cell is a
+# genuinely merged table cell (row 0 and row 1 share the same underlying
+# XML element -- confirmed via `cell._tc is cell._tc`), so this function
+# runs against the same paragraph twice per document. A shape-based regex
+# (any \d{2},\d{3}) would occasionally re-match a value this function
+# itself already generated on the first pass (e.g. a random "$67,000" has
+# the same 2-digit-prefix shape as the placeholder it replaced) and
+# silently overwrite it with a second random value on the second visit.
+# Matching the literal zero-digit placeholder text instead makes every
+# substitution naturally idempotent -- once replaced, the exact "00.00"/
+# "00,000" text is gone and can never accidentally re-match.
+_DOLLAR_THOUSANDS_RE = re.compile(r"\$00,000\b")
+_DOLLAR_RE = re.compile(r"\$00\.00\b")
+_HOURS_RE = re.compile(r"(?<!\$)\b00\.00\b")
+
+
+def _apply_numeric_placeholders(text: str) -> tuple[str, list[str]]:
+    """Blanket-replaces the payslip template's own literal '$00.00' /
+    '$00,000' / '00.00' placeholder text with realistic random values,
+    independent of any label -- these sit in table cells (hours/rate/total
+    columns) with no adjacent label text to anchor on. Returns every dollar
+    value substituted (each one is a legitimate 'salary' list-field
+    ground-truth entry per SALARY_RE's shape) alongside the substituted
+    text; hours values are generated but not returned since they aren't a
+    scored field (SALARY_RE requires a '$' prefix)."""
+    salary_values: list[str] = []
+
+    def thousands_repl(_m: re.Match) -> str:
+        value = fake_dollar_thousands()
+        salary_values.append(value)
+        return value
+
+    def dollar_repl(_m: re.Match) -> str:
+        value = fake_dollar()
+        salary_values.append(value)
+        return value
+
+    def hours_repl(_m: re.Match) -> str:
+        return fake_hours()
+
+    text = _DOLLAR_THOUSANDS_RE.sub(thousands_repl, text)
+    text = _DOLLAR_RE.sub(dollar_repl, text)
+    text = _HOURS_RE.sub(hours_repl, text)
+    return text, salary_values
+
+
+def _set_paragraph_text(p, new_text: str) -> None:
+    for run in p.runs:
+        run.text = ""
+    if p.runs:
+        p.runs[0].text = new_text
+    else:
+        p.add_run(new_text)
+
+
+def _set_cell_text(cell, new_text: str) -> None:
+    _set_paragraph_text(cell.paragraphs[0], new_text)
+    for p in cell.paragraphs[1:]:
+        _set_paragraph_text(p, "")
+
+
+# samples/en_balance_sheet/CIC-Balance-Sheet-Template.docx -- 2 tables
+# (Assets, Liabilities+Equity), lettered A-S rows, single "$      "
+# blank-placeholder value cell per row (confirmed via direct inspection).
+# Only 4 of the 5 tracked fields have a fillable cell here -- this real
+# template's own "Total Current Assets" row has no "$" placeholder at
+# all, so total_current_assets can never be scored from this source
+# (matches what real-file testing already confirmed this session: this
+# exact template genuinely returns None for that field).
+_BLANK_DOLLAR_CELL_RE = re.compile(r"^\$[\s\xa0]*$")
+
+
+def fill_docx_balance_sheet_cic(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    if seed is not None:
+        random.seed(seed)
+        Faker.seed(seed)
+
+    doc = docx.Document(src_path)
+    filled = 0
+    ground_truth: dict[str, list[str]] = {}
+
+    for table in doc.tables:
+        for row in table.rows:
+            if len(row.cells) < 3:
+                continue
+            label = row.cells[1].text.strip()
+            value_cell = row.cells[2]
+            if not _BLANK_DOLLAR_CELL_RE.match(value_cell.text):
+                continue
+            field = next(
+                (f for f, pattern in _BALANCE_SHEET_LABEL_RE.items() if pattern.search(label)),
+                None,
+            )
+            if field is None:
+                continue
+            value = fake_dollar_thousands()
+            _set_cell_text(value_cell, value)
+            filled += 1
+            ground_truth[field] = [value]
+
+    Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(dst_path)
+    return filled, ground_truth
+
+
+# samples/en_balance_sheet/Balance sheet template.docx -- 1 table, 5
+# value columns per row ("[Year 1]".."[Year 5]", real detectable header
+# text -- #192 fixed the regex that reads it), bare "0" placeholder
+# cells (no "$" prefix). Row identification is positional, not
+# label-driven, because 2 of the 5 target rows use a bare "Total" label
+# disambiguated only by the preceding section header (same #167
+# section-tracking real extraction itself relies on) -- hardcoded
+# against this one specific real template's structure, confirmed via
+# direct inspection, not a generic solver (matches how CONTRACT_LABEL_
+# FILLERS/PAYSLIP_LABEL_FILLERS are already hardcoded per-template).
+_YEARS_TEMPLATE_TARGET_ROWS = {
+    9: "total_current_assets",  # bare "Total" under "Current assets"
+    20: "total_assets",  # "TOTAL ASSETS"
+    28: "total_current_liabilities",  # bare "Total" under "Current/short-term liabilities"
+    34: "total_liabilities",  # "TOTAL LIABILITIES"
+    35: "total_equity",  # "NET ASSETS (NET WORTH)"
+}
+_YEARS_TEMPLATE_VALUE_COLS = (3, 4, 5, 6, 7)  # Year 1..Year 5, ascending -- Year 5 is most recent
+
+
+def fill_docx_balance_sheet_years(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    if seed is not None:
+        random.seed(seed)
+        Faker.seed(seed)
+
+    doc = docx.Document(src_path)
+    table = doc.tables[0]
+    filled = 0
+    ground_truth: dict[str, list[str]] = {}
+
+    for row_idx, field in _YEARS_TEMPLATE_TARGET_ROWS.items():
+        row = table.rows[row_idx]
+        last_value = None
+        for col in _YEARS_TEMPLATE_VALUE_COLS:
+            value = fake_dollar_thousands()
+            _set_cell_text(row.cells[col], value)
+            filled += 1
+            last_value = value
+        ground_truth[field] = [last_value]  # Year 5 (rightmost) is most recent
+
+    Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(dst_path)
+    return filled, ground_truth
+
+
+# Vetted against field_extraction_en.py's actual LABEL_PATTERNS -- of the 8
+# downloaded en_contract templates with real placeholder blanks, only this
+# one uses a colon-anchored "Employee Name:"/"Employee Address:" convention
+# LABEL_PATTERNS actually matches; the rest embed placeholders in letter
+# headers or prose ("[Employee First Name]", "Dear [insert employee's
+# first name]") with no colon anchor, and were dropped rather than
+# special-cased (see docs/superpowers/specs/2026-08-12-en-validation-
+# corpus-benchmark-design.md, Decision 3).
+CONTRACT_LABEL_FILLERS = [
+    (re.compile(r"Employer\s*Name\s*:\s*(_{4,})", re.IGNORECASE), fake_name, None),
+    (re.compile(r"Employer\s*Address\s*:\s*(_{4,})", re.IGNORECASE), fake_address, None),
+    (re.compile(r"Employee\s*Name\s*:\s*(_{4,})", re.IGNORECASE), fake_name, "name"),
+    (re.compile(r"Employee\s*Address\s*:\s*(_{4,})", re.IGNORECASE), fake_address, "address"),
+]
+
+
+def fill_docx_contract(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    if seed is not None:
+        random.seed(seed)
+        Faker.seed(seed)
+
+    doc = docx.Document(src_path)
+    filled = 0
+    ground_truth: dict[str, list[str]] = {}
+
+    for p in doc.paragraphs:
+        text = p.text
+        if not text.strip():
+            continue
+        new_text, recorded = _apply_label_fillers(text, CONTRACT_LABEL_FILLERS)
+        if new_text != text:
+            _set_paragraph_text(p, new_text)
+            filled += 1
+            for field_key, value in recorded:
+                ground_truth.setdefault(field_key, []).append(value)
+
+    Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(dst_path)
+    return filled, ground_truth
+
+
+# The real Fair Work Ombudsman official payslip template
+# (samples/en_pay_slip/Pay-slip-template-sts.docx) -- the same document
+# field_extraction_en.py's docstring already cites as its grounding source.
+# Structurally different from the contract template: fields are packed
+# multiple-per-cell as separate paragraphs within one table cell (confirmed
+# via direct inspection -- cell.paragraphs returns one paragraph per line,
+# not one paragraph with embedded line breaks), using "<insert x>"
+# placeholders, plus bare "$00.00"/"$00,000"/"00.00" numeric placeholders
+# in the Entitlements/Deductions/Superannuation line-item tables with no
+# adjacent label at all.
+PAYSLIP_LABEL_FILLERS = [
+    (re.compile(r"\*?Employee\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_name, "name"),
+    (re.compile(r"\*?ABN\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_abn, "abn"),
+    (re.compile(r"BSB\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_bsb, "bsb"),
+    (re.compile(r"Account\s*:\s*(<[^<>]*>)", re.IGNORECASE), fake_account_number, "account_number"),
+]
+
+# Issue #313 -- the template's real placeholder text is "*Annual salary:
+# [if applicable] $00,000" (confirmed via direct inspection), the exact
+# same "$00,000" shape _apply_numeric_placeholders already blanket-fills
+# with no label awareness -- which is exactly why this value went
+# untracked as its own field before now: it silently fell into the
+# generic pass and only ever got recorded as a "salary" list entry, never
+# as "annual_salary". Handled here instead, BEFORE _apply_numeric_
+# placeholders runs on the same paragraph text, so once this replaces the
+# literal "$00,000" the generic pass's `_DOLLAR_THOUSANDS_RE` no longer
+# matches it -- no double-counting into the "salary" list.
+ANNUAL_SALARY_PLACEHOLDER_RE = re.compile(r"Annual\s*salary\s*:\s*\[if applicable\]\s*(\$00,000)", re.IGNORECASE)
+
+
+def fill_docx_payslip(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    if seed is not None:
+        random.seed(seed)
+        Faker.seed(seed)
+
+    doc = docx.Document(src_path)
+    filled = 0
+    ground_truth: dict[str, list[str]] = {}
+
+    def record(field_key: str, value: str) -> None:
+        ground_truth.setdefault(field_key, []).append(value)
+
+    # Issue #313 -- ANNUAL_SALARY_PLACEHOLDER_RE only matches the literal
+    # "$00,000" placeholder text; the "Annual salary" cell is visited
+    # twice (same merged-cell paragraph-aliasing already documented for
+    # employer/pay-period elsewhere in this file), but the first visit's
+    # replacement makes the placeholder gone by the second visit, so it
+    # naturally never re-matches -- confirmed via direct testing, not
+    # assumed. No risk of two independently-randomized values.
+    label_fillers = PAYSLIP_LABEL_FILLERS + [
+        (ANNUAL_SALARY_PLACEHOLDER_RE, fake_dollar_thousands, "annual_salary"),
+    ]
+
+    for table in doc.tables:
+        for row in table.rows:
+            row_label = row.cells[0].text.strip().lower()
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    text = p.text
+                    if not text.strip():
+                        continue
+                    new_text, recorded = _apply_label_fillers(text, label_fillers)
+                    new_text, salary_values = _apply_numeric_placeholders(new_text)
+                    if new_text != text:
+                        _set_paragraph_text(p, new_text)
+                        filled += 1
+                        for field_key, value in recorded:
+                            record(field_key, value)
+                        for value in salary_values:
+                            record("salary", value)
+            # "Total gross payment" (table 1, last row) is the only figure
+            # extract_income_en() actually reads -- it checks gross before
+            # net, so that's the value ground truth must match, even though
+            # "Total net payment" (table 4) also gets a real dollar value
+            # above via the generic pass (and correctly counts toward
+            # "salary" list-field ground truth, matching real observed
+            # production behavior where the gross total appears in both
+            # the "salary" list and the "income" field simultaneously).
+            if row_label.startswith("total gross payment"):
+                m = re.search(r"\$[\d,]+\.\d{2}", row.cells[-1].text)
+                if m:
+                    ground_truth["income"] = [m.group(0)]
+                    ground_truth["income_basis"] = ["gross"]
+
+    Path(dst_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(dst_path)
+    return filled, ground_truth
+
+
+def fill_docx(src_path: str, dst_path: str, seed: int | None = None) -> tuple[int, dict[str, list[str]]]:
+    normalized = src_path.replace("\\", "/")
+    if "en_pay_slip" in normalized:
+        return fill_docx_payslip(src_path, dst_path, seed=seed)
+    if "CIC-Balance-Sheet-Template" in normalized:
+        return fill_docx_balance_sheet_cic(src_path, dst_path, seed=seed)
+    if "Balance sheet template" in normalized:
+        return fill_docx_balance_sheet_years(src_path, dst_path, seed=seed)
+    return fill_docx_contract(src_path, dst_path, seed=seed)
+
+
+if __name__ == "__main__":
+    src = sys.argv[1]
+    dst = sys.argv[2]
+    seed = int(sys.argv[3]) if len(sys.argv) > 3 else None
+    n, gt = fill_docx(src, dst, seed=seed)
+    print(f"filled {n} fields: {dst}")
+    print(f"ground truth: {gt}")

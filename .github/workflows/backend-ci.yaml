@@ -32,6 +32,13 @@ jobs:
           cache: 'maven'
 
 
+      - name: Run Unit Tests
+        working-directory: BE
+        shell: bash
+        run: mvn test
+        continue-on-error: true
+
+
       - name: Build artifact
         working-directory: BE
         shell: bash

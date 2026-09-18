@@ -26,7 +26,9 @@ export const DeleteAction = ({
 
     const handleDelete = async () => {
         if (!itemId) {
-            pushError("Cannot delete")
+            pushError("Cannot delete");
+            setShowDeleteConfirm(false);
+            return;
         }
 
         setIsDeleting(true);

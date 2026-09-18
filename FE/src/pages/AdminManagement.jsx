@@ -1,9 +1,7 @@
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useMemo, useState} from "react";
 import { getRequest } from "../api/apiHelpers.js";
 import { CustomTable } from "../components/customTable/index.jsx";
 import { adminManagementColumns } from "../components/customTable/columns.jsx";
-import { DepartmentModal } from "../components/adminManagement/departmentModal/index.jsx";
-import { UserModal } from "../components/adminManagement/userModal/index.jsx";
 import FilteringPanel from "../components/filteringPanel/index.jsx";
 import { Button } from "flowbite-react";
 import { HiPlus } from "react-icons/hi";
@@ -15,9 +13,6 @@ export default function AdminManagement() {
     const [activeTab, setActiveTab] = useState('users');
     const [usersData, setUsersData] = useState([]);
     const [departmentsData, setDepartmentsData] = useState([]);
-
-    const [editingUser, setEditingUser] = useState(null);
-    const [editingDept, setEditingDept] = useState(null);
 
     // filteringPanel
     const [searchTerm, setSearchTerm] = useState('');
@@ -55,7 +50,7 @@ export default function AdminManagement() {
         fetchAllData();
     }, [fetchAllData]);
 
-    const handleUserUpdate = (updatedUser) => {
+    const handleUserUpdate = useCallback((updatedUser) => {
         if (!updatedUser || !updatedUser.id) {
             fetchAllData();
             return;
@@ -66,9 +61,9 @@ export default function AdminManagement() {
         getRequest({ url: "/admin/departments" })
             .then((res) => setDepartmentsData(Array.isArray(res) ? res : res?.departments || []))
             .catch(console.error);
-    };
+    }, [fetchAllData]);
 
-    const handleDeptUpdate = (updatedDept) => {
+    const handleDeptUpdate = useCallback((updatedDept) => {
         if (!updatedDept || !updatedDept.id) {
             fetchAllData();
             return;
@@ -79,23 +74,30 @@ export default function AdminManagement() {
         getRequest({ url: "/admin/users" })
             .then((res) => setUsersData(Array.isArray(res) ? res : res?.users || []))
             .catch(console.error);
-    };
+    }, [fetchAllData]);
 
-    const handleDeleteSuccess = (deletedId) => {
+    const handleDeleteSuccess = useCallback((deletedId) => {
         if (activeTab === 'users') {
             setUsersData((prev) => prev.filter((user) => user.id !== deletedId));
         } else {
             setDepartmentsData((prev) => prev.filter((dept) => dept.id !== deletedId));
         }
-    };
+    }, [activeTab]);
 
-    const allColumns = adminManagementColumns(
-        departmentsData,
-        usersData,
-        handleUserUpdate,
-        handleDeptUpdate,
-        setEditingUser,
-        setEditingDept
+    // Real, confirmed bug: adminManagementColumns() was called fresh on every
+    // render with a brand-new inline `Cell` component each time. CustomTable
+    // renders that as <CustomCell/>, so React treated it as a different
+    // component type on every render (e.g. every keystroke in the search
+    // box) and fully unmounted/remounted the row action cells -- silently
+    // closing any open Manage/Delete popup out from under the user.
+    const allColumns = useMemo(
+        () => adminManagementColumns(
+            departmentsData,
+            usersData,
+            handleUserUpdate,
+            handleDeptUpdate
+        ),
+        [departmentsData, usersData, handleUserUpdate, handleDeptUpdate]
     );
 
     const currentColumns = allColumns[activeTab.toUpperCase()] ?? [];
@@ -140,14 +142,15 @@ export default function AdminManagement() {
         return 0;
     });
 
-    const displayedData = sortedData.slice((currentPage - 1) * 10, currentPage * 10);
+    const ITEMS_PER_PAGE = 7;
+    const displayedData = sortedData.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
     return (
         <>
             <div className="relative w-full">
                 <FilteringPanel
                     currentPage={currentPage}
-                    pageSize={10}
+                    pageSize={ITEMS_PER_PAGE}
                     totalItems={filteredData.length}
                     onPageChange={(page) => setCurrentPage(page)}
 
@@ -176,16 +179,25 @@ export default function AdminManagement() {
 
                     customButton={
                         <div className="flex items-center gap-2">
-                            <Button disabled
-                                onClick={() => console.log("Create User")}
+                            <Button
+                                disabled
+                                className="md:hidden"
+                                onClick={() => console.log("Create Action")}
                             >
-                                < HiPlus className={"mr-2"} />
-                                Create New User
+                                <HiPlus className="text-base" />
                             </Button>
                             <Button disabled
+                                    className="hidden md:flex "
+                                onClick={() => console.log("Create User")}
+                            >
+                                < HiPlus className={"text-base mr-2"} />
+                                    Create New User
+                            </Button>
+                            <Button disabled
+                                className="hidden md:flex"
                                 onClick={() => console.log("Create Department")}
                             >
-                                < HiPlus className={"mr-2"} />
+                                < HiPlus className={"text-base  mr-2"} />
                                 Create New Department
                             </Button>
                         </div>
@@ -196,7 +208,10 @@ export default function AdminManagement() {
                     isOpen={showConfigMenu}
                     activeTab={activeTab}
                     onClose={() => setShowConfigMenu(false)}
-                    onApply={(selectedTab) => setActiveTab(selectedTab)}
+                    onApply={(selectedTab) => {
+                        setActiveTab(selectedTab);
+                        setCurrentPage(1);
+                    }}
                 />
 
                 <SortTable
@@ -208,7 +223,7 @@ export default function AdminManagement() {
                     }}
                 />
 
-                <div className={"mt-5"}>
+                <div className={"mt-2"}>
                     <CustomTable
                         data={displayedData}
                         columns={currentColumns}
@@ -216,24 +231,6 @@ export default function AdminManagement() {
                         isLoading={isLoading}
                     />
                 </div>
-
-                <UserModal
-                    show={!!editingUser}
-                    user={editingUser}
-                    // departments={departmentsData}
-                    departments={Array.isArray(departmentsData) ? departmentsData : []}
-                    onClose={() => setEditingUser(null)}
-                    onUpdateSuccess={handleUserUpdate}
-                    onDeleteSuccess={handleDeleteSuccess}
-                />
-                <DepartmentModal
-                    show={!!editingDept}
-                    department={editingDept}
-                    // users={usersData}
-                    users={Array.isArray(usersData) ? usersData : []}
-                    onClose={() => setEditingDept(null)}
-                    onUpdateSuccess={handleDeptUpdate}
-                />
             </div>
         </>
     )

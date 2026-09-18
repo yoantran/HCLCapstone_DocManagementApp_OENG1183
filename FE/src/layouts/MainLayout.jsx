@@ -10,7 +10,8 @@ import {
 import { customNavbarTheme } from "../components/navbar/index.jsx";
 import UserDropdown from "../components/userDropdown/index.jsx";
 import { NotificationBell } from '../components/navbar/NotificationBell.jsx';
-import {BsGithub, BsGlobe} from "react-icons/bs";
+import { WebSocketProvider } from "../context/WebSocketContext.jsx";
+import { BsGithub, BsGlobe } from "react-icons/bs";
 import Footer from "../components/footer/index.jsx";
 
 export default function MainLayout() {
@@ -22,13 +23,13 @@ export default function MainLayout() {
 
     const isStaffFeatureAllowed = ['STAFF', 'MANAGER', 'ADMIN'].includes(currentRole);
 
-    const isManagerOnly = currentRole === 'MANAGER';
     const isAdminOnly = currentRole === 'ADMIN';
 
 
     return (
+        <WebSocketProvider>
         <div
-            className="border-r border-(--cool-gray-200)"
+            className="border-r border-(--cool-gray-200) h-screen w-screen overflow-y-scroll wrap-anywhere flex flex-col"
         >
             {/* Global Navbar*/}
             <Navbar
@@ -87,12 +88,14 @@ export default function MainLayout() {
                 {/* Right Side Actions: Notification Bell + Dropdown Avatar Profile Wrapper */}
                 <div className="flex items-center gap-4 md:order-2">
 
-                    {/* notification */}
-                    {isManagerOnly && (
-                        <div>
-                            <NotificationBell userId={userId} userEmail={user?.email} />
-                        </div>
-                    )}
+                    {/* notification -- was manager-only, but AiProcessingService also
+                        pushes "AI processing complete/failed" to the uploader (any role);
+                        GET /notifications is already scoped server-side to receiverId ==
+                        current user, so no cross-user visibility risk showing this to
+                        everyone */}
+                    <div>
+                        <NotificationBell userId={userId} userEmail={user?.email} />
+                    </div>
                     <UserDropdown
                         user={user}
                         userId={userId}
@@ -115,5 +118,6 @@ export default function MainLayout() {
                 <Footer className="bg-transparent border-0 rounded-none px-0 " />
             </div>
         </div>
+        </WebSocketProvider>
     );
 }

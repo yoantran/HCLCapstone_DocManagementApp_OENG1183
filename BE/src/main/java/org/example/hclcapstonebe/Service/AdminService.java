@@ -11,13 +11,11 @@ import org.example.hclcapstonebe.Mapper.UserMapper;
 import org.example.hclcapstonebe.Repository.DepartmentRepository;
 import org.example.hclcapstonebe.Repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.crossstore.ChangeSetPersister;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.example.hclcapstonebe.Exception.BadRequestException;
-import org.example.hclcapstonebe.Exception.ConflictException;
 import org.example.hclcapstonebe.Exception.NotFoundException;
 
 import java.time.LocalDateTime;
@@ -38,6 +36,13 @@ public class AdminService {
     // ─── USER ─────────────────────────────────────────────
 
     // ─── CREATE USER ──────────────────────────────────────
+    // Real, confirmed bug: this performs two separate repository saves
+    // (user then department) when creating a MANAGER with a department,
+    // unlike every sibling method in this class -- all @Transactional. If
+    // the second save failed after the first succeeded, a MANAGER-role
+    // user was left persisted with no department actually pointing back
+    // at them.
+    @Transactional
     public UserProfileResponse createUser(CreateUserRequest req) {
         if (userRepository.existsByEmail(req.getEmail())) {
             throw new AppException("Email already in use", HttpStatus.CONFLICT);
@@ -94,30 +99,6 @@ public class AdminService {
         return userMapper.toResponse(userRepository.save(user));
 
     }
-    @Transactional
-    public UserProfileResponse assignDepartmentToUser(UUID userId, ReassignUserRequest req) {
-        User user = userRepository.findByIdAndIsDeletedFalse(userId)
-                .orElseThrow(() -> new AppException("User not found", HttpStatus.NOT_FOUND));
-
-        if (user.getRole() == RoleEnum.MANAGER) {
-            throw new AppException(
-                    "Cannot assign department to a manager here. Use Update Department API to assign a manager to a department.",
-                    HttpStatus.BAD_REQUEST
-            );
-        }
-
-        if (req.getDepartmentId() != null) {
-            Department newDept = departmentRepository.findById(req.getDepartmentId())
-                    .orElseThrow(() -> new AppException("Department not found", HttpStatus.NOT_FOUND));
-            user.setDepartment(newDept);
-        } else {
-            // empty string or null → remove from department
-            user.setDepartment(null);
-        }
-
-        return userMapper.toResponse(userRepository.save(user));
-    }
-
 
 
     @Transactional
@@ -125,6 +106,14 @@ public class AdminService {
 
         User user = userRepository.findByIdAndIsDeletedFalse(userId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + userId));
+
+        // Real, confirmed bug: this method's only guard was the same-role
+        // no-op check below -- ADMIN != MANAGER passed straight through to
+        // promote(), which never checks the user's CURRENT role either, so
+        // {role: MANAGER} on a real ADMIN silently demoted them.
+        if (user.getRole() == RoleEnum.ADMIN) {
+            throw new BadRequestException("Cannot change an ADMIN's role through this endpoint.");
+        }
 
         if (user.getRole() == req.getRole()) {
             throw new BadRequestException("User already has role " + req.getRole());
@@ -288,6 +277,14 @@ public class AdminService {
         } else if (req.getManagerId() != null && !req.getManagerId().isBlank()) {
             User newmanager = userRepository.findByIdAndIsDeletedFalse(UUID.fromString(req.getManagerId()))
                     .orElseThrow(() -> new AppException("New manager not found", HttpStatus.NOT_FOUND));
+
+            // Real, confirmed bug: this only rejected a user already MANAGER
+            // of a different department -- never checked for ADMIN, so
+            // assigning an admin's id here silently converted them to
+            // MANAGER, stripping their admin privileges with no warning.
+            if (newmanager.getRole() == RoleEnum.ADMIN) {
+                throw new AppException("Cannot assign an ADMIN as a department manager.", HttpStatus.BAD_REQUEST);
+            }
 
             // A MANAGER of another department must be demoted there first.
             // A STAFF from another department is fine — they get moved and promoted.

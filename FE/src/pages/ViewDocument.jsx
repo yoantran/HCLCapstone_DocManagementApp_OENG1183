@@ -1,6 +1,6 @@
 import { useParams } from "react-router-dom";
 import { useAuth } from '../context/AuthContext';
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PublicViewer } from "../components/documentProcess/view"
 import { DocInfo } from "../components/documentProcess/view/docInfo/DocInfo";
@@ -9,6 +9,7 @@ import { DeleteAction } from "../components/action/DeleteAction.jsx";
 import { DownloadButton } from "../components/documentTable/modal/DownloadButton";
 import { Alert } from "flowbite-react";
 import { getScanStatusInfo } from "../utils/scanHelper.js";
+import { useWebSocket } from "../context/WebSocketContext.jsx";
 
 function DocumentBlocked({ document }) {
     const scanInfo = getScanStatusInfo(document);
@@ -30,17 +31,107 @@ export default function ViewDocument() {
 
     const { documentId } = useParams();
     const [document, setDocument] = useState(null);
+
+    const [parsedAiResult, setParsedAiResult] = useState(null);
+    const [redactedPreviewUrl, setRedactedPreviewUrl] = useState(null);
+    const [previewError, setPreviewError] = useState(null);
+    const [previewStatus, setPreviewStatus] = useState(null);
+    const [previewFailureReason, setPreviewFailureReason] = useState(null);
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const { subscribe } = useWebSocket();
+
     const navigate = useNavigate();
 
-    useEffect(() => {
+    const fetchDocument = useCallback(() => {
         const url = isManager
             ? `/documents/department/${documentId}`
             : `/documents/mine/${documentId}`;
 
-        getRequest({ url })
-            .then((response) => setDocument(response))
-            .catch((error) => console.error("Error fetching document:", error));
-    }, [documentId]);
+        return getRequest({ url })
+            .then((response) => {
+                setDocument(response);
+
+                // parse aiResult if available
+                if (response.aiProcessed && response.aiResult) {
+                    try {
+                        const parsed = JSON.parse(response.aiResult);
+                        setParsedAiResult(parsed);
+                    } catch (e) {
+                        console.error("Failed to parse aiResult:", e);
+                    }
+                }
+
+                // fetch redacted preview status for non-owners viewing documents
+                if (response.aiProcessed && response.requesterIsOwner === false) {
+                    getRequest({ url: `/documents/${documentId}/redacted-preview` })
+                        .then((preview) => {
+                            // Real, confirmed bug: previewError was only ever set
+                            // (on a prior 422/501 failure) and never cleared, so a
+                            // later successful fetch -- even one returning READY
+                            // with a real previewUrl -- stayed permanently masked
+                            // by the stale error in the render ternary below.
+                            setPreviewError(null);
+                            setPreviewStatus(preview.status);
+                            setPreviewFailureReason(preview.failureReason);
+                            if (preview.status === "READY") {
+                                setRedactedPreviewUrl(preview.previewUrl);
+                            }
+                        })
+                        .catch((err) => {
+                            console.error("Failed to fetch redacted preview:", err);
+                            setPreviewError(err.response?.status ?? null);    // only CSV unsupported
+                        });
+                }
+            })
+            .catch((error) =>
+                console.error("Error fetching document:", error));
+    }, [documentId, isManager]);
+
+    useEffect(() => {
+        fetchDocument();
+    }, [fetchDocument]);
+
+    // Poll while AI is still processing -- BE has no push mechanism into this
+    // page (the WS notification only drives the bell), so this is the
+    // simplest way to pick up aiResult/redacted-preview once it's ready
+    // without a manual reload.
+    useEffect(() => {
+        if (!document || document.aiProcessed || document.aiProcessingFailed) {
+            return;
+        }
+        const interval = setInterval(fetchDocument, 5000);
+        return () => clearInterval(interval);
+    }, [document, fetchDocument]);
+
+    // primary path: live push when generation finishes
+    useEffect(() => {
+        if (!document?.id) return;
+        return subscribe('/user/queue/redacted-preview-status', (payload) => {
+            if (payload.documentId !== document.id) return;
+            setPreviewStatus(payload.status);
+            setPreviewFailureReason(payload.failureReason);
+            if (payload.status === 'READY') {
+                fetchDocument(); // re-fetch to obtain the signed previewUrl
+            }
+        });
+    }, [document?.id, subscribe, fetchDocument]);
+
+    // fallback: poll while GENERATING in case the WS push is missed
+    useEffect(() => {
+        if (previewStatus !== 'GENERATING') return;
+        const interval = setInterval(fetchDocument, 10000);
+        return () => clearInterval(interval);
+    }, [previewStatus, fetchDocument]);
+
+    // live "how long has this been going" counter -- purely cosmetic, resets
+    // whenever GENERATING (re)starts so it never carries over from a prior
+    // wait on a different document
+    useEffect(() => {
+        if (previewStatus !== 'GENERATING') return;
+        setElapsedSeconds(0);
+        const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+        return () => clearInterval(interval);
+    }, [previewStatus]);
 
     if (!document) return null;
     const canView = document.accessible;
@@ -55,27 +146,79 @@ export default function ViewDocument() {
                         navigate("../documents");
                     }}
                 />
-                <DownloadButton
-                    className="bg-(--bg) border"
-                    file={document}
-                />
+                {
+                    <DownloadButton
+                        className="bg-(--bg) border"
+                        file={document}
+                        redactedPreviewUrl={
+                            document.requesterIsOwner === false
+                                ? redactedPreviewUrl
+                                : null
+                        }
+                        isDownloadAllowed={
+                            document.requesterIsOwner
+                                ? Boolean(document.signedUrl)
+                                : Boolean(redactedPreviewUrl)
+                        }
+                    />
+                }
             </div>
 
-            <DocInfo document={document} />
+            <DocInfo document={document} aiResult={parsedAiResult} />
+
+            <div className="border-gray-700 border-b px-6 py-5 my-3">
+                <h3 className="text-lg font-bold">
+                    Document Preview
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                    {document.requesterIsOwner
+                        ? "Preview of the uploaded document"
+                        : "Redacted preview with sensitive information protected, since you are not the document owner"}
+                </p>
+            </div>
 
             {canView ? (
                 <div className="flex justify-center bg-gray-100 p-6">
-                    <div className="w-full max-w-6xl rounded-lg bg-white shadow">
-                        <PublicViewer
-                            fileUrl={document.signedUrl}
-                            fileType={document.format?.toLowerCase()}
-                        />
+                    <div className="w-full max-w-6xl rounded-lg bg-white shadow italic">
+                        {document.requesterIsOwner === false ? (
+                            // non-owner: show redacted preview
+                            previewStatus === "GENERATING" ? (
+                                <div className="p-6 text-gray-500 text-sm">
+                                    <p>You can navigate away and keep browsing — we'll notify you via the bell icon when it's ready.</p>
+                                    <p className="mt-1">Generating redacted preview… ({elapsedSeconds}s)</p>
+                                </div>
+                            ) : previewStatus === "FAILED" ? (
+                                <p className="p-6 text-gray-500 text-sm">
+                                    Preview failed: {previewFailureReason || "unknown error"}.{" "}
+                                    <button
+                                        type="button"
+                                        className="underline cursor-pointer"
+                                        onClick={fetchDocument}
+                                    >
+                                        Retry
+                                    </button>
+                                </p>
+                            ) : previewError === 501 ? (
+                                <p className="p-6 text-gray-500 text-sm">Preview not available for this format.</p>
+                            ) : previewError === 422 ? (
+                                <p className="p-6 text-gray-500 text-sm">AI processing not complete yet. Check back shortly.</p>
+                            ) : redactedPreviewUrl ? (
+                                <img src={redactedPreviewUrl} alt="Redacted preview" className="w-full rounded-lg" />
+                            ) : (
+                                <p className="p-6 text-gray-500 text-sm">Preview is not available</p>
+                            )
+                        ) : (
+                            // owner: show original via signedUrl as before
+                            <PublicViewer
+                                fileUrl={document.signedUrl}
+                                fileType={document.format?.toLowerCase()}
+                            />
+                        )}
                     </div>
                 </div>
             ) : (
                 <DocumentBlocked document={document} />
             )}
-
         </>
     )
 }

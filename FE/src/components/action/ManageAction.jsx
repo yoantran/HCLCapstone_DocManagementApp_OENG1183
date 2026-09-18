@@ -7,6 +7,7 @@ export const ManageAction = ({
                                  modalProps = {},
                                  className = "",
                                  onSuccess,
+                                 onDeleteSuccess,
                              }) => {
     const [showModal, setShowModal] = useState(false);
 
@@ -34,6 +35,7 @@ export const ManageAction = ({
                     onUpdateSuccess={(updatedData) => {
                         onSuccess?.(updatedData);
                     }}
+                    onDeleteSuccess={onDeleteSuccess}
 
                     {...modalProps}
                 />

@@ -40,7 +40,7 @@ public class AuditLogStore {
             entries = persistenceService.loadLogs(date);
         }
         else {
-            entries = new ArrayList<>(buffer);
+            entries = copyBuffer();
             if (date != null) {
                 entries.removeIf(e -> !e.getTimestamp().toLocalDate().equals(date));
             }
@@ -60,5 +60,13 @@ public class AuditLogStore {
 
     public synchronized void clear() {
         buffer.clear();
+    }
+
+    public static int maxEntries() {
+        return MAX_ENTRIES;
+    }
+
+    private synchronized List<AuditEntry> copyBuffer() {
+        return new ArrayList<>(buffer);
     }
 }

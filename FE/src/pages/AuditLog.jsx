@@ -27,7 +27,7 @@ export default function AuditLog() {
 
     const [currentPage, setCurrentPage] = useState(1);
 
-    const PAGE_SIZE = 10;
+    const PAGE_SIZE = 7;
 
     const handleRowClick = (log) => {
         setSelectedLog(log);
@@ -195,7 +195,7 @@ export default function AuditLog() {
                     }}
                 />
             </div>
-            <div className="mt-5 w-full rounded-lg">
+            <div className="mt-2">
                 <CustomTable
                     data={formattedLogs}
                     columns={auditLogColumns()}
@@ -204,11 +204,13 @@ export default function AuditLog() {
                 />
             </div>
 
-            <LogDetailsModal
-                log={selectedLog}
-                show={openModal}
-                onClose={handleCloseModal}
-            />
+            <div className={"mt-2"}>
+                <LogDetailsModal
+                    log={selectedLog}
+                    show={openModal}
+                    onClose={handleCloseModal}
+                />
+            </div>
         </>
     );
 }

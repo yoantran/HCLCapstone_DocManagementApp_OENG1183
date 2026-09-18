@@ -14,13 +14,15 @@ export const buildFormData = (payload) => {
     return formData;
 };
 
-export const buildMultipartFormPayload = ({ documentType, cards }) => {
+export const buildMultipartFormPayload = ({ documentType, cards, proposedRepaymentAmount }) => {
     const files = cards.map((card) => card.file);
     const isMultiple = files.length > 1;
 
     const payload = isMultiple
         ? { type: documentType, files }
         : { type: documentType, file: files[0] };
+
+    if (proposedRepaymentAmount) payload.proposedRepaymentAmount = proposedRepaymentAmount;
 
     return {
         url: isMultiple ? DOC_MULTIPART_ENDPOINTS.multiple : DOC_MULTIPART_ENDPOINTS.single,

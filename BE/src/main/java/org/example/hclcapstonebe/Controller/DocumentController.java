@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.example.hclcapstonebe.Audit.AuditAction;
 import org.example.hclcapstonebe.DTO.Response.DocumentResponse;
+import org.example.hclcapstonebe.DTO.Response.RedactedPreviewResponse;
 import org.example.hclcapstonebe.Service.DocumentService;
 import org.springframework.http.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -39,14 +40,22 @@ public class DocumentController {
                 Security & Validation Pipeline:
                 - Allowed formats: PDF, DOCX, CSV, PNG, JPEG, JPG (Max file size: 10MB)
                 - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
-                - ClamAV Virus/Malware Scanning: Scans the uploaded file stream prior to storage
+                - ClamAV Virus/Malware Scanning: Scans the uploaded file stream prior to storage.
+                  A positive match does NOT reject the upload (still 201) -- the document is
+                  saved with scanStatus="INFECTED" and accessible=false in the response body,
+                  and no signed URL/redacted-preview access is ever granted for it. This keeps
+                  the flagged upload visible for a future admin review flow instead of silently
+                  discarding it.
                 - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
                 """
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "201",
-                    description = "Document uploaded successfully",
+                    description = """
+                Document uploaded successfully. Check `scanStatus`/`accessible` in the body --
+                a malware-flagged file still returns 201 with scanStatus="INFECTED" and
+                accessible=false rather than a distinct error status.""",
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(value = """
@@ -61,6 +70,8 @@ public class DocumentController {
                     "departmentId": "dept-uuid-123",
                     "uploadedDateTime": "2026-04-20T10:30:00",
                     "latestViewedDateTime": null,
+                    "scanStatus": "CLEAN",
+                    "accessible": true,
                     "signedUrl": "https://pkbwoortbtsvbcggybia.supabase.co/storage/v1/object/sign/documents/uuid_Q1_Report.pdf?token=eyJ..."
                 }
             """)
@@ -68,8 +79,7 @@ public class DocumentController {
             ),
             @ApiResponse(responseCode = "400", description = "Invalid file format/extension, invalid document type, file exceeds 10MB, or invalid structural file signature match detected (magic bytes mismatch)"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions"),
-            @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
     })
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
     @AuditAction("Uploaded document '{file}'")
@@ -84,9 +94,11 @@ public class DocumentController {
                     )
             )
             @RequestParam("type") String type,
+            @Parameter(description = "Proposed monthly repayment amount for loan-readiness assessment. Optional.")
+            @RequestParam(value = "proposedRepaymentAmount", required = false) java.math.BigDecimal proposedRepaymentAmount,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(documentService.uploadOne(file, type, userDetails.getUsername()));
+                .body(documentService.uploadOne(file, type, userDetails.getUsername(), proposedRepaymentAmount));
     }
 
     @Operation(
@@ -100,14 +112,20 @@ public class DocumentController {
                 Security & Validation Pipeline (per file):
                 - Allowed formats: PDF, DOCX, CSV, PNG, JPG, JPEG (Max file size per file: 10MB, Max batch limit: 10 files)
                 - Binary Magic Bytes Header Validation: Verifies %PDF for PDF and PK.. for DOCX
-                - ClamAV Virus/Malware Scanning: Scans each uploaded file stream prior to storage
+                - ClamAV Virus/Malware Scanning: Scans each uploaded file stream prior to storage.
+                  A positive match does NOT reject that file (still 201) -- it's saved with
+                  scanStatus="INFECTED" and accessible=false in its entry, and no signed
+                  URL/redacted-preview access is ever granted for it.
                 - Automatic Filename Deduplication: Renames duplicates (e.g., file (1).pdf) per user
                 """
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "201",
-                    description = "All documents uploaded successfully",
+                    description = """
+                All documents uploaded successfully. Check each entry's `scanStatus`/`accessible`
+                -- a malware-flagged file still returns 201 with scanStatus="INFECTED" and
+                accessible=false rather than a distinct error status.""",
                     content = @Content(
                             mediaType = "application/json",
                             examples = @ExampleObject(value = """
@@ -123,6 +141,8 @@ public class DocumentController {
                         "departmentId": "dept-uuid-123",
                         "uploadedDateTime": "2026-04-20T10:30:00",
                         "latestViewedDateTime": null,
+                        "scanStatus": "CLEAN",
+                        "accessible": true,
                         "signedUrl": "https://pkbwoortbtsvbcggybia.supabase.co/storage/v1/object/sign/documents/uuid_Q1_Report.pdf?token=eyJ..."
                     }
                 ]
@@ -131,8 +151,7 @@ public class DocumentController {
             ),
             @ApiResponse(responseCode = "400", description = "Invalid file format/extension, invalid document type, file exceeds 10MB, batch exceeds 10 files, or invalid structural file signature match detected (magic bytes mismatch)"),
             @ApiResponse(responseCode = "401", description = "Unauthorized — JWT token missing or expired"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions"),
-            @ApiResponse(responseCode = "422", description = "Unprocessable Entity — Malware virus variant threat vector flagged within upload stream by ClamAV scanner")
+            @ApiResponse(responseCode = "403", description = "Forbidden — insufficient permissions")
     })
     @PostMapping(value = "/upload/batch", consumes = "multipart/form-data")
     @AuditAction("Uploaded multiple documents")
@@ -147,9 +166,11 @@ public class DocumentController {
                     )
             )
             @RequestParam("type") String type,
+            @Parameter(description = "Proposed monthly repayment amount for loan-readiness assessment. Optional, applied to all files in the batch.")
+            @RequestParam(value = "proposedRepaymentAmount", required = false) java.math.BigDecimal proposedRepaymentAmount,
             @AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(documentService.uploadMany(files, type, userDetails.getUsername()));
+                .body(documentService.uploadMany(files, type, userDetails.getUsername(), proposedRepaymentAmount));
     }
     @Operation(
             summary = "Staff only: Get my uploaded documents",
@@ -243,12 +264,50 @@ public class DocumentController {
     }
 
     @Operation(
+            summary = "Get/kick off redacted preview generation for non-owner viewing",
+            description = """
+                Redacted preview generation runs asynchronously (server-side call to
+                Modal's /apply-redaction has unbounded-looking tail latency -- see
+                issues #337/#338) rather than blocking this request. Returns
+                NOT_STARTED/GENERATING/READY/FAILED immediately; NOT_STARTED
+                transitions to GENERATING and kicks off generation as a side effect
+                of this same call. Poll this endpoint (or subscribe to the
+                /user/queue/redacted-preview-status WebSocket push) until READY,
+                then use the returned previewUrl (a signed Supabase URL) directly.
+                Never returns the raw original. Supports image formats (PNG/JPG/JPEG),
+                scanned PDFs (OCR processing path), and text-native PDF/DOCX (rendered
+                and redacted server-side via AI's /apply-redaction). CSV has no
+                renderable page and returns 501 -- never falls back to the unredacted
+                file. A FAILED status only retries when this is called again with
+                retry=true -- never automatically.
+                """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Status payload: {status, previewUrl, failureReason}"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department"),
+            @ApiResponse(responseCode = "404", description = "Document not found"),
+            @ApiResponse(responseCode = "422", description = "Document has no redaction data yet"),
+            @ApiResponse(responseCode = "501", description = "Not implemented for this document's format (e.g. CSV — no renderable page)")
+    })
+    @GetMapping("/{id}/redacted-preview")
+    @AuditAction("Viewed redacted preview '{documentId}'")
+    public ResponseEntity<RedactedPreviewResponse> getRedactedPreview(
+            @Parameter(description = "UUID of the document", example = "doc-uuid-001")
+            @PathVariable("id") String documentId,
+            @Parameter(description = "Explicitly re-trigger generation after a FAILED status. Never applied automatically.")
+            @RequestParam(value = "retry", required = false, defaultValue = "false") boolean retry,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(
+                documentService.getRedactedPreviewStatus(documentId, userDetails.getUsername(), retry));
+    }
+
+    @Operation(
             summary = "Delete a document",
-            description = "manager ONLY — Soft deletes a document in the manager's department. Sets isDeleted=true, document is NOT permanently removed."
+            description = "Soft deletes a document. Staff may delete only their own uploads; Manager may delete any document in their own department; Admin may delete any document. Sets isDeleted=true, document is NOT permanently removed."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Document deleted successfully"),
-            @ApiResponse(responseCode = "403", description = "Forbidden — document not in your department or not a manager"),
+            @ApiResponse(responseCode = "403", description = "Forbidden — not your upload (Staff) or not your department (Manager)"),
             @ApiResponse(responseCode = "404", description = "Document not found")
     })
     @DeleteMapping("/{id}")

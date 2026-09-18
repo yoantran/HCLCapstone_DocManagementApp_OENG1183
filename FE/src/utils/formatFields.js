@@ -7,8 +7,22 @@ export const formatSize = (bytes) => {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-export const formatDate = (date) => {
-    if (!date) return 'Never';
+// BE sends zoneless LocalDateTime strings that actually represent UTC
+// instants -- append Z so browsers outside UTC don't misparse them as local
+// and shift every displayed/computed time by the browser's UTC offset.
+export const parseServerDate = (date) => {
+    if (!date) return null;
 
-    return new Date(date).toLocaleString();
+    // remove any 'Z' to prevent the browser from assuming UTC
+    const localDateString = date.replace(' ', 'T').replace('Z', '');
+    const parsed = new Date(localDateString);
+
+    return isNaN(parsed.getTime()) ? null : parsed;
+};
+
+export const formatDate = (date) => {
+    const parsed = parseServerDate(date);
+    if (!parsed) return 'Never';
+
+    return parsed.toLocaleString();
 };

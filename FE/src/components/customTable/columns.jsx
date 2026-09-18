@@ -155,6 +155,7 @@ export const adminManagementColumns = (
                             ModalComponent={UserModal}
                             modalProps={{ departments: depsList }}
                             onSuccess={refreshUsers}
+                            onDeleteSuccess={onDeleteSuccess}
                         />
                         <DeleteAction
                             row={item}
@@ -226,13 +227,13 @@ export const auditLogColumns = () => [
         key: "method",
         label: "Method",
         accessor: 'method',
-        className: 'max-w-2',
+        className: 'whitespace-nowrap',
     },
     {
         key: "status",
         label: "Status",
         accessor: "status",
-        className: 'max-w-2',
+        className: 'whitespace-nowrap',
     },
     {
         key: "action",

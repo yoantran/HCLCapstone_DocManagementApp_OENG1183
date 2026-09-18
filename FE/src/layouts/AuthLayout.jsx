@@ -1,5 +1,6 @@
 // layouts/AuthLayout.jsx
 import { Outlet } from 'react-router-dom';
+import loginPhoto from '../assets/LogInPhoto.jpg';
 export default function AuthLayout() {
     return (
         <div className="min-h-dvh w-full bg-(--dark-blue-700) flex items-center justify-center p-4 sm:p-6 md:p-10 rounded-[24px]">
@@ -9,7 +10,7 @@ export default function AuthLayout() {
                 <div className="hidden md:block relative w-full h-full">
                     <div className="w-full h-full overflow-hidden relative">
                         <img
-                            src="src/assets/LogInPhoto.jpg"
+                            src={loginPhoto}
                             alt="Workspace Collaboration Process"
                             className="w-full h-full object-cover"
                         />
