@@ -14,26 +14,68 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AuditPersistenceServiceTest {
 
-    // Far enough in the past that this can never collide with a real
-    // audit-<date>.log file this service itself would ever create.
     private static final LocalDate TEST_DATE = LocalDate.of(1999, 1, 1);
     private static final Path TEST_FILE = Path.of("log/audit", "audit-" + TEST_DATE + ".log");
+    private static final Path TODAY_FILE = Path.of("log/audit", "audit-" + LocalDate.now() + ".log");
 
     private final AuditPersistenceService service = new AuditPersistenceService();
 
     @AfterEach
     void cleanup() throws IOException {
         Files.deleteIfExists(TEST_FILE);
+        Files.deleteIfExists(TODAY_FILE);
     }
 
-    // Real, confirmed bug: loadLogs() only caught IOException, but its own
-    // deserialize() helper wraps every parse failure in an unchecked
-    // RuntimeException -- a single corrupt line (e.g. from a crash
-    // mid-append, or a manual edit) crashed the whole day's read instead
-    // of just being skipped.
+    @Test
+    void init_createsDirectorySuccessfully() throws IOException {
+        service.init();
+        assertTrue(Files.exists(Path.of("log/audit")));
+    }
+
+    @Test
+    void appendAndLoadTodayLogs_success() {
+        AuditEntry entry = AuditEntry.builder()
+                .timestamp(LocalDateTime.now())
+                .userId("u1")
+                .name("Jo Worker")
+                .email("jo@hcl.com")
+                .role("STAFF")
+                .action("Test.append")
+                .status(200)
+                .build();
+
+        // Test ghi log vào file hôm nay
+        service.append(entry);
+
+        // Test đọc log của ngày hôm nay
+        List<AuditEntry> logs = service.loadTodayLogs();
+
+        assertNotNull(logs);
+        assertEquals(1, logs.size());
+        assertEquals("jo@hcl.com", logs.get(0).getEmail());
+    }
+
+    @Test
+    void loadTodayLogs_fileDoesNotExist_returnsEmptyList() {
+        List<AuditEntry> logs = service.loadTodayLogs();
+
+        assertNotNull(logs);
+        assertTrue(logs.isEmpty());
+    }
+
+    @Test
+    void loadLogs_fileDoesNotExist_returnsEmptyList() {
+        List<AuditEntry> logs = service.loadLogs(LocalDate.of(1900, 1, 1));
+
+        assertNotNull(logs);
+        assertTrue(logs.isEmpty());
+    }
+
     @Test
     void loadLogs_skipsCorruptLineInsteadOfFailingTheWholeRead() throws IOException {
         Files.createDirectories(TEST_FILE.getParent());
