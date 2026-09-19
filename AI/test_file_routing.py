@@ -1,7 +1,9 @@
+import os
 import sys
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, ".")
 
@@ -12,7 +14,11 @@ from file_routing import (
     stack_pages_vertically,
 )
 
-with open("samples/en_balance_sheet/IC-Small-Business-Balance-Sheet-Example-11260_PDF.pdf", "rb") as f:
+_TEXT_NATIVE_PDF_PATH = "samples/en_balance_sheet/IC-Small-Business-Balance-Sheet-Example-11260_PDF.pdf"
+if not os.path.exists(_TEXT_NATIVE_PDF_PATH):
+    pytest.skip(f"sample fixture missing (not committed): {_TEXT_NATIVE_PDF_PATH}", allow_module_level=True)
+
+with open(_TEXT_NATIVE_PDF_PATH, "rb") as f:
     _TEXT_NATIVE_PDF_BYTES = f.read()
 
 

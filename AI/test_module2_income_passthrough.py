@@ -1,9 +1,11 @@
+import os
 import sys
 
 sys.path.insert(0, ".")
 
 import cv2
 import numpy as np
+import pytest
 
 from module2_text_extraction import extract_fields as extract_fields_text
 from module2_ocr_extraction import extract_fields as extract_fields_ocr
@@ -12,12 +14,14 @@ TEXT_SAMPLE = "samples/en_contract/part-time-employment-contract.docx"
 IMAGE_SAMPLE = "samples/en_pay_slip/Screenshot 2026-07-28 152419.png"
 
 
+@pytest.mark.skipif(not os.path.exists(TEXT_SAMPLE), reason=f"sample fixture missing (not committed): {TEXT_SAMPLE}")
 def test_text_native_path_exposes_income_keys():
     result = extract_fields_text(TEXT_SAMPLE)
     assert "income" in result["fields"]
     assert "income_basis" in result["fields"]
 
 
+@pytest.mark.skipif(not os.path.exists(IMAGE_SAMPLE), reason=f"sample fixture missing (not committed): {IMAGE_SAMPLE}")
 def test_ocr_path_exposes_income_keys():
     img = cv2.imdecode(np.fromfile(IMAGE_SAMPLE, dtype=np.uint8), cv2.IMREAD_COLOR)
     result = extract_fields_ocr(img)
