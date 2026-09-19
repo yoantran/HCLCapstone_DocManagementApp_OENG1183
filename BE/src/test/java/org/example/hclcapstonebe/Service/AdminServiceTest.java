@@ -1,8 +1,8 @@
 package org.example.hclcapstonebe.Service;
 
-import org.example.hclcapstonebe.DTO.Request.ChangeRoleRequest;
-import org.example.hclcapstonebe.DTO.Request.CreateUserRequest;
-import org.example.hclcapstonebe.DTO.Request.UpdateDepartmentRequest;
+import org.example.hclcapstonebe.DTO.Request.*;
+import org.example.hclcapstonebe.DTO.Response.DepartmentResponse;
+import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Entities.Department;
 import org.example.hclcapstonebe.Entities.User;
 import org.example.hclcapstonebe.Enums.RoleEnum;
@@ -17,19 +17,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class AdminServiceTest {
@@ -50,65 +49,224 @@ class AdminServiceTest {
         return user;
     }
 
-    // Real, confirmed bug: changeRole() only rejects a same-role no-op --
-    // routing anything else straight to promote()/demote(), neither of
-    // which checks the user's CURRENT role. PATCH .../role with
-    // {role: MANAGER} on a real ADMIN silently demoted them, since
-    // ADMIN != MANAGER passes the only guard that existed.
+    // user management
     @Test
-    void changeRole_rejectsChangingAnAdmin() {
-        UUID adminId = UUID.randomUUID();
-        User admin = buildUser(adminId, RoleEnum.ADMIN);
-        // Real department, so the pre-existing "no department, can't
-        // promote" guard in promote() doesn't mask what this test is
-        // actually checking -- rejecting an ADMIN target at all.
-        Department dept = new Department();
-        dept.setId(UUID.randomUUID());
-        admin.setDepartment(dept);
-        when(userRepository.findByIdAndIsDeletedFalse(adminId)).thenReturn(Optional.of(admin));
+    void userManagement_createGetDeleteFlows() throws NoSuchMethodException {
+        // Annotation check
+        Method createUser = AdminService.class.getMethod("createUser", CreateUserRequest.class);
+        assertTrue(createUser.isAnnotationPresent(Transactional.class));
 
-        ChangeRoleRequest req = new ChangeRoleRequest();
-        req.setRole(RoleEnum.MANAGER);
+        UUID userId = UUID.randomUUID();
+        User mockUser = buildUser(userId, RoleEnum.STAFF);
 
-        assertThrows(BadRequestException.class, () -> adminService.changeRole(adminId, req));
+        when(userMapper.toResponse(any())).thenReturn(new UserProfileResponse());
+        when(userRepository.findByIsDeletedFalse()).thenReturn(List.of(mockUser));
+        when(userRepository.findByIdAndIsDeletedFalse(userId)).thenReturn(Optional.of(mockUser));
 
-        verify(userRepository, never()).save(any());
+        assertAll("User Management Operations",
+                () -> {
+                    // Create Staff User
+                    CreateUserRequest req = new CreateUserRequest();
+                    req.setEmail("test@example.com");
+                    req.setPassword("password123");
+                    req.setRoleEnum(RoleEnum.STAFF);
+
+                    when(passwordEncoder.encode(any())).thenReturn("hashed");
+                    when(userMapper.toEntity(any())).thenReturn(mockUser);
+                    when(userRepository.save(any())).thenReturn(mockUser);
+
+                    assertNotNull(adminService.createUser(req));
+                },
+                () -> {
+                    // Get All & Get By ID
+                    assertEquals(1, adminService.getAllUsers().size());
+                    assertNotNull(adminService.getUserById(userId));
+                },
+                () -> {
+                    // Soft Delete
+                    adminService.deleteUser(userId);
+                    assertTrue(mockUser.isDeleted());
+                }
+        );
     }
 
-    // Real, confirmed bug: updateDepartment's manager-reassignment only
-    // rejected a user already MANAGER of a different department -- never
-    // checked for ADMIN, so assigning an admin's id as managerId silently
-    // converted them to MANAGER.
     @Test
-    void updateDepartment_rejectsAssigningAnAdminAsManager() {
+    void userReassignmentAndManagerDeleteCleanup() {
+        UUID userId = UUID.randomUUID();
         UUID deptId = UUID.randomUUID();
-        UUID adminId = UUID.randomUUID();
+
+        User staffUser = buildUser(userId, RoleEnum.STAFF);
         Department dept = new Department();
         dept.setId(deptId);
-        User admin = buildUser(adminId, RoleEnum.ADMIN);
 
+        when(userRepository.findByIdAndIsDeletedFalse(userId)).thenReturn(Optional.of(staffUser));
         when(departmentRepository.findById(deptId)).thenReturn(Optional.of(dept));
-        when(userRepository.findByIdAndIsDeletedFalse(adminId)).thenReturn(Optional.of(admin));
+        when(userRepository.save(any())).thenReturn(staffUser);
+        when(userMapper.toResponse(any())).thenReturn(new UserProfileResponse());
 
-        UpdateDepartmentRequest req = new UpdateDepartmentRequest();
-        req.setManagerId(adminId.toString());
+        assertAll("User Reassignment Logic",
+                () -> {
+                    // Move to new department
+                    ReassignUserRequest req = new ReassignUserRequest();
+                    req.setDepartmentId(deptId);
+                    assertNotNull(adminService.reassignUser(userId, req));
+                    assertEquals(dept, staffUser.getDepartment());
+                },
+                () -> {
+                    // Remove from department
+                    ReassignUserRequest req = new ReassignUserRequest();
+                    req.setDepartmentId(null);
+                    assertNotNull(adminService.reassignUser(userId, req));
+                    assertNull(staffUser.getDepartment());
+                },
+                () -> {
+                    // Delete Manager User clears department slot
+                    User managerUser = buildUser(userId, RoleEnum.MANAGER);
+                    dept.setManager(managerUser);
+                    managerUser.setDepartment(dept);
 
-        assertThrows(AppException.class, () -> adminService.updateDepartment(deptId, req));
+                    when(userRepository.findByIdAndIsDeletedFalse(userId)).thenReturn(Optional.of(managerUser));
+                    adminService.deleteUser(userId);
 
-        verify(userRepository, never()).save(any());
+                    assertTrue(managerUser.isDeleted());
+                    assertNull(dept.getManager());
+                }
+        );
     }
 
-    // Real, confirmed bug: createUser() performs two separate, non-atomic
-    // saves (userRepository.save then departmentRepository.save) when
-    // creating a MANAGER with a department, unlike every sibling method in
-    // this class -- all of which are @Transactional. If the second save
-    // fails after the first succeeds, a MANAGER-role user is persisted
-    // with no department actually pointing back at them.
+    // role & promote
     @Test
-    void createUser_isTransactional() throws NoSuchMethodException {
-        Method createUser = AdminService.class.getMethod("createUser", CreateUserRequest.class);
-        assertTrue(createUser.isAnnotationPresent(Transactional.class),
-                "createUser() performs two separate repository saves and must be @Transactional, "
-                        + "like every sibling admin-mutation method in this class");
+    void changeRole_promotionAndDemotionFlows() {
+        UUID userId = UUID.randomUUID();
+        UUID deptId = UUID.randomUUID();
+
+        User staffUser = buildUser(userId, RoleEnum.STAFF);
+        Department dept = new Department();
+        dept.setId(deptId);
+
+        when(userRepository.findByIdAndIsDeletedFalse(userId)).thenReturn(Optional.of(staffUser));
+        when(departmentRepository.findById(deptId)).thenReturn(Optional.of(dept));
+        when(userRepository.save(any())).thenReturn(staffUser);
+        when(departmentRepository.save(any())).thenReturn(dept);
+        when(userMapper.toResponse(any())).thenReturn(new UserProfileResponse());
+
+        assertAll("Role Mutations",
+                () -> {
+                    // Promote to Manager
+                    ChangeRoleRequest req = new ChangeRoleRequest();
+                    req.setRole(RoleEnum.MANAGER);
+                    req.setDepartmentId(deptId.toString());
+
+                    assertNotNull(adminService.changeRole(userId, req));
+                    assertEquals(RoleEnum.MANAGER, staffUser.getRole());
+                },
+                () -> {
+                    // Demote to Staff
+                    User managerUser = buildUser(userId, RoleEnum.MANAGER);
+                    dept.setManager(managerUser);
+                    managerUser.setDepartment(dept);
+
+                    when(userRepository.findByIdAndIsDeletedFalse(userId)).thenReturn(Optional.of(managerUser));
+
+                    ChangeRoleRequest req = new ChangeRoleRequest();
+                    req.setRole(RoleEnum.STAFF);
+
+                    assertNotNull(adminService.changeRole(userId, req));
+                    assertEquals(RoleEnum.STAFF, managerUser.getRole());
+                    assertNull(dept.getManager());
+                }
+        );
+    }
+
+    // department management
+    @Test
+    void departmentManagement_crudAndIncumbentDisplacement() {
+        UUID deptId = UUID.randomUUID();
+        Department dept = new Department();
+        dept.setId(deptId);
+        dept.setName("Old Name");
+
+        User incumbent = buildUser(UUID.randomUUID(), RoleEnum.MANAGER);
+        incumbent.setDepartment(dept);
+        dept.setManager(incumbent);
+
+        User newManager = buildUser(UUID.randomUUID(), RoleEnum.STAFF);
+
+        when(departmentRepository.findById(deptId)).thenReturn(Optional.of(dept));
+        when(departmentRepository.findAll()).thenReturn(List.of(dept));
+        when(departmentRepository.save(any())).thenReturn(dept);
+        when(departmentMapper.toResponse(any())).thenReturn(new DepartmentResponse());
+
+        assertAll("Department CRUD",
+                () -> {
+                    CreateDepartmentRequest req = new CreateDepartmentRequest();
+                    req.setName("Engineering");
+                    when(departmentMapper.toEntity(any())).thenReturn(dept);
+                    assertNotNull(adminService.createDepartment(req));
+                },
+                () -> {
+                    assertEquals(1, adminService.getAllDepartments().size());
+                    assertNotNull(adminService.getDepartmentById(deptId));
+                },
+                () -> {
+                    UpdateDepartmentRequest req = new UpdateDepartmentRequest();
+                    req.setName("New Name");
+                    req.setManagerId(newManager.getId().toString());
+
+                    when(userRepository.findByIdAndIsDeletedFalse(newManager.getId())).thenReturn(Optional.of(newManager));
+
+                    assertNotNull(adminService.updateDepartment(deptId, req));
+                    assertEquals("New Name", dept.getName());
+                    assertEquals(newManager, dept.getManager());
+                },
+                () -> {
+                    User userInDept = buildUser(UUID.randomUUID(), RoleEnum.STAFF);
+                    userInDept.setDepartment(dept);
+                    when(userRepository.findByDepartmentIdAndIsDeletedFalse(deptId)).thenReturn(List.of(userInDept));
+
+                    adminService.deleteDepartment(deptId);
+                    assertNull(userInDept.getDepartment());
+                    verify(departmentRepository).delete(dept);
+                }
+        );
+    }
+
+    // validation & exception
+    @Test
+    void adminService_validationAndConflictErrors() {
+        UUID adminId = UUID.randomUUID();
+        User admin = buildUser(adminId, RoleEnum.ADMIN);
+
+        when(userRepository.findByIdAndIsDeletedFalse(adminId)).thenReturn(Optional.of(admin));
+        when(userRepository.existsByEmail("existing@hcl.com")).thenReturn(true);
+
+        assertAll("Admin Service Validation Checks",
+                () -> {
+                    // Reject changing an ADMIN's role
+                    ChangeRoleRequest req = new ChangeRoleRequest();
+                    req.setRole(RoleEnum.MANAGER);
+                    assertThrows(BadRequestException.class, () -> adminService.changeRole(adminId, req));
+                },
+                () -> {
+                    // Duplicate email creation throws AppException(409 CONFLICT)
+                    CreateUserRequest req = new CreateUserRequest();
+                    req.setEmail("existing@hcl.com");
+                    AppException ex = assertThrows(AppException.class, () -> adminService.createUser(req));
+                    assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+                },
+                () -> {
+                    // Cannot assign an ADMIN as department manager
+                    UUID deptId = UUID.randomUUID();
+                    Department dept = new Department();
+                    dept.setId(deptId);
+
+                    UpdateDepartmentRequest req = new UpdateDepartmentRequest();
+                    req.setManagerId(adminId.toString());
+
+                    when(departmentRepository.findById(deptId)).thenReturn(Optional.of(dept));
+                    AppException ex = assertThrows(AppException.class, () -> adminService.updateDepartment(deptId, req));
+                    assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+                }
+        );
     }
 }

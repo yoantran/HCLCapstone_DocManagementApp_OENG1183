@@ -3,7 +3,9 @@ package org.example.hclcapstonebe.Service;
 import org.example.hclcapstonebe.DTO.Request.UpdateProfileRequest;
 import org.example.hclcapstonebe.DTO.Response.UserProfileResponse;
 import org.example.hclcapstonebe.Entities.User;
+import org.example.hclcapstonebe.Enums.RoleEnum;
 import org.example.hclcapstonebe.Exception.AppException;
+import org.example.hclcapstonebe.Exception.NotFoundException;
 import org.example.hclcapstonebe.Mapper.UserMapper;
 import org.example.hclcapstonebe.Repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -17,16 +19,11 @@ import org.springframework.mock.web.MockMultipartFile;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -142,5 +139,95 @@ class UserServiceTest {
         String storagePath = storagePathCaptor.getValue();
         assertFalse(storagePath.contains("/"), "storage path must not contain a path separator: " + storagePath);
         assertFalse(storagePath.contains(".."), "storage path must not contain a traversal sequence: " + storagePath);
+    }
+
+    @Test
+    void getUserProfile_success() {
+        UUID userId = UUID.randomUUID();
+        String userIdStr = userId.toString();
+        User user = new User();
+        user.setId(userId);
+
+        // Mock repository queries accepting String or UUID, and String email searches
+        lenient().when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        lenient().when(userRepository.findByIdAndIsDeletedFalse(userId)).thenReturn(Optional.of(user));
+        lenient().when(userRepository.findByEmailAndIsDeletedFalse(anyString())).thenReturn(Optional.of(user));
+        lenient().when(userMapper.toResponse(any())).thenReturn(new UserProfileResponse());
+
+        // Pass the String parameter required by getProfile
+        UserProfileResponse response = userService.getProfile(userIdStr);
+
+        assertNotNull(response);
+    }
+
+    @Test
+    void getUserProfile_notFound_throwsException() {
+        String userIdStr = UUID.randomUUID().toString();
+
+        lenient().when(userRepository.findById(any())).thenReturn(Optional.empty());
+        lenient().when(userRepository.findByEmailAndIsDeletedFalse(anyString())).thenReturn(Optional.empty());
+
+        assertThrows(Exception.class, () -> userService.getProfile(userIdStr));
+    }
+
+    @Test
+    void getProfile_and_updateProfile_successFlows() {
+        String email = "user@hcl.com";
+        User user = new User();
+        user.setId(UUID.randomUUID());
+        user.setEmail(email);
+        user.setRole(RoleEnum.STAFF);
+
+        UserProfileResponse response = new UserProfileResponse();
+
+        when(userRepository.findByEmailAndIsDeletedFalse(email)).thenReturn(Optional.of(user));
+        when(userMapper.toResponse(user)).thenReturn(response);
+
+        assertAll("User Profile Retrieval & Updates",
+                () -> {
+                    // Get profile success
+                    UserProfileResponse profile = userService.getProfile(email);
+                    assertNotNull(profile);
+                },
+                () -> {
+                    // Update profile text fields without avatar
+                    UpdateProfileRequest req = new UpdateProfileRequest();
+                    req.setName("Updated Name");
+                    req.setPhoneNumber("0909999999");
+
+                    when(userRepository.save(user)).thenReturn(user);
+
+                    UserProfileResponse updated = userService.updateProfile(email, req, null);
+                    assertNotNull(updated);
+                    assertEquals("Updated Name", user.getName());
+                    assertEquals("0909999999", user.getPhoneNumber());
+                }
+        );
+    }
+
+    @Test
+    void updateProfile_withAvatar_replacesOldAvatar() {
+        String email = "user@hcl.com";
+        User user = new User();
+        user.setId(UUID.randomUUID());
+        user.setEmail(email);
+        user.setAvatarImageUrl("images/old_avatar.jpeg");
+
+        byte[] jpegBytes = new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0};
+        MockMultipartFile avatar = new MockMultipartFile(
+                "avatar", "avatar.jpeg", "image/jpeg", jpegBytes);
+
+        when(userRepository.findByEmailAndIsDeletedFalse(email)).thenReturn(Optional.of(user));
+        when(supabaseStorageService.uploadFile(any(), any(), any(), any())).thenReturn("images/new_avatar.jpeg");
+        when(userRepository.save(user)).thenReturn(user);
+        when(userMapper.toResponse(user)).thenReturn(new UserProfileResponse());
+
+        UpdateProfileRequest req = new UpdateProfileRequest();
+        UserProfileResponse response = userService.updateProfile(email, req, avatar);
+
+        assertNotNull(response);
+        verify(supabaseStorageService).deleteFile("images", "images/old_avatar.jpeg");
+        // Corrected parameter positions: bucket, bytes, filename, contentType
+        verify(supabaseStorageService).uploadFile(eq("images"), eq(jpegBytes), any(), eq("image/jpeg"));
     }
 }
