@@ -1,3 +1,4 @@
+import os
 import sys
 import threading
 import time
@@ -9,6 +10,7 @@ import json
 
 import cv2
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 import file_routing
@@ -16,6 +18,17 @@ import module1_opencv
 from main import _apply_redaction_serialized, _native_library_lock, app
 
 client = TestClient(app)
+
+_SAMPLE_PATHS = [
+    "samples/en_contract/part-time-employment-contract.docx",
+    "samples/en_pay_slip/Screenshot 2026-07-28 152419.png",
+    "samples/en_balance_sheet/Machias_Balance-sheet-template.pdf",
+    "samples/en_contract/part-time-employment-contract-FILLED-100.docx",
+    "samples/en_pay_slip/Pay-slip-template-sts-FILLED-118.docx",
+]
+_missing = [p for p in _SAMPLE_PATHS if not os.path.exists(p)]
+if _missing:
+    pytest.skip(f"sample fixture(s) missing (not committed): {_missing}", allow_module_level=True)
 
 with open("samples/en_contract/part-time-employment-contract.docx", "rb") as f:
     _DOCX_BYTES = f.read()

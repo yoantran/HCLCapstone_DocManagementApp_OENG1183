@@ -1,13 +1,24 @@
+import os
 import sys
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, ".")
 
 import module2_ocr_extraction
 import module2_text_extraction
 from pipeline import process_document
+
+_SAMPLE_PATHS = [
+    "samples/en_contract/part-time-employment-contract.docx",
+    "samples/en_pay_slip/Screenshot 2026-07-28 152419.png",
+    "samples/en_balance_sheet/Machias_Balance-sheet-template.pdf",
+]
+_missing = [p for p in _SAMPLE_PATHS if not os.path.exists(p)]
+if _missing:
+    pytest.skip(f"sample fixture(s) missing (not committed): {_missing}", allow_module_level=True)
 
 with open("samples/en_contract/part-time-employment-contract.docx", "rb") as f:
     _DOCX_BYTES = f.read()
