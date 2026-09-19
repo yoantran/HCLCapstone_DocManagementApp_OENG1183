@@ -36,6 +36,11 @@ jobs:
         run: pip install -r requirements.txt -r requirements-dev.txt
 
 
+      - name: Install LibreOffice (for docx->pdf conversion in tests)
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-writer
+
+
       - name: Run Unit Tests
         working-directory: AI
         shell: bash
