@@ -1,0 +1,4 @@
+# Test-only dependencies, kept separate from requirements.txt (production
+# deps for the deployed service) per that file's own stated scope.
+pytest==9.1.1
+httpx==0.28.1
