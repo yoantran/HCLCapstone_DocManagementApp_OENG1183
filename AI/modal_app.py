@@ -62,7 +62,7 @@ image = (
         # image unable to cold-start at all (ModuleNotFoundError on any
         # container that wasn't already warm/snapshotted from before #270).
         "spacy==3.8.16",
-        "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl#egg=en_core_web_sm==3.8.0",
+        "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     )
     # GPU build, not the CPU paddlepaddle==3.3.1 pinned in requirements.txt
     # -- the wheel bundles its own CUDA runtime, no local CUDA/cuDNN setup
